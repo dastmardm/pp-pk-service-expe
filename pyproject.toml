@@ -1,0 +1,48 @@
+[project]
+name = "oppp"
+version = "0.1.0"
+description = "Decomposed NL -> machine-query translator for PharmaPendium (redesign of utils/ppendium)"
+readme = "docs/README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.6",
+    "typer>=0.12",
+    "rapidfuzz>=3.6",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+# Heavy LLM/orchestration stack. Imported lazily so the deterministic core
+# (taxonomy lookup, aggregation, eval) runs without these installed.
+llm = [
+    "langchain>=0.2",
+    "langchain-openai>=0.1",
+    "langgraph>=0.2",
+    "dspy-ai>=2.4",
+    "openai>=1.0",
+]
+ui = ["streamlit>=1.36"]
+dev = ["ruff>=0.5", "pytest>=8.0"]
+
+[project.scripts]
+oppp = "oppp.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/oppp"]
+
+[tool.ruff]
+line-length = 100
+src = ["src"]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
