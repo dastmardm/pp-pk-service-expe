@@ -22,20 +22,41 @@ app = typer.Typer(no_args_is_help=True, help="Decomposed NL -> machine-query tra
 
 @app.command()
 def run(
-    query: str,
+    query: str = typer.Argument(None, help="The NL question (omit when using --case)."),
     service: str = "safety",
     decomposer: str = "gazetteer",
     normalizer: str = "noop",
+    case: int = typer.Option(
+        None, "--case", help="Load the question from the SME gold set by query_number."
+    ),
     payload_only: bool = typer.Option(False, help="Print only the API payload JSON."),
     execute: bool = typer.Option(False, "--execute", "-e", help="POST the query and print countTotal."),
 ):
-    """Run the full pipeline on QUERY, showing every intermediate stage."""
+    """Run the full pipeline on QUERY (or a gold --case), showing every stage.
+
+    With --case, also prints the SME gold filters next to the agent's filters.
+    """
+    gold_row = None
+    if case is not None:
+        from oppp.eval.compare import find_gold_case
+
+        gold_row = find_gold_case(case)
+        if gold_row is None:
+            typer.echo(f"no gold case with query_number={case}", err=True)
+            raise typer.Exit(2)
+        query = gold_row.get("question", "").strip()
+    if not query:
+        typer.echo("provide a QUERY or --case N", err=True)
+        raise typer.Exit(2)
+
     result = run_pipeline(query, service, decomposer=decomposer, normalizer=normalizer)
     if payload_only:
         typer.echo(json.dumps(result.machine_query.to_payload(), indent=2, ensure_ascii=False))
         raise typer.Exit(0 if result.ok else 1)
 
     typer.echo("# Input")
+    if case is not None:
+        typer.echo(f"  case      : {case}  ({gold_row.get('query_type', '').strip()})")
     typer.echo(f"  query     : {query!r}")
     typer.echo(
         f"  config    : service={service} decomposer={decomposer} "
@@ -65,14 +86,29 @@ def run(
     typer.echo(json.dumps(result.machine_query.to_payload(), indent=2, ensure_ascii=False))
     typer.echo(f"\nok={result.ok}  issues={[i.message for i in result.issues]}")
 
+    if gold_row is not None:
+        from oppp.eval.compare import compare_rows
+
+        typer.echo("\n# Gold (SME) vs Agent filters")
+        typer.echo(f"  {'field':18} {'status':8} gold  →  agent")
+        for field, status, gold, agent in compare_rows(result, gold_row, get_service(service)):
+            typer.echo(f"  {field:18} {status:8}")
+            typer.echo(f"      gold : {gold or '—'}")
+            typer.echo(f"      agent: {agent or '—'}")
+        if gold_row.get("mapping_comment", "").strip():
+            typer.echo(f"\n  SME note: {gold_row['mapping_comment'].strip()}")
+
     if execute and result.ok:
         from oppp.execute import execute_count
 
         ex = execute_count(result.machine_query, get_service(service))
+        typer.echo("\n# Execution")
         if ex.ok:
-            typer.echo(f"\n# Execution\n  countTotal = {ex.count_total}")
+            typer.echo(f"  countTotal = {ex.count_total}")
+            if gold_row is not None and gold_row.get("s", "").strip():
+                typer.echo(f"  expected   = {gold_row['s'].strip()}  (SME gold)")
         else:
-            typer.echo(f"\n# Execution\n  failed: {ex.error}")
+            typer.echo(f"  failed: {ex.error}")
     raise typer.Exit(0 if result.ok else 1)
 
 
