@@ -132,6 +132,27 @@ class TaxonomyIndex:
     def is_class(self, name: str) -> bool:
         return name.strip().lower() in self._children
 
+    def expand_family(self, term: str) -> list[GroundingHit]:
+        """MedDRA-style rollup: a leaf term -> all members of its parent group.
+
+        E.g. 'Neutropenia' (parent 'Neutropenias') -> Agranulocytosis, Febrile
+        neutropenia, Granulocytopenia, … (the parent's children, incl. the term).
+        Falls back to children if the term is itself a class, else just the term.
+        """
+        e = self.get_exact(term)
+        if e is None:
+            return []
+        if e.parent_name and e.parent_name.lower() in self._children:
+            members = self.expand_children(e.parent_name)
+        elif self.is_class(e.name):
+            members = self.expand_children(e.name)
+        else:
+            return [self._hit(e, score=100.0, match="exact")]
+        # Roll up to leaf terms only: intermediate category nodes (themselves
+        # parents) are not searchable PT values and make the API reject the query.
+        leaves = [h for h in members if not self.is_class(h.name)]
+        return leaves or members
+
     # ----- gazetteer (offline NER) ------------------------------------------
     def contains(self, phrase: str) -> TaxonomyEntry | None:
         """Exact phrase membership for gazetteer matching (incl. naive plural)."""

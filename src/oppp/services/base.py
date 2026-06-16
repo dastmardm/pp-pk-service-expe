@@ -24,6 +24,7 @@ class FieldSpec:
     enum_values: list[str] = field(default_factory=list)
     facetable: bool = False
     display_column: str | None = None  # response column for displayColumns
+    rollup_to_siblings: bool = False  # MedDRA-style: leaf -> parent's children
 
     @property
     def emit_field(self) -> str:

@@ -65,6 +65,29 @@ def test_fuzzy_gazetteer_no_false_positives():
            {"toxicityParameter", "drugs", "species"} <= fields
 
 
+def test_meddra_rollup_expands_effect_to_family():
+    # 'neutropenia' must roll up to its MedDRA family (parent 'Neutropenias').
+    r = run_pipeline("drugs causing neutropenia in human", normalizer="fuzzy")
+    eff = [s for s in r.subqueries if s.field == "effects"]
+    assert eff and isinstance(eff[0].value, list)
+    assert {"Neutropenia", "Agranulocytosis", "Febrile neutropenia"} <= set(eff[0].value)
+    assert eff[0].grounding and eff[0].grounding.expanded_from == "family"
+
+
+def test_budget_guard_collapses_oversized_rollup():
+    # neutropenia + cytopenia families = 26 values > 20-constraint API limit;
+    # the guard must collapse one back to its canonical term and stay valid.
+    from oppp.stages.aggregate import MAX_CONSTRAINTS
+
+    r = run_pipeline(
+        "drugs causing neutropenia and cytopenia in human", normalizer="fuzzy"
+    )
+    total = sum(s.value_count() for s in r.subqueries)
+    assert total <= MAX_CONSTRAINTS
+    assert r.ok  # still a valid query, no error
+    assert any(i.level == "warning" and "budget" in i.message for i in r.issues)
+
+
 def test_year_range():
     r = run_pipeline("adverse events for tolvaptan in human after 2020", normalizer="fuzzy")
     flat = str(r.machine_query.to_payload())

@@ -83,9 +83,20 @@ def _translate_closed(component, spec, service, normalizer) -> MachineSubquery:
     term = norm.normalized
 
     expanded_from = None
+    canonical = term
     if index.is_class(term):
         hits = index.expand_children(term)
         expanded_from = "class"
+    elif spec.rollup_to_siblings:
+        # Resolve to the canonical label, then roll up to its MedDRA family.
+        base = index.lookup(term, match="fuzzy", limit=1)
+        canonical = base[0].name if base else term
+        family = index.expand_family(canonical)
+        if family:
+            hits = family
+            expanded_from = "family"
+        else:
+            hits = base
     else:
         hits = index.lookup(term, match="fuzzy", limit=5)
 
@@ -108,10 +119,13 @@ def _translate_closed(component, spec, service, normalizer) -> MachineSubquery:
 
     value = values if len(values) != 1 else values[0]
     note = norm.note if norm.changed else None
+    # For a MedDRA family rollup, remember the canonical term so Stage 3 can
+    # collapse back to it if the expanded query would exceed the API budget.
+    collapse_to = canonical if expanded_from == "family" else None
     return MachineSubquery(
         field=spec.emit_field, operator=Operator.MATCH, value=value,
         boolean_group=component.boolean_group, entity_name=spec.entity_name,
-        grounding=grounding, notes=note,
+        collapse_to=collapse_to, grounding=grounding, notes=note,
     )
 
 

@@ -21,6 +21,8 @@ from oppp.models import (
 from oppp.services.base import ServiceConfig
 
 _VALID_TOP = {o.value for o in Operator}
+# PharmaPendium rejects queries above this many constraints (one per MATCH value).
+MAX_CONSTRAINTS = 20
 
 
 def aggregate(
@@ -28,6 +30,9 @@ def aggregate(
     subqueries: list[MachineSubquery],
     service: ServiceConfig,
 ) -> tuple[MachineQuery, list[ValidationIssue]]:
+    issues: list[ValidationIssue] = []
+    _apply_budget(subqueries, issues)
+
     top: list[MachineSubquery] = [s for s in subqueries if not s.entity_name]
     entity: list[MachineSubquery] = [s for s in subqueries if s.entity_name]
 
@@ -44,8 +49,43 @@ def aggregate(
     if service.invariants is not None:
         mq = service.invariants(mq, decomp)
 
-    issues = validate(mq, service)
+    issues.extend(validate(mq, service))
     return mq, issues
+
+
+def _apply_budget(subqueries: list[MachineSubquery], issues: list[ValidationIssue]) -> None:
+    """Keep the query within the API constraint budget.
+
+    Each MATCH value counts as one constraint. A MedDRA rollup can push a query
+    over the limit (e.g. neutropenia+cytopenia families = 26 values), which the
+    API rejects. Collapse rolled-up families (largest first) back to their
+    canonical term until under budget, recording a warning so the loss of breadth
+    is visible rather than silent.
+    """
+    total = sum(s.value_count() for s in subqueries)
+    if total <= MAX_CONSTRAINTS:
+        return
+    collapsible = sorted(
+        (s for s in subqueries if s.collapse_to and s.value_count() > 1),
+        key=lambda s: s.value_count(),
+        reverse=True,
+    )
+    for sq in collapsible:
+        if total <= MAX_CONSTRAINTS:
+            break
+        freed = sq.value_count() - 1
+        issues.append(ValidationIssue(
+            level="warning",
+            message=(
+                f"budget: collapsed {sq.field} rollup ({sq.value_count()} terms) "
+                f"to '{sq.collapse_to}' to fit the {MAX_CONSTRAINTS}-constraint API limit"
+            ),
+        ))
+        sq.value = sq.collapse_to
+        if sq.grounding:
+            sq.grounding.expanded_from = None
+        sq.collapse_to = None
+        total -= freed
 
 
 def _build_tree(subqueries: list[MachineSubquery]) -> dict[str, Any]:

@@ -17,6 +17,7 @@ SAFETY_FIELDS: dict[str, FieldSpec] = {
     ),
     "effects": FieldSpec(
         "effects", "closed", taxonomy="effects", facetable=True, display_column="effect",
+        rollup_to_siblings=True,  # MedDRA rollup: neutropenia -> its PT family
     ),
     "species": FieldSpec(
         "species", "closed", taxonomy="species", facetable=True, display_column="specie",
