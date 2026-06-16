@@ -1,0 +1,286 @@
+name,id,parent_id,parent_name
+Acestrorhynchus falcatus,Jh5x6Bpg2WH,OnKoNIEmA_A,Fish
+Acroporid coral,EtIYccCloaG,nPFewJJuq94,Acropora
+African clawed frog,PlMY2xxgzb8,Guwc1AoaDmB,Amphibian
+African green monkey,dcylsezyXgH,6ZTeHxj99GC,Primate
+American bullfrog,Sqj_QfBIpiG,Guwc1AoaDmB,Amphibian
+American lobster,RBnuuBM9Up-,9FPHv4Y6A-5,Crustacea
+Amphipod,kjEUIXf9tm4,9FPHv4Y6A-5,Crustacea
+Animal (unspecified),o5-1ypbeAX4,lW5Jwm6kkwD,Animal unspecified
+Anopheles stephensi,jCupSXeWAy_,qupKpAgusY_,Insect
+Apple snail,qAlrGKEJ0BH,qarYH6EZ2m7,Mollusc
+Arapaima gigas,o7xKI_yCYG8,OnKoNIEmA_A,Fish
+Asian swamp eel,b6dfILx1Tz8,OnKoNIEmA_A,Fish
+Aspergillus nidulans,bcvQnlfinN4,51aOiL5rFaF,Fungus
+Astyanax,wNL9x24rgL7,OnKoNIEmA_A,Fish
+Austronassaria simplex,Pco6eTG4nFH,qarYH6EZ2m7,Mollusc
+Baboon,shbrCsADsq5,6ZTeHxj99GC,Primate
+Bacillus subtilis,qRe4jhdBQp-,FiGLV1kduQ-,Bacterium
+Bacteria (unspecified),PwCEOWLw0I6,FiGLV1kduQ-,Bacterium
+Barbel,ruNoTB-DKgF,OnKoNIEmA_A,Fish
+Bat,VryKUMZqZKA,nM8wlRYJNR_,Chiroptera
+Beagle dog,qDwp-yRbyKA,F0rND6pfE3C,Carnivora
+Bed bug,4Ho8WBA6f9G,qupKpAgusY_,Insect
+Bee,r8VPND1Ik5H,qupKpAgusY_,Insect
+Bee (T. fiebrigi),Zo5vWEaDJi5,qupKpAgusY_,Insect
+Beet armyworm,veYWkdtMdw-,qupKpAgusY_,Insect
+Beetle,4QjzI_1LiIC,qupKpAgusY_,Insect
+Bergall,UhkGG0Nk614,OnKoNIEmA_A,Fish
+Biomphalaria glabrata,cTahYVg_0V-,qarYH6EZ2m7,Mollusc
+Bird (unspecified),dgtDnUYcsJF,3YKkIwNRoLH,Bird
+Blackworm,aIfMjjTXnH8,rCMthrGpwxF,Worm
+Blue bottle fly,Oz-BtRb0CT8,qupKpAgusY_,Insect
+Bluegill,xhq7sa6WVf4,OnKoNIEmA_A,Fish
+Brown mussel,q-dLyQG_0bC,qarYH6EZ2m7,Mollusc
+Burmese loach,3A9lAxo42MG,OnKoNIEmA_A,Fish
+Butcherbird,uokr2k2NiXA,3YKkIwNRoLH,Bird
+Butterfly,byxdKb_iq64,rRWDmeblioC,Lepidoptera
+Caddisfly,iW83vhzEdAG,qupKpAgusY_,Insect
+Caenorhabditis elegans,z2EENy5iZt-,xw_q23Juu46,Rhabditidae
+Calanoid copepod,XeKyk59By6A,9FPHv4Y6A-5,Crustacea
+Calanoida,MraTwjETE-G,9FPHv4Y6A-5,Crustacea
+Camel,2DIfCzlfFJ6,jfmJnXjgxAE,Camelidae
+Candida albicans,jc9oGUgApo-,51aOiL5rFaF,Fungus
+Capuchin monkey,9-EGry_j79-,6ZTeHxj99GC,Primate
+Carp,xkdTvD3IXiE,OnKoNIEmA_A,Fish
+Cat,YHYYiEx1Yz4,F0rND6pfE3C,Carnivora
+Catfish,Z7j5yrLFVQB,OnKoNIEmA_A,Fish
+Catshark,k-MGdNJTw2D,OnKoNIEmA_A,Fish
+Cattle (unspecified),N4kGP8kFzJ7,llMQcjN35M7,Ungulate
+Ceriodaphnia,fqGQ4lgIA75,9FPHv4Y6A-5,Crustacea
+Chicken,H9z4LgkcEXA,1IhqLnCEqW9,Galliformes
+Chimpanzee,nvzR7MY8f8_,6ZTeHxj99GC,Primate
+Chinchilla,OVDa_zsN-N-,8tURyy1wDb8,Rodent
+Chordodes nobilii,UlD5mieUQE9,UbePxGH4yE9,Chordodidae
+Chub,nJo4onSJ6H5,OnKoNIEmA_A,Fish
+Cichlid fish,xJkpx7Q8siA,OnKoNIEmA_A,Fish
+Clam,u_HJcGI5AhH,qarYH6EZ2m7,Mollusc
+Clam worm,gL0li4Z9P25,FjaKxkr6hfG,Polychaetes
+Clawed frog,jYAiJ5sK5p_,Guwc1AoaDmB,Amphibian
+Clownfish,A3Z6Xn14jTA,OnKoNIEmA_A,Fish
+Cockroach,4QIFqaKtaUH,qupKpAgusY_,Insect
+Cod,DKd7k-xrLHG,OnKoNIEmA_A,Fish
+Common house mosquito,JHNakzWhfe6,qupKpAgusY_,Insect
+Copepod,-AuCUZ8-7BA,9FPHv4Y6A-5,Crustacea
+Copepod Moraria sp.,odEsrUDRF__,9FPHv4Y6A-5,Crustacea
+Cow,dy8I1_y9Fr7,llMQcjN35M7,Ungulate
+Coyote,f-sszn0hCP5,F0rND6pfE3C,Carnivora
+Crab,0KBk_6QQEDC,9FPHv4Y6A-5,Crustacea
+Crayfish,DwrI6lPdqxB,9FPHv4Y6A-5,Crustacea
+Croaker fish,WyqnsUUYkm4,OnKoNIEmA_A,Fish
+Crocodile,lxSzPCcJAQ9,eqSltmrAfG4,Crocodylidae
+Cynomolgus monkey,4ZWACDgz5k_,6ZTeHxj99GC,Primate
+Cyprinid fish,rNDWqLGGQiD,OnKoNIEmA_A,Fish
+Daphnia,LCdJSbxT8R5,9FPHv4Y6A-5,Crustacea
+Dark-spotted frog,_zLOTiJ3p_B,Guwc1AoaDmB,Amphibian
+Deer,wyAUfg-2va7,llMQcjN35M7,Ungulate
+Deer mouse,CH1VMzY9mI-,8tURyy1wDb8,Rodent
+Diopatra,0LdXHdN9IY-,F1As7poOM4C,Onuphidae
+Dog,-ePAzz-LHcF,F0rND6pfE3C,Carnivora
+Donkey,iIqXD4H2YcF,llMQcjN35M7,Ungulate
+Dreissena polymorpha,k7w6iE8v4w6,qarYH6EZ2m7,Mollusc
+Drosophila melanogaster,AFvRasT8Ib_,qupKpAgusY_,Insect
+Drosophila melanogaster larvae,zZlXHDXH3q9,qupKpAgusY_,Insect
+Duck,-3CJEqiTGYB,-l6seFRFhM5,Ducks and geese
+Earthworm,lClmWbvLrED,fICMz91ITN-,Clitellata
+Earwig,EglHJDmu7LA,qupKpAgusY_,Insect
+Eel,Xc3uwj66COD,OnKoNIEmA_A,Fish
+Eelpout,VXk6U3Dyxi6,OnKoNIEmA_A,Fish
+Enchytraeus crypticus,RYiRB83eCoE,DbX_Ni2P6o6,Enchytraeus
+Escherichia coli,75WZQcxUxg6,FiGLV1kduQ-,Bacterium
+Euglena gracilis,B8sqjLA66k4,f8f7D07AOxF,Protozoan
+European bass,7JqkexwQqyG,OnKoNIEmA_A,Fish
+Fatmucket,1wuEIKXtvc7,qarYH6EZ2m7,Mollusc
+Ferret,Hh_VmTcDOK4,8tURyy1wDb8,Rodent
+Flatfish,GqVwb78MOWE,OnKoNIEmA_A,Fish
+Flatworm,-rRo_J2snf6,L7J0MWAm885,Flatworms
+Flounder,Ew8kXbwBxjC,OnKoNIEmA_A,Fish
+Fly,aMafyY-7DdC,qupKpAgusY_,Insect
+Forest mosquito,7x-LyDhIbZ-,qupKpAgusY_,Insect
+Fox,RhJnwpO8liF,F0rND6pfE3C,Carnivora
+Freshwater snail,xchPrRGlFMA,qarYH6EZ2m7,Mollusc
+Frog,b59z-wSZRd6,Guwc1AoaDmB,Amphibian
+Gammarus locusta,Yp1io4Cp6jB,9FPHv4Y6A-5,Crustacea
+Gerbil,kpiuTw6Mo-E,8tURyy1wDb8,Rodent
+Goat,j60svrm69bA,llMQcjN35M7,Ungulate
+Goby,U9NSiGW0ciE,OnKoNIEmA_A,Fish
+Goldfish,ttWWJylB7y-,OnKoNIEmA_A,Fish
+Goose,07na2gi9sCB,-l6seFRFhM5,Ducks and geese
+Gourami,Dj_bExcbEf-,OnKoNIEmA_A,Fish
+Grass carp,7Y0xWtPeVcD,OnKoNIEmA_A,Fish
+Grass rat,k0xv6zCS308,8tURyy1wDb8,Rodent
+Grasshopper,jlpsL2cR7BF,qupKpAgusY_,Insect
+Great pond snail,SNc0UZhbi9-,qarYH6EZ2m7,Mollusc
+Greater wax moth,Apg9pfmyYO7,rRWDmeblioC,Lepidoptera
+Gudgeon,-VZ_jg3djl5,OnKoNIEmA_A,Fish
+Guinea pig,4pY5-x1amFB,8tURyy1wDb8,Rodent
+Guppy,W2EPCQgnWL-,OnKoNIEmA_A,Fish
+Haddock,p7Uwz2jrOfC,OnKoNIEmA_A,Fish
+Haemophilus influenzae,a5DM8QWLv45,FiGLV1kduQ-,Bacterium
+Hake,oEee9GKTpU8,OnKoNIEmA_A,Fish
+Hamster,dVJUUImIW67,8tURyy1wDb8,Rodent
+Harlequin fly,_U6XjN18bGG,qupKpAgusY_,Insect
+Harpacticoid copepod,dL0qKOIyAw9,9FPHv4Y6A-5,Crustacea
+Hedgehog,q-esV037zn-,IGbyUMu_eTC,Erinaceinae
+Horse,r_G1LjaHsK-,llMQcjN35M7,Ungulate
+Human,IBHRmo__7T4,,
+Hydra,2nDJln4TA67,XTXFrjVTbB_,Anthomedusae
+Inland silverside,fglcEzY8z_D,OnKoNIEmA_A,Fish
+Isidorella newcombi,J72ejlTr4z7,qarYH6EZ2m7,Mollusc
+Jewelfish,m8-CQyzGaiG,OnKoNIEmA_A,Fish
+Kangaroo,ZYB46KEXML_,yyTbPr41qs7,Marsupial
+Killifish,OB9Cf3dSxjC,OnKoNIEmA_A,Fish
+Kingfish,kDnhnDkAsr-,OnKoNIEmA_A,Fish
+Klebsiella pneumoniae,pXL71pRQSXD,FiGLV1kduQ-,Bacterium
+Koi fish,oBLVOtYd8lF,OnKoNIEmA_A,Fish
+Korean rockfish,E6INZKZ_a99,OnKoNIEmA_A,Fish
+Lambaris,6OGABoeE60C,OnKoNIEmA_A,Fish
+Lamprey,5f_Q73DnqbC,OnKoNIEmA_A,Fish
+Largemouth bass,ezvdHF4RHAA,OnKoNIEmA_A,Fish
+Llama,V-ntVb5IIcH,jfmJnXjgxAE,Camelidae
+Lynx,DdZdZUo_iP9,F0rND6pfE3C,Carnivora
+Macaque (unspecified),AtyVBcsvAj7,6ZTeHxj99GC,Primate
+Mammal (unspecified),uU8d_2EVfJD,OKq_G4jBGL7,Mammal unspecified
+Mandarin fish,Dy22ddF-J6D,OnKoNIEmA_A,Fish
+Marine copepod,K9I4lXElky6,9FPHv4Y6A-5,Crustacea
+Marmoset,j997XwfzInB,6ZTeHxj99GC,Primate
+Mayfly,VvQSdHLsTcA,qupKpAgusY_,Insect
+Mayfly Jappa,LrEeMpW3z1E,qupKpAgusY_,Insect
+Mealworm beetle,Y3oNB41yOu8,qupKpAgusY_,Insect
+Medaka,g7QaBjsuuKA,OnKoNIEmA_A,Fish
+Mediterranean mussel,LsKNk32xhY9,qarYH6EZ2m7,Mollusc
+Mexican tetra,E9fqSUzw8kG,OnKoNIEmA_A,Fish
+Microminipig,re9zFvV20eG,llMQcjN35M7,Ungulate
+Midge,npV9IF9kLo9,qupKpAgusY_,Insect
+Milkfish,oXXZdXqlcI-,OnKoNIEmA_A,Fish
+Minipig,RYJIIE7o3Q_,llMQcjN35M7,Ungulate
+Mink,lDB96TfEsW9,F0rND6pfE3C,Carnivora
+Minnow,5bCTZifSS2G,OnKoNIEmA_A,Fish
+Miyako toad,zL3DTyE2ETD,Guwc1AoaDmB,Amphibian
+Monkey (unspecified),u60IuezCq_A,6ZTeHxj99GC,Primate
+Mosquito,UjPeNtjZWTG,qupKpAgusY_,Insect
+Mosquitofish,cPYrGuIPWQH,OnKoNIEmA_A,Fish
+Mouse,6FC3IhPWWZ9,8tURyy1wDb8,Rodent
+Mussel,0c_vL-dt-9F,qarYH6EZ2m7,Mollusc
+Mysidacea,6vyjszn0jr7,9FPHv4Y6A-5,Crustacea
+Nassarius burchardi,QZHxMf5Y71E,qarYH6EZ2m7,Mollusc
+Neanthes arenaceodentata,YUoXmWpJfgH,G0CLAICk8W5,Nereididae
+Nematode,51SJ8CGws4A,rCMthrGpwxF,Worm
+Neurospora crassa,faMTOtB10WH,51aOiL5rFaF,Fungus
+Newt,rPw3IgKNG49,Guwc1AoaDmB,Amphibian
+Non-mammalian (unspecified),N_2juQtds7A,_myt2l_zHIG,Non-mammalian
+Northern dusky salamander,7qTFhqarO7G,Guwc1AoaDmB,Amphibian
+Northern leopard frog,64ragyv3Xk8,Guwc1AoaDmB,Amphibian
+Northern two-lined salamander,65QtlJdpPR8,Guwc1AoaDmB,Amphibian
+Not-rodent (unspecified),GOdGKS1_Rx_,lW5Jwm6kkwD,Animal unspecified
+Onyx slippersnail,_hUQAQCWF3D,qarYH6EZ2m7,Mollusc
+Opossum,1gAtetLiFKA,yyTbPr41qs7,Marsupial
+Oreochromis niloticus,h_jWPu-bt09,OnKoNIEmA_A,Fish
+Oryzias,iG5AyBn3Oc8,OnKoNIEmA_A,Fish
+Other bacteria,Zex51q_PoQE,FiGLV1kduQ-,Bacterium
+Other crustacea,P_neepk9mKC,9FPHv4Y6A-5,Crustacea
+Other fish,da2SgNil5lF,OnKoNIEmA_A,Fish
+Other insect,LKAAigPtyG-,qupKpAgusY_,Insect
+Other molluscs,D27A12XNYsF,qarYH6EZ2m7,Mollusc
+Other protozoa,E8RjQbZUl94,f8f7D07AOxF,Protozoan
+Other virus,n5QgheHZ9sB,9Mi-tQ0DLR5,Virus
+Other yeast,coVSri1ghHG,51aOiL5rFaF,Fungus
+Owl,2kMZiECM4a5,3YKkIwNRoLH,Bird
+Oyster,r7tQDu7e3h_,qarYH6EZ2m7,Mollusc
+Parhyale hawaiensis,ghBjZzRhP2C,9FPHv4Y6A-5,Crustacea
+Parrot,aEuvk72JtK5,3YKkIwNRoLH,Bird
+Parrotfish,jFwhK7zMplG,OnKoNIEmA_A,Fish
+Patas monkey,_FtWvUdzwSH,6ZTeHxj99GC,Primate
+Penguin,OsgU8z-sv57,3YKkIwNRoLH,Bird
+Pig,apPy9Nt_dfE,llMQcjN35M7,Ungulate
+Pig-tailed macaque,e00TBbpnRjG,6ZTeHxj99GC,Primate
+Pig-tailed monkey,cnESqqv1Mq5,6ZTeHxj99GC,Primate
+Pigeon,enlk07ffSMH,Bz9oyPu6liH,Pigeons and doves
+Planaria,kzQ2sDIibpC,dIWpar6F836,Tricladida
+Pompano,LIBgJo02Ti7,OnKoNIEmA_A,Fish
+Possum,QtDtNXbMXz9,yyTbPr41qs7,Marsupial
+Prairie dog,_0MIEBPaJ0_,8tURyy1wDb8,Rodent
+Prawn,wGgu7dQjpD6,9FPHv4Y6A-5,Crustacea
+Primate (unspecified),dY723SXlUSA,6ZTeHxj99GC,Primate
+Quail,yg3X3fMaO78,1IhqLnCEqW9,Galliformes
+Rabbit,679FW2TuxSF,Z2R4RJUru15,Lagomorph
+Ragworm,DD6mE8oLUy5,LnhF4S-fFpB,Nereidae
+Rainbow trout,xHOCIIWIaDC,OnKoNIEmA_A,Fish
+Rainbowfish,Z--vBwTrR66,OnKoNIEmA_A,Fish
+Rat,aU5K56VELiD,8tURyy1wDb8,Rodent
+Rat kangaroo,0IZY3ZSB5J7,yyTbPr41qs7,Marsupial
+Ray-finned fish,e5vrFN-Whu7,OnKoNIEmA_A,Fish
+Red-clawed crab,w0FJPKZEYN9,9FPHv4Y6A-5,Crustacea
+Rhesus monkey,Ip-mj6LPD24,6ZTeHxj99GC,Primate
+Rice rat,36mY5CVb9_9,8tURyy1wDb8,Rodent
+Rice fish,Kh3KjDJ1LRB,OnKoNIEmA_A,Fish
+River trout,HMkRh4JN217,OnKoNIEmA_A,Fish
+Roach,U5Z6HLrGuLH,OnKoNIEmA_A,Fish
+Rodent (unspecified),XiKNgiyin38,8tURyy1wDb8,Rodent
+Rohu,_bpfPLNhAE-,OnKoNIEmA_A,Fish
+Rotifer,C-xTobtjaJA,gtKFVHhk_UG,Platyzoa
+Rotifera,rl3gWslqj1E,yUuZkm5CuwE,Helminth
+Roughskin sculpin,P5asJ1t9tf4,OnKoNIEmA_A,Fish
+Roundworm,pURvhsBaq0-,rCMthrGpwxF,Worm
+Saccharomyces cerevisiae,hcVIGCssmKG,51aOiL5rFaF,Fungus
+Salamander,FKJ3YU824r4,Guwc1AoaDmB,Amphibian
+Salmon,jl8WT-wMmc8,OnKoNIEmA_A,Fish
+Salmonella enterica,DCDpR3QClxG,FiGLV1kduQ-,Bacterium
+Salmonella typhimurium,x6yC-nXBiDG,FiGLV1kduQ-,Bacterium
+Sand dollar,e_xTxdz8ku6,TCsjIV2zOe_,Mellitidae
+Sea cucumber,0xaYrx3v28D,yhq8-kv8WO5,Echinoderm
+Sea lion,bKcoqV2_Cs4,vC-9yfp-ln7,Pinnipedia
+Sea urchin,TCe6K6ye3c8,yhq8-kv8WO5,Echinoderm
+Seabass,Z_dJQG1RWu9,OnKoNIEmA_A,Fish
+Seabream,n4CnICf4Ok-,OnKoNIEmA_A,Fish
+Seahorse,jvFH2PxtV5D,OnKoNIEmA_A,Fish
+Sheep,Na20tx1vU16,llMQcjN35M7,Ungulate
+Shrew,JVh2h3oWMEH,dTLBFT0olzA,Soricidae
+Shrimp,TMPIQGNx2G9,9FPHv4Y6A-5,Crustacea
+Siamese fighting fish,GS2zRKq0niE,OnKoNIEmA_A,Fish
+Silkworm,-f2sBau6EhA,NhTJWYxD7g9,Bombycidae
+Silver barb,tWQ26yt0-nA,OnKoNIEmA_A,Fish
+Snail,kz0z6Fm2bS5,qarYH6EZ2m7,Mollusc
+Snakehead fish,t1CETsH-n1B,OnKoNIEmA_A,Fish
+Sooty mangabey,Lb2OaABisN6,6ZTeHxj99GC,Primate
+Spider,RpeqNLnOCCA,lHdnbEcSSp-,Arachnida
+Spotted wing drosophila,-gmBCK3FzO7,qupKpAgusY_,Insect
+Springtail,AHqCXsZf5I-,ERv3Okz3LH-,Hexapoda
+Squirrel monkey,RV7JA_BoLLE,6ZTeHxj99GC,Primate
+Starling,IPcquo-S2SF,3YKkIwNRoLH,Bird
+Stickleback,bZEgLQFYsVC,OnKoNIEmA_A,Fish
+Stumptail monkey,tK9j6DWlOg5,6ZTeHxj99GC,Primate
+Summer fruit tortrix,ZNAK9lrcg08,rRWDmeblioC,Lepidoptera
+Sunfish,PHEEGEXU716,OnKoNIEmA_A,Fish
+Swollen river mussel,0PcQDWgGRe6,qarYH6EZ2m7,Mollusc
+Swordtail,4C6SP0rBmYF,OnKoNIEmA_A,Fish
+Tambaqui,b8tdKqe0ZqB,OnKoNIEmA_A,Fish
+Tasmanian devil,prQ77ABdnH8,yyTbPr41qs7,Marsupial
+Tick,JZN3RIMqh09,lHdnbEcSSp-,Arachnida
+Tiger mosquito,zM4Vfej8VaD,qupKpAgusY_,Insect
+Tilapia,p2pVIWD6GtF,OnKoNIEmA_A,Fish
+Toad,hdrTwATDGGD,Guwc1AoaDmB,Amphibian
+Toothed top shell,BeVWR8rdAaD,qarYH6EZ2m7,Mollusc
+Triggerfish,bmAHDDvL5XH,OnKoNIEmA_A,Fish
+Tunicate,Mb2gDaxtGy_,6_PeAw7M-uE,Ascidiidae
+Turbellaria,stPYOT_TFi9,SGEyOP-zkv8,Platyhelminth
+Turkey,qKkPCstA5tB,1IhqLnCEqW9,Galliformes
+Turtle,HWav0EgSc3F,q_TUw_d3KR7,Testudinata
+Unio tumidus,_wQnvpUmbEH,qarYH6EZ2m7,Mollusc
+Velvet monkey,CcY7oZjUh7C,6ZTeHxj99GC,Primate
+Vole,j0ajLHnIFsF,8tURyy1wDb8,Rodent
+Vulture,upoSwoKZNG5,wm-_dEwUYN4,Accipitriformes
+Wasp,cef3IAbtLdG,qupKpAgusY_,Insect
+Water flea,vc3zXxWPLGF,9FPHv4Y6A-5,Crustacea
+Weevil,BYkc4TMYQ1B,qupKpAgusY_,Insect
+White worm,VF2g91w_iUA,EUeuwl5NKfH,Enchytraeidae
+Whitefish,MUdtIZKP3MB,OnKoNIEmA_A,Fish
+Wild bird,rEwY_qiQlZ9,3YKkIwNRoLH,Bird
+Wildebeest,W-ZVbRbUvS6,llMQcjN35M7,Ungulate
+Wolf fish,RIrNgNgfQJA,OnKoNIEmA_A,Fish
+Woodchuck,UFclk379NG-,8tURyy1wDb8,Rodent
+Xenostrobus securis,BxonTUBCiJ_,qarYH6EZ2m7,Mollusc
+Yellowhead catfish,3vpHxdcVLdG,OnKoNIEmA_A,Fish
+Yellowstripe goby,Jmx8Nl1kWP-,OnKoNIEmA_A,Fish
+Zebra mussel,6sYKimQr8x_,qarYH6EZ2m7,Mollusc
+Zebrafish,JfA7NfkkbpE,OnKoNIEmA_A,Fish

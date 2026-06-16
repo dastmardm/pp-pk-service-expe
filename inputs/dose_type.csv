@@ -1,0 +1,8 @@
+name,id,count
+overdose,6,1891
+repeated,1,2707879
+single,2,286190
+single/repeated,3,40403
+single/twice,5,21787
+twice,4,36768
+twice/repeated,7,1596

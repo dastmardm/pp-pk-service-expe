@@ -1,0 +1,33 @@
+name,id,parent_id,parent_name
+HNSTD,wPK_g2QsAhF,2XHDAH5b_dG,Adverse drug reaction
+LC10,M5jtLMI18y9,vLTRio__7T4,Death
+LC100,GE48a4OT4JF,vLTRio__7T4,Death
+LC20,LAPQpgB28y9,vLTRio__7T4,Death
+LC25,QiZtyDG28y9,vLTRio__7T4,Death
+LC50,IVQ4Bet48y9,vLTRio__7T4,Death
+LD*,-u_C6sl-AOA,vLTRio__7T4,Death
+LD05,TMfw8jus9y9,vLTRio__7T4,Death
+LD10,Nx_1QVjt9y9,vLTRio__7T4,Death
+LD100,FNUQe081vKF,vLTRio__7T4,Death
+LD20,M4qYupcu9y9,vLTRio__7T4,Death
+LD25,Ra113Mhu9y9,vLTRio__7T4,Death
+LD30,L_V7L-Vv9y9,vLTRio__7T4,Death
+LD50,JNsAHnIx9y9,vLTRio__7T4,Death
+LD60,IUXjk7By9y9,vLTRio__7T4,Death
+LD80,Gitofk0z9y9,vLTRio__7T4,Death
+LD90,FpYL94t09y9,vLTRio__7T4,Death
+LD95,KLjoGcy09y9,vLTRio__7T4,Death
+LDLo,RUaW9gSj-y9,vLTRio__7T4,Death
+LOAEC,vt2jkdm0Lp-,2XHDAH5b_dG,Adverse drug reaction
+LOAEL,4nSg3QcHqw_,2XHDAH5b_dG,Adverse drug reaction
+LOEL,nZCdZXfIyNG,2XHDAH5b_dG,Adverse drug reaction
+Maximum sublethal concentration,xhllAAI6KN7,vLTRio__7T4,Death
+Maximum sublethal dose,77Rj5bO7Db7,vLTRio__7T4,Death
+MTD,wnTW5GzLZK7,2XHDAH5b_dG,Adverse drug reaction
+NOAEC,3i7J7HLpdRF,yrSN2D4KuYC,No adverse event
+NOAEL,u71euGUiLHD,yrSN2D4KuYC,No adverse event
+NOEL,DNrc46wC7BD,yrSN2D4KuYC,No adverse event
+STD10,1iV-qZF0mqG,2XHDAH5b_dG,Adverse drug reaction
+TC50,HZJJadmlO7A,2XHDAH5b_dG,Adverse drug reaction
+TD50,IBdl86Ua-a9,2XHDAH5b_dG,Adverse drug reaction
+TDLo,QIZw-G3zhMD,2XHDAH5b_dG,Adverse drug reaction

@@ -1,0 +1,17 @@
+field,type
+displayColumns,array<string>
+sortColumns,array<SortColumn>
+limitation,Limitation
+drugs,array<string>
+facets,array<string>
+leaf,boolean
+drugsFuzzy,array<string>
+drugsAndSynonyms,array<string>
+sources,array<string>
+effects,array<string>
+species,array<string>
+routes,array<string>
+doseTypes,array<string>
+years,array<integer>
+metaboliteTypes,array<string>
+toxicityParameters,array<string>

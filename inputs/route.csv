@@ -1,0 +1,204 @@
+name,id,count
+airway anesthesia,146,5
+auricular,34,1321
+breast feeding,75,75
+buccal,27,2527
+buccal submucosal,140,6
+cricothyroid,153,4
+dental,68,124
+digital,141,6
+endoscopic injection,132,7
+epicardiac,175,2
+epidural,38,1083
+epidural/intrathecal,176,2
+epidural/intravenous,105,18
+epidural/intravenous/skin,123,9
+ex vivo,133,7
+extra-amniotic,154,4
+extravasation,99,24
+implant,20,7242
+in dorsal hippocampus,186,1
+in egg,74,84
+in nucleus accumbens,187,1
+in subthalamic nucleus,155,4
+in tank,14,10782
+in vitro,29,2171
+inhalation,6,53815
+inhalation/intranasal,106,18
+inhalation/intravenous,109,17
+into brain stem,188,1
+into the brain posterior ventral tegmental area,189,1
+intra salivary gland,103,21
+intraamniotic,76,75
+intraarterial,24,3025
+intraarticular,44,681
+intrabiliary,190,1
+intrabronchial,107,18
+intracameral,59,198
+intracanalicular,64,143
+intracapsular,191,1
+intracardiac,94,35
+intracavernous,60,195
+intracavitary,73,98
+intracelomical,156,4
+intracerebellar,128,8
+intracerebral,48,574
+intracerebroventricular,46,641
+intracervical,89,45
+intracochlear,164,3
+intracoelomic,157,4
+intracolonic,147,5
+intraconjunctival,57,219
+intracorneal,71,102
+intracoronary,78,66
+intracranial,165,3
+intradermal,28,2215
+intradetrusor,55,235
+intradiscal,158,4
+intraductal,102,23
+intraduodenal,56,222
+intradural,166,3
+intraembryonal,97,31
+intraepididymal,148,5
+intrafascicular,177,2
+intraganglional,192,1
+intragastric,19,8072
+intraglandular,110,17
+intrahemocoel,129,8
+intrahepatic,87,49
+intrahippocampal,82,56
+intrahypothalamic,134,7
+intraintestinal,100,24
+intrajejunal,114,12
+intralesional,33,1576
+intralingual,167,3
+intralymphatic,101,24
+intramedullary,178,2
+intramucosal,111,15
+intramural,142,6
+intramuscular,5,138251
+intramuscular/intradermal,159,4
+intramuscular/intralesional,160,4
+intramuscular/intravenous,36,1288
+intramuscular/subcutaneous,37,1087
+intramuscular/subcutaneous/intravenous,61,189
+intramyocardial,161,4
+intranasal,11,21756
+intranasal/implant,83,52
+intranasal/intramuscular,135,7
+intraneural,143,6
+intraneuronal,193,1
+intranidal,136,7
+intraocular,23,3112
+intraoperative,42,685
+intraorbital,115,12
+intraosteal,162,4
+intraovarian,168,3
+intrapancreatic,137,7
+intrapelvic,149,5
+intraperitoneal,8,29139
+intraperitoneal/intraventricular,144,6
+intraperitoneal/oral,112,15
+intrapharyngeal,118,11
+intrapleural,47,607
+intrapleural/intraperitoneal,150,5
+intraportal,43,684
+intraprostatic,121,10
+intrapulmonar,179,2
+intraputaminal,84,52
+intrarenal,138,7
+intrascrotal,169,3
+intraspinal,45,670
+intrastriatal,92,41
+intrastromal,139,7
+intrasuprachoroidal,194,1
+intratendon,180,2
+intratesticular,69,114
+intrathecal,22,6956
+intrathecal/intravenous,96,32
+intrathecal/intraventricular,195,1
+intrathoracic,98,30
+intratracheal,32,1700
+intratracheal/intraperitoneal,196,1
+intratracheal/oral,58,214
+intratumor,51,371
+intraureteric,181,2
+intrauterine,26,2620
+intravagal,197,1
+intravaginal,21,7166
+intravenous,2,740552
+intravenous/intraarterial,54,329
+intravenous/intraosteal,91,42
+intravenous/intraperitoneal,116,12
+intravenous/intratracheal,67,127
+intravenous/intravesical,145,6
+intravenous/perivascular,151,5
+intravenous/subcutaneous,15,10516
+intraventricular,62,169
+intravertebral,182,2
+intravesical,31,1779
+intravitreal,12,14812
+iontophoresis,49,509
+laryngeal,170,3
+local anesthesia,40,948
+local injection,79,66
+multiple,16,9486
+ocular,9,28694
+ocular subtenon,124,9
+oral,1,1410933
+oral/intragastric,70,103
+oral/intramuscular,35,1291
+oral/intrathecal,119,11
+oral/intravenous,18,8219
+oral/rectal,66,131
+oral/sublingual,108,18
+oral/topical,130,8
+oropharyngeal,90,45
+paratumoral,198,1
+paravenous,85,52
+paravertebral,131,8
+parenteral,10,28301
+periarterial,125,9
+periarticular,171,3
+peribladder,172,3
+peribulbar,88,48
+perilymphatic space,199,1
+perineal,120,11
+perineural,72,99
+periocular,122,10
+periprostatic,200,1
+peritonsillar,173,3
+periurethral,201,1
+perivagal,174,3
+perivascular,86,52
+perivascular/intramuscular,202,1
+rectal,30,1947
+rectum submucosal,163,4
+regional anesthesia,65,132
+retrobulbar,95,34
+retroorbital,152,5
+skin,7,50882
+subacromial,183,2
+subcapsular,184,2
+subconjunctival,81,62
+subcutaneous,3,294162
+subcutaneous/implant,80,64
+subcutaneous/oral,41,851
+sublingual,17,9014
+sublingual/implant,52,353
+sublingual/intravenous,126,9
+sublingual/oral,185,2
+submucosal,50,428
+subretinal,53,333
+subtenon,113,13
+topical,13,14308
+transdermal,39,998
+transmucosal,203,1
+transplacental,25,2628
+transplacental/breast feeding,93,39
+transscleral iontophoresis,104,20
+transtympanic,63,162
+unreported,4,236679
+urethral,77,72
+uterine intraluminal,117,12
+whole body exposure,127,9

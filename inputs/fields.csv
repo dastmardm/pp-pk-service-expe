@@ -1,0 +1,66 @@
+field_key,label
+ageYears,Age
+ages,Developmental Stage
+cmpGroup,Comparative Group
+cmpQualitativeResult,Comparative Qualitative Result
+cmpResultSignificance,Comparative Result Significance
+cmpUnit,Comparative Unit
+cmpValue,Comparative Value
+comorbidities,Comorbidities
+concomitants,Concomitants
+diseaseName,Disease Name
+document,Source
+documentType,Document Type
+documentYear,Year
+dose,Dose
+doseComment,Dose Comment
+doseType,Dose Type
+doseUnitNormalized1,Dose Unit (Original)
+doseValueNormalized1,Dose (Original)
+drug,Drug
+duration,Treatment Duration
+effect,Adverse Effect / Toxicity
+effectAnalysisMethod,AE Analysis Method
+followUp,Follow-up
+galenicForm,Galenic Form
+genotype,Genotype
+genotypeAllele1,Genotype Allele 1
+genotypeAllele2,Genotype Allele 2
+hash,Hash
+hed,Dose (HED)
+hedUnit,Dose Unit (HED)
+hedValueUnit,Human Equivalent Dose
+id,ID
+metaboliteNames,Substance Inducing AE
+metaboliteTypes,Substance Inducing AE (Type)
+numberOfCases,Value (number of cases)
+parameterComment,Adverse Effect Comment
+phenotype,Phenotype
+phenotypeCompound,Phenotype Compound
+phenotypeTarget,Phenotype Target
+previousTreatment,Previous Treatment
+qualitativeCausalRelation,Qualitative Causal Relation
+qualitativeResult,Qualitative Result
+raceEthnicity,Race/Ethnicity
+route,Route
+seriousOutcome,Serious Outcome
+severities,Severity
+severityDetails,Severity Details
+sex,Sex
+smiles,Chemical Structure
+specie,Species
+studyGroup,Study Group Details
+studyName,Study Name
+studyNumber,Study Number
+tddValueUnit,Total Daily Dose (standard units)
+tddValueUnitMg,Total Daily Dose (mg)
+tddValueUnitMgKg,Total Daily Dose (mg/kg)
+tddValueUnitMgM2,Total Daily Dose (mg/m2)
+therapeuticDose,Therapeutic Dose
+timeToEffect,Time To AE
+timeToEffectDefinition,Time to AE definition
+totalNumberOfCases,#N (total number of cases)
+toxicityParameter,Toxicity Parameter
+unit,Unit
+value,Value
+weight,Weight
