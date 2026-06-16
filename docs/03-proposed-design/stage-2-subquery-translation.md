@@ -35,7 +35,12 @@ subquery for field F
 
 The value **must** come from the CSV. The generic algorithm:
 
-1. **Lookup.** Resolve `nl_fragment` against the field's CSV
+0. **Normalize (misspellings).** Run the pluggable normalizer for this field
+   over `nl_fragment` first (see
+   [misspelling-strategy.md](misspelling-strategy.md)). For closed-vocab fields
+   this bridges typos to a real taxonomy entry before lookup. Defaults to a
+   no-op until a strategy is chosen.
+1. **Lookup.** Resolve the (normalized) `nl_fragment` against the field's CSV
    ([drugs.csv](../../inputs/drugs.csv), [species.csv](../../inputs/species.csv),
    …) in priority order:
    1. TERMite preferred label, if the subquery came from an annotation;
@@ -69,8 +74,12 @@ Output example (closed):
 
 ## Open fields
 
-The LLM decides, because there is nothing to look up. Guidance carried over from
-the legacy prompts, now scoped to just this field:
+The LLM decides, because there is nothing to look up. The same pluggable
+normalizer step applies first (see
+[misspelling-strategy.md](misspelling-strategy.md)), but for open fields it must
+be conservative — there is no vocabulary to validate a correction against, so we
+risk "fixing" a deliberate term. Guidance carried over from the legacy prompts,
+now scoped to just this field:
 
 - **Free text → `REGEX`, with synonym expansion.** `studyGroup` for "hepatic
   impairment" → `.*(cirrhosis|liver disease|hepatic insufficiency|Child-Pugh

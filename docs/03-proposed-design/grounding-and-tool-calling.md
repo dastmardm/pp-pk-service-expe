@@ -61,7 +61,9 @@ lookup_<field>(
    CSV and use it. Highest precision.
 2. **Exact name match** (case-insensitive) in the CSV.
 3. **Fuzzy / synonym / wildcard** match; rank by closeness and, where present, by
-   the corpus `count` column (more frequent → more likely intended).
+   the corpus `count` column (more frequent → more likely intended). This is also
+   where misspellings are reconciled — the pluggable normalizer feeds candidates
+   here (see [misspelling-strategy.md](misspelling-strategy.md)).
 4. **No match** → return empty; Stage 2 flags the constraint rather than inventing
    a value.
 
