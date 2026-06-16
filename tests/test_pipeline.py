@@ -43,6 +43,28 @@ def test_misspelled_drug_corrected_in_stage2():
     assert sq is not None and sq.value == "Sunitinib*"
 
 
+def test_fuzzy_gazetteer_recovers_misspelled_drug():
+    # Stage 1 must DETECT a misspelled drug (not just correct an already-routed one).
+    r = run_pipeline("ADRs of suntinib in human", normalizer="fuzzy")
+    drugs = [c for c in r.decomposition.filters if c.field == "drugs"]
+    assert drugs and drugs[0].nl_fragment == "Sunitinib"
+    assert drugs[0].source == "gazetteer-fuzzy:drugs"
+
+
+def test_fuzzy_gazetteer_no_false_positives():
+    # 'related' / 'maternal toxicity' must NOT be fuzzy-matched to doseType/effects.
+    r = run_pipeline(
+        "What is the NOAEL for sunitinib in rats related to maternal toxicity",
+        normalizer="fuzzy",
+    )
+    fuzzy = {(c.field, c.nl_fragment) for c in r.decomposition.filters
+             if c.source.startswith("gazetteer-fuzzy")}
+    assert fuzzy == set()  # all four entities are exact matches; no fuzzy noise
+    fields = {c.field for c in r.decomposition.filters}
+    assert {"toxicityParameter", "drugs", "species", "parameterComment"} >= fields or \
+           {"toxicityParameter", "drugs", "species"} <= fields
+
+
 def test_year_range():
     r = run_pipeline("adverse events for tolvaptan in human after 2020", normalizer="fuzzy")
     flat = str(r.machine_query.to_payload())

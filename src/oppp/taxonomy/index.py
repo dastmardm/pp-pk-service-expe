@@ -95,6 +95,22 @@ class TaxonomyIndex:
             hits.append(self._hit(entry, score=float(score), match="fuzzy"))
         return hits
 
+    def best_fuzzy(self, term: str, *, cutoff: float = 80.0) -> GroundingHit | None:
+        """Single best fuzzy match using fuzz.ratio (tuned for misspelling detection).
+
+        fuzz.ratio cleanly separates typos (~82-91) from unrelated words (<=63),
+        unlike WRatio which over-scores substrings. Used by the gazetteer's
+        fuzzy detection pass so misspelled entities aren't dropped in Stage 1.
+        """
+        term = term.strip()
+        if not term:
+            return None
+        m = process.extractOne(term, self._names, scorer=fuzz.ratio, score_cutoff=cutoff)
+        if m is None:
+            return None
+        name, score, _ = m
+        return self._hit(self._by_name[name.lower()], score=float(score), match="fuzzy")
+
     # ----- hierarchy expansion ----------------------------------------------
     def expand_children(self, class_name: str, *, recursive: bool = True) -> list[GroundingHit]:
         """All members under a class node (matched by parent_name)."""
