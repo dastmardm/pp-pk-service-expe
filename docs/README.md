@@ -29,6 +29,7 @@ value space we cannot enumerate.
 | 4 | [04-examples/worked-examples.md](04-examples/worked-examples.md) | End-to-end traces from the SME gold set |
 | 5 | [05-evaluation/gold-set-and-metrics.md](05-evaluation/gold-set-and-metrics.md) | How we measure success |
 | 6 | [06-implementation/tech-stack.md](06-implementation/tech-stack.md) | Tools/packages + pluggability & per-step isolation |
+| 6 | [06-implementation/build-status.md](06-implementation/build-status.md) | What's built (the `oppp` package), how to run it, limitations |
 
 ## One-paragraph summary
 
