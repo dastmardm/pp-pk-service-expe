@@ -8,6 +8,7 @@ fixed values. A pluggable normalizer runs first to absorb misspellings.
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 
 from oppp.models import (
     Component,
@@ -16,6 +17,7 @@ from oppp.models import (
     GroundingHit,
     MachineSubquery,
     Operator,
+    TermSelection,
 )
 from oppp.normalize.base import Normalizer, get_normalizer
 from oppp.services.base import ServiceConfig, get_service
@@ -71,7 +73,94 @@ def translate_component(
 
 
 # ---------------------------------------------------------------------------
+# Optional LLM term selector — refines the taxonomy candidate pool.
+# ---------------------------------------------------------------------------
+@lru_cache(maxsize=1)
+def _get_term_selector():
+    """Lazily build the structured-output LLM used to pick final vocabulary terms.
+
+    Mirrors the LangChain/Portkey wiring of the 'llm' decomposer backend. Returns
+    None when creds or the optional 'llm' deps are missing, so the deterministic
+    core keeps working offline.
+    """
+    from oppp.config import get_settings, load_dotenv_if_present
+
+    load_dotenv_if_present()
+    s = get_settings()
+    if not (s.portkey_api_key and s.portkey_endpoint):
+        return None
+    try:
+        from langchain_openai import ChatOpenAI
+    except ImportError:  # pragma: no cover - optional extra
+        return None
+    llm = ChatOpenAI(
+        api_key=s.portkey_api_key,
+        base_url=s.portkey_endpoint,
+        model=f"{s.portkey_provider}/{s.tool_model}",
+        temperature=0,
+    )
+    return llm.with_structured_output(TermSelection)
+
+
+def _llm_select(fragment: str, field: str, candidates: list[str]) -> list[str] | None:
+    """Ask the LLM to choose the final term(s) from the taxonomy candidate pool.
+
+    Given the user's phrase and the exact/fuzzy candidates, returns the subset the
+    model judges to match the intent (filtered to valid candidate spellings).
+    Returns None when no LLM is configured or the call fails / returns nothing, so
+    the caller falls back to the deterministic selection.
+    """
+    selector = _get_term_selector()
+    if selector is None or not candidates:
+        return None
+    options = "\n".join(f"- {c}" for c in candidates)
+    prompt = (
+        "You ground a user's phrase to a controlled pharmacology vocabulary.\n"
+        f"Field: {field}\n"
+        f"User phrase: {fragment!r}\n"
+        "Candidate vocabulary terms (choose only from these):\n"
+        f"{options}\n\n"
+        "Return the term(s) that best match the user's intent. Return several only "
+        "if the phrase genuinely refers to multiple terms; otherwise return the single "
+        "best. Use the exact candidate spellings."
+    )
+    try:
+        result: TermSelection = selector.invoke(prompt)  # type: ignore[assignment]
+    except Exception:  # pragma: no cover - network/credential failure -> fallback
+        return None
+    allowed = {c.lower() for c in candidates}
+    chosen = [c for c in result.selected if c.lower() in allowed]
+    return chosen or None
+
+
+# ---------------------------------------------------------------------------
 def _translate_closed(component, spec, service, normalizer) -> MachineSubquery:
+    """Resolve a closed-vocabulary field's value by grounding free text against a taxonomy.
+
+    Takes one decomposed ``component`` (raw NL fragment + target field) and turns it
+    into a single ``MachineSubquery`` whose value is drawn from the field's controlled
+    vocabulary CSV (e.g. drugs, effects, species, route). The fragment is:
+
+    1. Normalized (optional typo correction) before lookup.
+    2. Grounded against the taxonomy index, with one of three expansion behaviours:
+       - class term -> expand to all child terms;
+       - ``rollup_to_siblings`` field (e.g. effects) -> resolve canonical label, then
+         roll up to its MedDRA family/sibling set;
+       - otherwise -> exact/fuzzy lookup builds a candidate pool, and the optional
+         LLM selector (:func:`_llm_select`) picks the final term(s) from it; offline
+         this falls back to the top-5 fuzzy hits.
+    3. If nothing matches, the normalized term is passed through unmatched (confidence 0).
+    4. For drug-style fields (``fuzzy_wildcard``), a single leaf term gets a trailing
+       ``*`` wildcard to broaden the match.
+
+    ``documentYear`` is delegated to :func:`_translate_year` (numeric RANGE/MATCH).
+
+    The result carries a ``Grounding`` record (matched hits, expansion source,
+    confidence) and, for family rollups, a ``collapse_to`` canonical term so Stage 3
+    can shrink the query if it exceeds the API constraint budget. Emits a ``MATCH``
+    operator on ``spec.emit_field``, preserving the component's boolean group and
+    entity routing.
+    """
     index = get_index(spec.taxonomy)
     frag = component.nl_fragment.strip()
 
@@ -98,7 +187,15 @@ def _translate_closed(component, spec, service, normalizer) -> MachineSubquery:
         else:
             hits = base
     else:
-        hits = index.lookup(term, match="fuzzy", limit=5)
+        # Exact + fuzzy candidate pool, then let the LLM pick the final term(s)
+        # from those candidates. Falls back to the deterministic top hits offline.
+        candidates = index.lookup(term, match="fuzzy", limit=8)
+        chosen = _llm_select(frag, component.field, [h.name for h in candidates])
+        if chosen:
+            chosen_set = {c.lower() for c in chosen}
+            hits = [h for h in candidates if h.name.lower() in chosen_set]
+        else:
+            hits = candidates[:5]
 
     if hits:
         values = [h.name for h in hits]

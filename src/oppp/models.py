@@ -92,6 +92,19 @@ class Grounding(BaseModel):
     confidence: float = 1.0
 
 
+class TermSelection(BaseModel):
+    """LLM choice of the final vocabulary term(s) from a candidate pool (Stage 2).
+
+    The model is shown the user's phrase plus the taxonomy candidates surfaced by
+    exact/fuzzy lookup, and returns the subset that best matches the intent.
+    """
+
+    selected: list[str] = Field(
+        default_factory=list, description="Chosen terms, using exact candidate spellings."
+    )
+    reason: str = Field(default="", description="One-sentence justification for the choice.")
+
+
 # ---------------------------------------------------------------------------
 # Stage 2 output
 # ---------------------------------------------------------------------------
