@@ -64,8 +64,18 @@ lookup_<field>(
    the corpus `count` column (more frequent → more likely intended). This is also
    where misspellings are reconciled — the pluggable normalizer feeds candidates
    here (see [misspelling-strategy.md](misspelling-strategy.md)).
-4. **No match** → return empty; Stage 2 flags the constraint rather than inventing
-   a value.
+4. **LLM map → re-ground** *(when exact + fuzzy return an empty candidate pool)* —
+   the fragment is a synonym, scientific name, brand name, or abbreviation the
+   string matcher cannot reach (e.g. `homo sapiens` for `species`, whose preferred
+   label is `Human`; `per os` → `Oral`; `Columvi` → `Glofitamab`). The LLM is asked
+   for the canonical vocabulary term(s) the phrase refers to, and **each proposal is
+   then looked up again against the CSV** (steps 2–3) so the emitted value is always
+   a real taxonomy entry — never the model's raw string. This keeps **ground, don't
+   generate** intact even when the model is doing the mapping. Runs only on the
+   production (LLM-enabled) lookup path; the offline deterministic double skips it.
+5. **No match** → return empty; Stage 2 flags the constraint (confidence 0) rather
+   than inventing a value. Reached only when even the LLM's proposal fails to ground
+   (or offline, when no LLM is available).
 
 ## Hierarchy expansion (the rollup engine)
 

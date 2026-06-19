@@ -42,11 +42,21 @@ The value **must** come from the CSV. The generic algorithm:
    no-op until a strategy is chosen.
 1. **Lookup.** Resolve the (normalized) `nl_fragment` against the field's CSV
    ([drugs.csv](../../inputs/drugs.csv), [species.csv](../../inputs/species.csv),
-   …) in priority order:
+   …) in priority order — **exact → close (fuzzy) → LLM**:
    1. TERMite preferred label, if the subquery came from an annotation;
    2. exact (case-insensitive) name match;
    3. fuzzy / synonym / wildcard match (with `count` as a tie-breaker where the
-      CSV has it).
+      CSV has it);
+   4. **LLM fallback, when exact + fuzzy return no candidates.** If the
+      candidate pool is empty — the fragment is a synonym, scientific name, brand
+      name, or abbreviation the string matcher can't reach (`homo sapiens` →
+      `Human`, `per os` → `Oral`, `Columvi` → `Glofitamab`) — the LLM is asked for
+      the canonical vocabulary term(s) the phrase denotes, and **each proposal is
+      re-grounded against the CSV** (steps 2–3) before use. The emitted value is
+      therefore always a real taxonomy entry, never the model's raw string. This
+      runs only on the production (LLM-enabled) translator; the offline
+      deterministic double skips it. See
+      [grounding-and-tool-calling.md](grounding-and-tool-calling.md#resolution-order-recall-vs-precision).
 2. **Expand (hierarchy).** If the fragment denotes a class or rollup rather than a
    leaf, walk `parent_id`/`parent_name`:
    - drug class → member drugs (Q8 "kinase inhibitors", Q23 "monoclonal
@@ -117,10 +127,15 @@ value we can show *which* CSV rows it came from and whether it was expanded.
 
 ## Failure handling
 
-- **No CSV match** for a closed-vocab fragment → do not fall back to a hallucinated
-  value. Either (a) return a low-confidence fuzzy candidate flagged for review, or
-  (b) surface "term not found in vocabulary" so the orchestrator can ask the user
-  or drop the constraint deliberately. This directly addresses the legacy
-  "invented value" failures.
+- **Empty exact/fuzzy pool** for a closed-vocab fragment → on the production
+  translator, fall back to the **LLM map → re-ground** step above: the LLM proposes
+  the canonical term(s), which are looked up against the CSV before use, so the
+  result still comes from the vocabulary. This is what resolves synonyms/brands the
+  string matcher misses (`homo sapiens` → `Human`).
+- **No CSV match** (even after the LLM fallback, or offline with no LLM) → do not
+  fall back to a hallucinated value. Either (a) return a low-confidence fuzzy
+  candidate flagged for review, or (b) surface "term not found in vocabulary"
+  (confidence 0) so the orchestrator can ask the user or drop the constraint
+  deliberately. This directly addresses the legacy "invented value" failures.
 - **Ambiguous field** (class vs target) → attempt both lookups; keep the higher-
   confidence one, record the alternative.
