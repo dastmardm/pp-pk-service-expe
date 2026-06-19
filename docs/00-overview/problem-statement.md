@@ -19,7 +19,7 @@ exactly three things:
 
 | Part | Example | Notes |
 |------|---------|-------|
-| **operator** | `MATCH`, `OR`, `AND`, `NOT`, `REGEX`, `RANGE`, `DATE_RANGE`, `EMPTY` | how to compare |
+| **operator** | `MATCH`, `OR`, `AND`, `NOT`, `REGEX`, `RANGE`, `DATE_RANGE`, `EMPTY`, `PROXIMITY` | how to compare |
 | **field name** | `species`, `effects`, `route`, `documentYear` | which column |
 | **value** | `"Human"`, `["Rat","Mouse"]`, `2020` | what to match |
 

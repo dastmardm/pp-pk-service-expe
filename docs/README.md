@@ -20,22 +20,25 @@ value space we cannot enumerate.
 | 2 | [02-domain-inputs/machine-query-schema.md](02-domain-inputs/machine-query-schema.md) | The target machine-query format |
 | 2 | [02-domain-inputs/field-taxonomy.md](02-domain-inputs/field-taxonomy.md) | The two sets of searchable fields |
 | 2 | [02-domain-inputs/csv-catalog.md](02-domain-inputs/csv-catalog.md) | What each CSV in `inputs/` is for |
-| 3 | [03-proposed-design/architecture.md](03-proposed-design/architecture.md) | The new 3-stage pipeline |
+| 3 | [03-proposed-design/architecture.md](03-proposed-design/architecture.md) | The pipeline: 3 core stages + optional Stage 0 |
 | 3 | [03-proposed-design/stage-1-decomposition.md](03-proposed-design/stage-1-decomposition.md) | NL query → per-field NL subqueries |
 | 3 | [03-proposed-design/stage-2-subquery-translation.md](03-proposed-design/stage-2-subquery-translation.md) | NL subquery → machine subquery |
 | 3 | [03-proposed-design/stage-3-aggregation.md](03-proposed-design/stage-3-aggregation.md) | Subqueries → final machine query |
 | 3 | [03-proposed-design/grounding-and-tool-calling.md](03-proposed-design/grounding-and-tool-calling.md) | How CSV grounding + tool calling work |
 | 3 | [03-proposed-design/misspelling-strategy.md](03-proposed-design/misspelling-strategy.md) | Pluggable handling of user misspellings (interface only) |
 | 4 | [04-examples/worked-examples.md](04-examples/worked-examples.md) | End-to-end traces from the SME gold set |
-| 5 | [05-evaluation/gold-set-and-metrics.md](05-evaluation/gold-set-and-metrics.md) | How we measure success |
+| 5 | [05-evaluation/gold-set-and-metrics.md](05-evaluation/gold-set-and-metrics.md) | How we measure success — per-step gold set, metrics & LLM-as-judge |
 | 6 | [06-implementation/tech-stack.md](06-implementation/tech-stack.md) | Tools/packages + pluggability & per-step isolation |
 | 6 | [06-implementation/build-status.md](06-implementation/build-status.md) | What's built (the `oppp` package), how to run it, limitations |
+| 6 | [06-implementation/streamlit-ui.md](06-implementation/streamlit-ui.md) | The Streamlit demo/debug UI: question picker, per-step selectors, stage outputs |
 
 ## Pipeline stages (pluggable + isolatable)
 
-The pipeline is four stages, each selectable by name (a registry) and runnable on
-its own. Production defaults are the LLM-based design; offline **doubles** let the
-test suite and per-stage evaluation run with no LLM/network.
+The pipeline is **three core stages** (decompose → translate → aggregate) preceded
+by an **optional Stage 0 enhancer** — each selectable by name (a registry) and
+runnable on its own. Production defaults are the LLM-based design; offline
+**doubles** let the test suite and per-stage evaluation run without the LLM. (The
+doubles skip LLM calls, not the API — add `--no-execute` to skip the API too.)
 
 | Stage | Job | Backends (default in **bold**) | Run alone |
 |-------|-----|--------------------------------|-----------|
@@ -44,8 +47,9 @@ test suite and per-stage evaluation run with no LLM/network.
 | 2 Translate | ground each field via its taxonomy tool(s) | **`tool`** (LLM term-select), `deterministic` (offline double) | `oppp field` |
 | 3 Aggregate | assemble the global boolean query | **`llm`**, `deterministic` (offline double) | `oppp aggregate` |
 
-For a hermetic, LLM-free run pin the doubles:
-`--decomposer gazetteer --translator deterministic --aggregator deterministic`.
+For an LLM-free run pin the doubles
+(`--decomposer gazetteer --translator deterministic --aggregator deterministic`);
+add `--no-execute` to also skip the API and stay fully offline.
 
 ![Agent component DAG](agent-dag.png)
 
@@ -86,7 +90,7 @@ oppp run "<question>" --payload-only
 oppp run "<question>" --execute
 
 # Run a specific SME gold case and diff against the gold filters
-oppp run --case 42
+oppp run --case 23
 
 # Isolate a single stage
 oppp enhance   "adverse effects of sunitinib in humans" --backend termite
@@ -98,7 +102,9 @@ oppp aggregate "abemaciclib liver disorders in rats or mice" --backend llm
 oppp lookup drugs "sunitinib"
 oppp lookup effects "Neutropenia" --expand
 
-# Evaluation against the gold set (offline doubles by default; cheap & hermetic)
+# Evaluation against the gold set: offline doubles (no LLM) by default, but it
+# *executes* each query against the API for counts. Add --no-execute for a fully
+# offline, validity-only run.
 oppp eval --tolerance 0.10 --show-cases
 ```
 
@@ -120,5 +126,6 @@ structure is LLM-decided but rendered and validated deterministically).
 
 > **Status:** implemented as the `oppp` package. Every stage is pluggable by name
 > and isolatable; offline doubles (`gazetteer` / `deterministic`) keep the test
-> suite and evaluation hermetic. See
+> suite hermetic and let evaluation run without the LLM (pass `--no-execute` to
+> skip the API too). See
 > [06-implementation/build-status.md](06-implementation/build-status.md).

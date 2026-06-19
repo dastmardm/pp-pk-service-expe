@@ -41,6 +41,12 @@ matches and for ordering facet output.
 |------|------|---------|
 | [sme_expected_cases.csv](../../inputs/sme_expected_cases.csv) | 25 (24 cases) | The SME gold set. Each row is a question already decomposed into expected per-field values, plus a `mapping_comment` recording where the legacy system failed. This is **both** the decomposition target (it literally has one column per field) and the evaluation reference. See [../05-evaluation/gold-set-and-metrics.md](../05-evaluation/gold-set-and-metrics.md). |
 
+> A **per-step** companion gold set — one column per pipeline stage
+> (`termite, decompose, translate, aggregate, machine query`) plus expected
+> `counts` — lives at [docs/sme_stage_cases.csv](../sme_stage_cases.csv) *(in
+> `docs/`, not `inputs/`; preliminary)*. It is the reference for **per-step**
+> evaluation; see [../05-evaluation/gold-set-and-metrics.md](../05-evaluation/gold-set-and-metrics.md).
+
 ### Gold-set columns
 
 `query_number, query_type, question, s` (expected result count), `comment,

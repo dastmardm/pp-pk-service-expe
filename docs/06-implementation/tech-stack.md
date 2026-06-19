@@ -19,10 +19,10 @@ non-negotiable conventions every component must follow:
 | **uv** | Environment + dependency + packaging manager (`uv venv`, `uv add`, `uv run`, `uv.lock`). Single source of truth for deps; no ad-hoc pip. |
 | **Pydantic** | Typed contracts for every boundary — the decomposition component, the per-field machine subquery, and the final machine query are all Pydantic models. Validation replaces the legacy regex/brace JSON scraping. |
 | **LangChain** | LLM client + tool-calling plumbing for the CSV lookup tools (wraps the existing [utils/client/](../../utils/client/) Portkey setup). |
-| **LangGraph** | Orchestrates the 3-stage pipeline as an explicit graph (decompose → translate → aggregate), with per-field fan-out/fan-in in Stage 2. Each node is a swappable unit; the graph is what makes step isolation natural. |
+| **LangGraph** | Orchestrates the pipeline as an explicit graph — the 3 core stages (decompose → translate → aggregate) behind the optional Stage 0 enhancer — with per-field fan-out/fan-in in Stage 2. Each node is a swappable unit; the graph is what makes step isolation natural. |
 | **DSPy** | The translation steps are authored as **DSPy modules** (signatures + programs) so prompts are **optimizable** rather than hand-tuned strings. The SME gold set drives DSPy optimizers (e.g. few-shot / instruction search). See [Prompt optimization](#prompt-optimization-dspy). |
 | **Typer** | CLI entry points: run the full pipeline, run a single stage/field, and run evaluations from the terminal. |
-| **Streamlit** | Interactive UI for demoing and debugging — enter a query, inspect the per-field decomposition, the grounded values, and the final machine query, stage by stage. |
+| **Streamlit** | Interactive UI for demoing and debugging — pick a gold-set question or type one, select each stage's backend (enhancer / decomposer / translator / aggregator / normalizer), and inspect every stage's intermediate output through to the final machine query. See [streamlit-ui.md](streamlit-ui.md). |
 | **Ruff** | Linting + formatting. Enforced in CI / pre-commit. |
 | **(existing) SciBite TERMite** | Kept as-is for NER ([utils/termite/](../../utils/termite/)). |
 
@@ -49,6 +49,7 @@ Because each step has typed inputs/outputs, each can be exercised **alone**:
 
 | Step | Isolated input → output | Evaluated against |
 |------|--------------------------|-------------------|
+| Stage 0 — enhance *(optional)* | NL query → enhanced query + entity annotations | enhancer on/off behaviour |
 | Stage 1 — decomposition | NL query → list of components (`field`, `type`, `reason`, …) | gold field-routing / type / boolean hints |
 | Stage 2 — per-field translate | one component → one machine subquery | gold per-field values (P/R/F1) |
 | Stage 2 — lookup/expansion | fragment → grounded labels/ids | gold hierarchy expansions |
@@ -118,8 +119,9 @@ uv.lock
 src/oppp/
   models/               # pydantic contracts (component, subquery, machine query)
   pipeline/
-    graph.py            # langgraph wiring of the 3 stages
-    stage1_decompose.py # dspy module
+    graph.py            # langgraph wiring of the stages
+    stage0_enhance.py   # optional enhancer (noop default, termite opt-in)
+    stage1_decompose.py # dspy module (vocab-free)
     stage2_translate/   # per-field translators (pluggable, registered)
     stage2_lookup/      # csv lookup tools + hierarchy expansion
     stage2_normalize/   # misspelling strategies (pluggable)

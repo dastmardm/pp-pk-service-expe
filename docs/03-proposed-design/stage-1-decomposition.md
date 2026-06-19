@@ -1,6 +1,6 @@
 # Stage 1 — Decomposition
 
-**Input:** the NL query (+ TERMite annotations).
+**Input:** the NL query (optionally enriched by the Stage 0 enhancer's annotations).
 **Output:** a list of single-field NL subqueries, each routed to a target field.
 
 ## Goal
@@ -38,8 +38,8 @@ A list of items like:
 - **reason** — a one-sentence natural-language justification for why this
   fragment maps to this field and this `type`. Keep it to a single sentence;
   it is the human-readable audit trail for the decomposition.
-- **source** — provenance: a TERMite annotation or the LLM. Useful for debugging
-  and for deciding grounding confidence in Stage 2.
+- **source** — provenance: the LLM, or (when the Stage 0 enhancer is on) a TERMite
+  annotation. Useful for debugging and for deciding grounding confidence in Stage 2.
 - **boolean hint** (optional) — when one field carries multiple concepts with
   explicit logic, e.g. `effects` with "neutropenia **or** thrombocytopenia",
   record the intended operator so Stage 3 can honour it.
@@ -53,17 +53,23 @@ A list of items like:
 
 ## How routing is seeded
 
-1. **TERMite first.** Each annotation already carries a type that maps cleanly to
-   a field: `DRUG→drugs`, `SPECIES→species`, `ROUTE→route`, `ADVERSE_EVENT→
-   effects`, `TOXICITY_PARAMETER→toxicityParameter`, `INDICATION→indications`,
-   `PARAMETER→parameter` (PK), `AGE→ages` (PK), `TARGET→targets`. These become
-   high-confidence subqueries with `source: termite`.
-2. **LLM fills the gaps.** Spans TERMite did not tag (free-text qualifiers,
-   numeric thresholds, dosing regimen words, sex, and `question` intents like
-   "at which dose") are routed by a small LLM step that knows the field
-   catalogue. The same step assigns each component its `type` and writes its
-   one-sentence `reason`.
-3. **Disambiguation.** When a span could be two fields (the classic "kinase" =
+1. **LLM decomposer (production default).** The decomposer is a **vocab-free** LLM
+   step: it segments the question into single-field spans and routes each to a
+   field using the field catalogue and the user's own words. It does **not**
+   resolve, normalize, or consult any taxonomy — that is Stage 2's grounded job.
+   It also assigns each component its `type` and writes its one-sentence `reason`.
+   These carry `source: llm`.
+2. **Optional Stage 0 hints.** When the TERMite enhancer is enabled, its
+   annotations carry a type that maps cleanly to a field: `DRUG→drugs`,
+   `SPECIES→species`, `ROUTE→route`, `ADVERSE_EVENT→effects`,
+   `TOXICITY_PARAMETER→toxicityParameter`, `INDICATION→indications`,
+   `PARAMETER→parameter` (PK), `AGE→ages` (PK), `TARGET→targets`. These seed
+   high-confidence routing and carry `source: termite:<TYPE>`. With the default
+   `noop` enhancer there are no such hints and the LLM does all the routing.
+3. **Offline double.** A `gazetteer` decomposer (vocab-based, exact + fuzzy
+   taxonomy matching) exists for hermetic tests/eval only — the production `llm`
+   decomposer never touches the vocabulary.
+4. **Disambiguation.** When a span could be two fields (the classic "kinase" =
    drug *class* vs *target*, Q8/Q21), Stage 1 records both candidates; Stage 2
    resolves by attempting the relevant CSV lookups and comparing confidence.
 

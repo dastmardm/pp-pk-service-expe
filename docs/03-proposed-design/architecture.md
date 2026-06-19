@@ -4,9 +4,10 @@
 
 ```
                           ┌───────────────────────────────────────┐
-   NL query  ───────────▶ │  TERMite annotation (kept from legacy) │
- "ADRs of sunitinib       │  → entities + preferred labels + types │
-  in human?"              └───────────────────────────────────────┘
+   NL query  ───────────▶ │  STAGE 0 — ENHANCE  (optional)         │
+ "ADRs of sunitinib       │  default: noop · opt-in: TERMite NER   │
+  in human?"              │  → entities + preferred labels + types │
+                          └───────────────────────────────────────┘
                                           │
                                           ▼
         ╔═══════════════════════════════════════════════════════════════╗
@@ -50,6 +51,9 @@
 
 ## Why three stages
 
+An **optional Stage 0 enhancer** (TERMite, `noop` by default) may normalize
+entities before Stage 1; the three core stages below are the heart of the design.
+
 | Stage | Responsibility | Why separate |
 |-------|---------------|--------------|
 | **1. Decomposition** | Split the NL query into one NL fragment per field; route each fragment to a field. | Isolates "what is the user asking about?" from "how do I express it?". Small, cheap, testable. |
@@ -70,9 +74,11 @@ This is the inverse of the legacy design, where one prompt does all three at onc
    booleans in Stage 3. Never implicit in prose.
 4. **Hierarchy is a first-class operation.** Class→members, category→terms,
    parent→children expansion is a documented step, not a hope.
-5. **Keep TERMite.** It already provides high-quality preferred labels and IDs;
-   it becomes the seed for Stage 1 routing and Stage 2 grounding rather than the
-   only safeguard.
+5. **Enhancement is optional.** TERMite is an **opt-in Stage 0 enhancer**
+   (default `noop`). When enabled it contributes high-quality preferred labels and
+   IDs that *hint* Stage 1 routing and Stage 2 grounding — a booster, not a
+   required pre-step. The production Stage 1 decomposer is vocab-free and works
+   without it.
 
 ## Relationship to the three services
 
