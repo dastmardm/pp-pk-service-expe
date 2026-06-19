@@ -98,7 +98,10 @@ def load_gold_cases() -> list[dict]:
 def evaluate(
     *,
     service: str = "safety",
+    enhancer: str = "noop",
     decomposer: str = "gazetteer",
+    translator: str = "deterministic",
+    aggregator: str = "deterministic",
     normalizer: str = "fuzzy",
     tolerance: float = 0.10,
     execute: bool = True,
@@ -106,7 +109,9 @@ def evaluate(
 ) -> EvalReport:
     """Run each gold question and compare executed `countTotal` to expected `s`.
 
-    `execute=False` skips the API call (offline): only validity is measured.
+    Defaults to the offline doubles (gazetteer + deterministic) so the harness is
+    cheap and hermetic; pass decomposer='llm'/aggregator='llm' to evaluate the
+    production pipeline. `execute=False` skips the API call: only validity is measured.
     """
     svc = get_service(service)
     report = EvalReport(tolerance=tolerance)
@@ -118,7 +123,10 @@ def evaluate(
         q = row.get("question", "").strip()
         if not q:
             continue
-        result = run_pipeline(q, service, decomposer=decomposer, normalizer=normalizer)
+        result = run_pipeline(
+            q, service, enhancer=enhancer, decomposer=decomposer,
+            translator=translator, aggregator=aggregator, normalizer=normalizer,
+        )
         cr = CaseResult(
             query_number=row.get("query_number", "?"),
             question=q,

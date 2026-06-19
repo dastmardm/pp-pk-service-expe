@@ -13,7 +13,9 @@ import typer
 from oppp.eval.harness import evaluate
 from oppp.pipeline import run_pipeline
 from oppp.services.base import get_service
+from oppp.stages.aggregate import get_aggregator
 from oppp.stages.decompose import decompose as run_decompose
+from oppp.stages.enhance import enhance as run_enhance
 from oppp.stages.translate import translate_one
 from oppp.taxonomy.index import get_index
 
@@ -24,13 +26,19 @@ app = typer.Typer(no_args_is_help=True, help="Decomposed NL -> machine-query tra
 def run(
     query: str = typer.Argument(None, help="The NL question (omit when using --case)."),
     service: str = "safety",
-    decomposer: str = "gazetteer",
+    enhancer: str = typer.Option("noop", help="Stage 0 enhancer: noop | termite."),
+    decomposer: str = typer.Option("llm", help="Stage 1 decomposer: llm | gazetteer (offline)."),
+    translator: str = typer.Option("tool", help="Stage 2 translator."),
+    aggregator: str = typer.Option("llm", help="Stage 3 aggregator: llm | deterministic (offline)."),
     normalizer: str = "noop",
     case: int = typer.Option(
         None, "--case", help="Load the question from the SME gold set by query_number."
     ),
     payload_only: bool = typer.Option(False, help="Print only the API payload JSON."),
-    execute: bool = typer.Option(False, "--execute", "-e", help="POST the query and print countTotal."),
+    execute: bool = typer.Option(
+        True, "--execute/--no-execute", "-e/-E",
+        help="Execute against the API and report datapoints retrieved (on by default; --no-execute to skip).",
+    ),
 ):
     """Run the full pipeline on QUERY (or a gold --case), showing every stage.
 
@@ -49,7 +57,10 @@ def run(
         typer.echo("provide a QUERY or --case N", err=True)
         raise typer.Exit(2)
 
-    result = run_pipeline(query, service, decomposer=decomposer, normalizer=normalizer)
+    result = run_pipeline(
+        query, service, enhancer=enhancer, decomposer=decomposer,
+        translator=translator, aggregator=aggregator, normalizer=normalizer,
+    )
     if payload_only:
         typer.echo(json.dumps(result.machine_query.to_payload(), indent=2, ensure_ascii=False))
         raise typer.Exit(0 if result.ok else 1)
@@ -59,11 +70,19 @@ def run(
         typer.echo(f"  case      : {case}  ({gold_row.get('query_type', '').strip()})")
     typer.echo(f"  query     : {query!r}")
     typer.echo(
-        f"  config    : service={service} decomposer={decomposer} "
-        f"normalizer={normalizer} execute={execute}"
+        f"  config    : service={service} enhancer={enhancer} decomposer={decomposer} "
+        f"translator={translator} aggregator={aggregator} normalizer={normalizer} execute={execute}"
     )
     typer.echo()
+    typer.echo("# Stage 0 — enhancement")
+    if result.enhanced and result.enhanced.annotations:
+        for a in result.enhanced.annotations:
+            typer.echo(f"  {a.entity_type or 'ENTITY':18} {a.surface!r} -> {a.label!r}")
+    else:
+        typer.echo(f"  (enhancer={enhancer}: no annotations)")
+    typer.echo()
     typer.echo("# Stage 1 — decomposition")
+    typer.echo(f"  input: {(result.enhanced.text if result.enhanced else query)!r}")
     for c in result.decomposition.components:
         bg = f" [{c.boolean_group.op.value}:{c.boolean_group.id}]" if c.boolean_group else ""
         typer.echo(f"  [{c.type.value:8}] {c.field:18} <- {c.nl_fragment!r}{bg}  ({c.source})")
@@ -104,19 +123,62 @@ def run(
         ex = execute_count(result.machine_query, get_service(service))
         typer.echo("\n# Execution")
         if ex.ok:
-            typer.echo(f"  countTotal = {ex.count_total}")
+            typer.echo(f"  datapoints retrieved = {ex.count_total}")
             if gold_row is not None and gold_row.get("s", "").strip():
-                typer.echo(f"  expected   = {gold_row['s'].strip()}  (SME gold)")
+                typer.echo(f"  expected             = {gold_row['s'].strip()}  (SME gold)")
         else:
             typer.echo(f"  failed: {ex.error}")
+    elif execute and not result.ok:
+        typer.echo("\n# Execution")
+        typer.echo("  skipped: query has validation errors (not executed)")
     raise typer.Exit(0 if result.ok else 1)
 
 
 @app.command()
-def decompose(query: str, service: str = "safety", backend: str = "gazetteer"):
+def enhance(query: str, service: str = "safety", backend: str = "noop"):
+    """Stage 0 only: show the enhanced query + entity annotations."""
+    e = run_enhance(query, service, backend)
+    typer.echo(json.dumps(e.model_dump(mode="json"), indent=2, ensure_ascii=False))
+
+
+@app.command()
+def decompose(query: str, service: str = "safety", backend: str = "llm"):
     """Stage 1 only: show the per-field components."""
     d = run_decompose(query, service, backend)
     typer.echo(json.dumps(d.model_dump(mode="json"), indent=2, ensure_ascii=False))
+
+
+@app.command()
+def aggregate(
+    query: str,
+    service: str = "safety",
+    backend: str = typer.Option("llm", help="Aggregator: llm | deterministic."),
+    decomposer: str = "gazetteer",
+    translator: str = "deterministic",
+    normalizer: str = "noop",
+):
+    """Stage 3 only: decompose+translate (offline by default), then aggregate.
+
+    Isolates the aggregator: hold the upstream stages fixed and compare backends.
+    """
+    from oppp.stages.decompose import get_decomposer
+    from oppp.stages.translate import get_translator
+
+    svc = get_service(service)
+    decomp = get_decomposer(decomposer).decompose(query, svc)
+    decomp.query = query
+    norm = get_normalizer_safe(normalizer)
+    tr = get_translator(translator)
+    subs = [s for s in (tr.translate(c, svc, norm) for c in decomp.filters) if s is not None]
+    mq, issues = get_aggregator(backend).aggregate(decomp, subs, svc)
+    typer.echo(json.dumps(mq.to_payload(), indent=2, ensure_ascii=False))
+    typer.echo(f"\nissues={[i.message for i in issues]}", err=True)
+
+
+def get_normalizer_safe(name: str):
+    from oppp.normalize.base import get_normalizer
+
+    return get_normalizer(name)
 
 
 @app.command()
@@ -156,10 +218,24 @@ def services():
     typer.echo(f"safety: {len(svc.fields)} fields; closed={svc.closed_fields()}")
 
 
+@app.command()
+def dag(
+    out: str = typer.Option(None, "--out", "-o", help="Output PNG path (default: docs/agent-dag.png)."),
+):
+    """Export the agent's component DAG to a PNG (nodes=components, edges=relations)."""
+    from oppp.dag import DEFAULT_OUT, render_png
+
+    path = render_png(out or DEFAULT_OUT)
+    typer.echo(f"wrote {path}")
+
+
 @app.command(name="eval")
 def eval_cmd(
     service: str = "safety",
-    decomposer: str = "gazetteer",
+    enhancer: str = typer.Option("noop", help="Stage 0 enhancer."),
+    decomposer: str = typer.Option("gazetteer", help="Stage 1 (offline default for cheap eval)."),
+    translator: str = typer.Option("deterministic", help="Stage 2 (offline default for cheap eval)."),
+    aggregator: str = typer.Option("deterministic", help="Stage 3 (offline default for cheap eval)."),
     normalizer: str = "fuzzy",
     tolerance: float = typer.Option(0.10, help="Within-tolerance band for count match."),
     execute: bool = typer.Option(True, help="Execute queries against the API to get counts."),
@@ -168,7 +244,8 @@ def eval_cmd(
 ):
     """Evaluate against the SME gold set by expected result count (column `s`)."""
     report = evaluate(
-        service=service, decomposer=decomposer, normalizer=normalizer,
+        service=service, enhancer=enhancer, decomposer=decomposer,
+        translator=translator, aggregator=aggregator, normalizer=normalizer,
         tolerance=tolerance, execute=execute, limit=limit or None,
     )
     typer.echo(

@@ -31,18 +31,94 @@ value space we cannot enumerate.
 | 6 | [06-implementation/tech-stack.md](06-implementation/tech-stack.md) | Tools/packages + pluggability & per-step isolation |
 | 6 | [06-implementation/build-status.md](06-implementation/build-status.md) | What's built (the `oppp` package), how to run it, limitations |
 
+## Pipeline stages (pluggable + isolatable)
+
+The pipeline is four stages, each selectable by name (a registry) and runnable on
+its own. Production defaults are the LLM-based design; offline **doubles** let the
+test suite and per-stage evaluation run with no LLM/network.
+
+| Stage | Job | Backends (default in **bold**) | Run alone |
+|-------|-----|--------------------------------|-----------|
+| 0 Enhance *(optional)* | normalize entities in the raw query | **`noop`**, `termite` | `oppp enhance` |
+| 1 Decompose | split into single-field components — **no vocab, no guessing** | **`llm`**, `gazetteer` (offline double) | `oppp decompose` |
+| 2 Translate | ground each field via its taxonomy tool(s) | **`tool`** (LLM term-select), `deterministic` (offline double) | `oppp field` |
+| 3 Aggregate | assemble the global boolean query | **`llm`**, `deterministic` (offline double) | `oppp aggregate` |
+
+For a hermetic, LLM-free run pin the doubles:
+`--decomposer gazetteer --translator deterministic --aggregator deterministic`.
+
+![Agent component DAG](agent-dag.png)
+
+> Regenerate this diagram with `oppp dag` (needs the `viz` extra:
+> `pip install -e '.[viz]'`). Nodes are the agent's key components; solid edges
+> are data flow, dashed edges are dependencies.
+
+## Common CLI commands
+
+The package installs an `oppp` console script (`oppp.cli:app`). All commands
+accept `--help`. Run them from the repo root after `pip install -e .` (LLM
+backends need the `llm` extra: `pip install -e '.[llm]'` + `.env` creds).
+
+| Command | What it does |
+|---------|--------------|
+| `oppp run "<question>"` | Run the **full pipeline**, printing every stage (enhance → decomposition → subqueries + grounding → final machine query). |
+| `oppp enhance "<question>"` | **Stage 0 only** — show the enhanced query + entity annotations. |
+| `oppp decompose "<question>"` | **Stage 1 only** — show the per-field components as JSON. |
+| `oppp field <field> "<fragment>"` | **Stage 2 only** — translate a single field fragment to a machine subquery. |
+| `oppp aggregate "<question>"` | **Stage 3 only** — decompose+translate (offline), then aggregate with the chosen backend. |
+| `oppp lookup <taxonomy> "<term>"` | Inspect the **grounding layer** — look a term up in a taxonomy CSV. |
+| `oppp services` | List configured services and their fields. |
+| `oppp eval` | Evaluate against the SME gold set by expected result count. |
+
+```bash
+# Full pipeline (production defaults: llm decompose + tool translate + llm aggregate)
+oppp run "adverse effects of sunitinib in humans"
+
+# Fully offline run (no LLM), pinning the doubles
+oppp run "adverse effects of sunitinib in humans" \
+  --decomposer gazetteer --translator deterministic --aggregator deterministic
+
+# Optional TERMite enhancer before decomposition
+oppp run "<question>" --enhancer termite
+
+# Print only the API payload JSON, or POST it to get countTotal
+oppp run "<question>" --payload-only
+oppp run "<question>" --execute
+
+# Run a specific SME gold case and diff against the gold filters
+oppp run --case 42
+
+# Isolate a single stage
+oppp enhance   "adverse effects of sunitinib in humans" --backend termite
+oppp decompose "adverse effects of sunitinib in humans" --backend llm
+oppp field     drugs "sunitnib" --normalizer fuzzy
+oppp aggregate "abemaciclib liver disorders in rats or mice" --backend llm
+
+# Grounding: look up a term, optionally expanding a class node
+oppp lookup drugs "sunitinib"
+oppp lookup effects "Neutropenia" --expand
+
+# Evaluation against the gold set (offline doubles by default; cheap & hermetic)
+oppp eval --tolerance 0.10 --show-cases
+```
+
 ## One-paragraph summary
 
-A user asks a question in natural language. We **split** it into many small
-single-field natural-language subqueries (one per searchable field). Each
-subquery is **translated independently** into a machine subquery — a single
-filter of the form `(operator, field, value)`. For fields whose legal values we
-already have as CSV taxonomies (drugs, effects, species, route, …), the value is
-**grounded by tool-calling against the CSV** instead of being invented by the
-model; for fields we cannot enumerate (study group, dose comment, free-text
-qualifiers, numeric thresholds), the model decides the value directly. Finally
-we **aggregate** all machine subqueries into the single nested machine query the
-PharmaPendium API expects.
+A user asks a question in natural language. An optional **enhancer** (TERMite)
+normalizes entities up front. An LLM **decomposer** then splits the question into
+single-field components using the user's own words — it only segments, it does
+not resolve, normalize, or consult any vocabulary. Each component is
+**translated independently** into a machine subquery — a single filter of the
+form `(operator, field, value)`. For fields whose legal values we already have as
+CSV taxonomies (drugs, effects, species, route, …), the value is **grounded by
+tool-calling against the CSV** (optionally refined by an LLM term selector); for
+fields we cannot enumerate (study group, dose comment, free-text qualifiers,
+numeric thresholds), the value passes through directly. Finally an LLM
+**aggregator** reads the decomposition plus every machine subquery and assembles
+the single nested machine query the PharmaPendium API expects (the boolean
+structure is LLM-decided but rendered and validated deterministically).
 
-> **Status:** design proposal. This captures the intended architecture and the
-> reasoning behind it; it is not yet implemented.
+> **Status:** implemented as the `oppp` package. Every stage is pluggable by name
+> and isolatable; offline doubles (`gazetteer` / `deterministic`) keep the test
+> suite and evaluation hermetic. See
+> [06-implementation/build-status.md](06-implementation/build-status.md).

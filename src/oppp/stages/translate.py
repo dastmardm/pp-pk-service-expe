@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
+from typing import Protocol
 
 from oppp.models import (
     Component,
@@ -20,8 +21,22 @@ from oppp.models import (
     TermSelection,
 )
 from oppp.normalize.base import Normalizer, get_normalizer
+from oppp.registry import Registry
 from oppp.services.base import ServiceConfig, get_service
 from oppp.taxonomy.index import get_index
+
+
+class Translator(Protocol):
+    def translate(
+        self, component: Component, service: ServiceConfig, normalizer: Normalizer | None
+    ) -> MachineSubquery | None: ...
+
+
+translator_registry: Registry[Translator] = Registry("translator")
+
+
+def get_translator(name: str = "tool", **kwargs) -> Translator:
+    return translator_registry.create(name, **kwargs)
 
 # Open fields searched as free-text substrings rather than exact values.
 _REGEX_OPEN_FIELDS = {"studyGroup", "ages"}
@@ -41,16 +56,31 @@ _STUDYGROUP_SYNONYMS: dict[str, list[str]] = {
 
 
 def translate_one(
-    component: Component, service: str = "safety", normalizer: str = "noop"
+    component: Component, service: str = "safety", normalizer: str = "noop",
+    *, llm_select: bool = False,
 ) -> MachineSubquery | None:
-    """Convenience wrapper resolving service + normalizer by name."""
-    return translate_component(component, get_service(service), get_normalizer(normalizer))
+    """Convenience wrapper resolving service + normalizer by name.
+
+    Defaults to deterministic (no LLM selection) so isolated translation in tests
+    and the `field` CLI is hermetic; pass llm_select=True to exercise the selector.
+    """
+    return translate_component(
+        component, get_service(service), get_normalizer(normalizer), llm_select=llm_select
+    )
 
 
 def translate_component(
-    component: Component, service: ServiceConfig, normalizer: Normalizer | None = None
+    component: Component,
+    service: ServiceConfig,
+    normalizer: Normalizer | None = None,
+    *,
+    llm_select: bool = True,
 ) -> MachineSubquery | None:
-    """Translate a single FILTER component. Returns None for QUESTION components."""
+    """Translate a single FILTER component. Returns None for QUESTION components.
+
+    `llm_select` toggles the optional LLM term selector for closed-vocab fields;
+    set it False for a fully offline/deterministic translation (tests, eval).
+    """
     if component.type is ComponentType.QUESTION:
         return None
     normalizer = normalizer or get_normalizer("noop")
@@ -64,12 +94,35 @@ def translate_component(
         )
 
     if spec.bucket == "closed" and spec.taxonomy:
-        return _translate_closed(component, spec, service, normalizer)
+        return _translate_closed(component, spec, service, normalizer, llm_select=llm_select)
     if spec.bucket == "boolean":
         return _translate_boolean(component, spec)
     if spec.bucket == "enum":
         return _translate_enum(component, spec)
     return _translate_open(component, spec)
+
+
+class ToolTranslator:
+    """Translator: ground each field via its taxonomy tool / grounding rules.
+
+    A thin object wrapper around :func:`translate_component` so Stage 2 is pluggable
+    and isolatable like the other stages. With ``llm_select=True`` (the production
+    'tool' backend) closed-vocab fields also run the LLM term selector to refine
+    the candidate vocabulary; ``llm_select=False`` (the offline 'deterministic'
+    double) uses pure taxonomy grounding so the suite/eval need no LLM.
+    """
+
+    def __init__(self, llm_select: bool = True) -> None:
+        self.llm_select = llm_select
+
+    def translate(self, component, service, normalizer=None):
+        return translate_component(component, service, normalizer, llm_select=self.llm_select)
+
+
+translator_registry.add("tool", lambda **kw: ToolTranslator(**{"llm_select": True, **kw}))
+translator_registry.add(
+    "deterministic", lambda **kw: ToolTranslator(**{"llm_select": False, **kw})
+)
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +187,7 @@ def _llm_select(fragment: str, field: str, candidates: list[str]) -> list[str] |
 
 
 # ---------------------------------------------------------------------------
-def _translate_closed(component, spec, service, normalizer) -> MachineSubquery:
+def _translate_closed(component, spec, service, normalizer, *, llm_select=True) -> MachineSubquery:
     """Resolve a closed-vocabulary field's value by grounding free text against a taxonomy.
 
     Takes one decomposed ``component`` (raw NL fragment + target field) and turns it
@@ -187,10 +240,14 @@ def _translate_closed(component, spec, service, normalizer) -> MachineSubquery:
         else:
             hits = base
     else:
-        # Exact + fuzzy candidate pool, then let the LLM pick the final term(s)
-        # from those candidates. Falls back to the deterministic top hits offline.
+        # Exact + fuzzy candidate pool, then (when enabled) let the LLM pick the
+        # final term(s). Deterministic fallback is the top hits — also the path
+        # taken offline / when llm_select is False.
         candidates = index.lookup(term, match="fuzzy", limit=8)
-        chosen = _llm_select(frag, component.field, [h.name for h in candidates])
+        chosen = (
+            _llm_select(frag, component.field, [h.name for h in candidates])
+            if llm_select else None
+        )
         if chosen:
             chosen_set = {c.lower() for c in chosen}
             hits = [h for h in candidates if h.name.lower() in chosen_set]

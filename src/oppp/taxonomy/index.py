@@ -20,6 +20,38 @@ from rapidfuzz import fuzz, process
 from oppp.config import get_settings
 from oppp.models import GroundingHit
 
+# Irregular plurals that a trailing-"s" strip can't singularize. The domain
+# regulars ("rats" -> "rat") are handled generically; these are the exceptions
+# that otherwise get silently dropped (e.g. "mice" must not become "mic").
+_IRREGULAR_PLURALS = {
+    "mice": "mouse",
+    "lice": "louse",
+    "geese": "goose",
+    "feet": "foot",
+    "teeth": "tooth",
+    "oxen": "ox",
+    "children": "child",
+}
+
+
+def singular_candidates(term: str) -> list[str]:
+    """Singular forms to try for a (possibly plural) term, most-specific first.
+
+    Covers irregular plurals plus the regular "-ies"/"-es"/"-s" suffixes. The
+    original term is not included; callers try the exact term themselves first.
+    """
+    low = term.strip().lower()
+    out: list[str] = []
+    if low in _IRREGULAR_PLURALS:
+        out.append(_IRREGULAR_PLURALS[low])
+    if low.endswith("ies") and len(low) > 3:  # "studies" -> "study"
+        out.append(term[:-3] + "y")
+    if low.endswith("es") and len(low) > 2:  # "boxes" -> "box"
+        out.append(term[:-2])
+    if low.endswith("s") and len(low) > 1:  # "rats" -> "rat"
+        out.append(term[:-1])
+    return out
+
 
 @dataclass
 class TaxonomyEntry:
@@ -79,11 +111,11 @@ class TaxonomyIndex:
         exact = self.get_exact(term)
         if exact is not None:
             return [self._hit(exact, score=100.0, match="exact")]
-        # naive singularization helps "rats" -> "Rat"
-        if term.lower().endswith("s"):
-            sing = self.get_exact(term[:-1])
-            if sing is not None:
-                return [self._hit(sing, score=98.0, match="exact")]
+        # singularization helps "rats" -> "Rat" and "mice" -> "Mouse"
+        for sing in singular_candidates(term):
+            hit = self.get_exact(sing)
+            if hit is not None:
+                return [self._hit(hit, score=98.0, match="exact")]
         if match == "exact":
             return []
         scored = process.extract(
@@ -155,12 +187,14 @@ class TaxonomyIndex:
 
     # ----- gazetteer (offline NER) ------------------------------------------
     def contains(self, phrase: str) -> TaxonomyEntry | None:
-        """Exact phrase membership for gazetteer matching (incl. naive plural)."""
+        """Exact phrase membership for gazetteer matching (incl. plural forms)."""
         e = self.get_exact(phrase)
         if e is not None:
             return e
-        if phrase.lower().endswith("s"):
-            return self.get_exact(phrase[:-1])
+        for sing in singular_candidates(phrase):
+            e = self.get_exact(sing)
+            if e is not None:
+                return e
         return None
 
     # ----- helpers -----------------------------------------------------------

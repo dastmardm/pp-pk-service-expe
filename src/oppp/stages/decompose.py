@@ -1,9 +1,17 @@
 """Stage 1 — decomposition. NL query -> single-field components.
 
-Two backends, same interface:
-  * gazetteer (default, offline) — detects field mentions by matching the
-    taxonomy indexes + light patterns. Runs without an LLM or API keys.
-  * llm — LangChain structured output (lazy import; needs deps + creds).
+Decomposition's ONLY job is to split the question into single-field fragments
+using the user's own words. It must not normalize, correct, expand, or invent
+values, and must not consult any controlled vocabulary — grounding to taxonomy
+values happens later, in translation.
+
+Backends (pluggable, same interface):
+  * llm (default) — LLM structured output; reads the (optionally enhanced) query
+    and segments it. Vocab-free by construction. Needs creds / the 'llm' extra.
+  * gazetteer — OFFLINE TEST/EVAL DOUBLE ONLY. Detects field mentions by matching
+    the taxonomy CSVs + light patterns so the suite and per-stage evaluation can
+    run with no network. It deliberately uses vocab, so it is not the production
+    decomposer — do not treat it as the design.
 """
 
 from __future__ import annotations
@@ -30,11 +38,11 @@ class Decomposer(Protocol):
 decomposer_registry: Registry[Decomposer] = Registry("decomposer")
 
 
-def get_decomposer(name: str = "gazetteer", **kwargs) -> Decomposer:
+def get_decomposer(name: str = "llm", **kwargs) -> Decomposer:
     return decomposer_registry.create(name, **kwargs)
 
 
-def decompose(query: str, service: str = "safety", backend: str = "gazetteer") -> Decomposition:
+def decompose(query: str, service: str = "safety", backend: str = "llm") -> Decomposition:
     """Convenience: run Stage 1 with the named backend."""
     return get_decomposer(backend).decompose(query, get_service(service))
 
@@ -48,13 +56,15 @@ _STOP = {"the", "a", "an", "of", "in", "for", "and", "or", "with", "after", "to"
 
 
 class GazetteerDecomposer:
-    """Offline Stage-1 backend.
+    """OFFLINE TEST/EVAL DOUBLE for Stage 1 — not the production decomposer.
 
     Two detection passes against the taxonomy CSVs: an exact preferred-label pass
     (high precision), then an optional fuzzy pass over the leftover spans so
     misspelled entities ('suntinib' -> Sunitinib) are still detected rather than
-    silently dropped. Synonyms not present in the CSVs (e.g. 'homo sapiens') still
-    need the TERMite backend.
+    silently dropped. It uses vocab to decompose (which the production `llm`
+    decomposer must not), so it exists only to let the test suite and per-stage
+    evaluation run without an LLM. Synonym resolution ('homo sapiens') needs the
+    TERMite enhancer.
     """
 
     def __init__(self, fuzzy: bool = True, fuzzy_cutoff: float = 82.0) -> None:
@@ -92,7 +102,7 @@ class GazetteerDecomposer:
             for _, _, fieldname, hit_name, source in accepted
         ]
 
-        _group_effects(comps, lower)
+        _group_multi_value(comps, lower)
         _detect_sex(query, service, comps)
         _detect_preclinical(query, service, comps)
         _detect_year(query, service, comps)
@@ -161,12 +171,23 @@ decomposer_registry.add("gazetteer", lambda **kw: GazetteerDecomposer(**kw))
 # ---------------------------------------------------------------------------
 # Shared detectors (used by gazetteer and termite backends)
 # ---------------------------------------------------------------------------
-def _group_effects(comps: list[Component], lower: str) -> None:
-    eff = [c for c in comps if c.field == "effects"]
-    if len(eff) > 1:
-        op = BooleanOp.AND if re.search(r"\band\b", lower) and " or " not in lower else BooleanOp.OR
-        for c in eff:
-            c.boolean_group = BooleanGroup(id="effects-group", op=op)
+def _group_multi_value(comps: list[Component], lower: str) -> None:
+    """Group several values of the same field under one boolean operator.
+
+    'liver disorders or kidney damage' and 'rats or mice' -> an OR group on that
+    field; an explicit 'and' with no 'or' -> AND. Applied per field independently
+    so each multi-valued field (effects, species, drugs, …) is combined, not just
+    effects. Stage 3 turns each group into a nested OR/AND constraint.
+    """
+    op = BooleanOp.AND if re.search(r"\band\b", lower) and " or " not in lower else BooleanOp.OR
+    by_field: dict[str, list[Component]] = {}
+    for c in comps:
+        if c.type is ComponentType.FILTER:
+            by_field.setdefault(c.field, []).append(c)
+    for fieldname, members in by_field.items():
+        if len(members) > 1:
+            for c in members:
+                c.boolean_group = BooleanGroup(id=f"{fieldname}-group", op=op)
 
 
 def _detect_sex(query, service: ServiceConfig, comps):
@@ -239,41 +260,31 @@ def _detect_questions(lower: str, service: ServiceConfig, comps):
 
 
 # ---------------------------------------------------------------------------
-# LLM (LangChain structured output) decomposer — lazy, optional deps
+# LLM decomposer (default) — structured output, vocab-free, decompose-only
 # ---------------------------------------------------------------------------
-class LangChainDecomposer:
-    """Structured-output decomposition (docs prefer structured output).
+class LLMDecomposer:
+    """Split the query into single-field components with an LLM. No vocab.
 
-    Requires the `llm` extra and credentials in .env. Falls back to nothing here;
-    instantiation raises a clear error if deps/keys are missing.
+    The model only segments the question — it copies the user's own words into
+    each fragment and never normalizes, corrects, expands, or invents values, and
+    never consults a controlled vocabulary (that is translation's job). Lazy: the
+    chat model is built on first use, so importing this stage needs no creds.
     """
 
     def __init__(self, model: str | None = None) -> None:
-        from oppp.config import get_settings, load_dotenv_if_present
+        self._model = model
+        self._structured = None  # built lazily via oppp.llm
 
-        load_dotenv_if_present()
-        s = get_settings()
-        if not (s.portkey_api_key and s.portkey_endpoint):
-            raise RuntimeError(
-                "LLM decomposer needs PORTKEY_* settings in .env (the gazetteer "
-                "backend runs offline)."
-            )
-        try:
-            from langchain_openai import ChatOpenAI
-        except ImportError as e:  # pragma: no cover
-            raise RuntimeError("install the 'llm' extra: pip install 'oppp[llm]'") from e
+    def _get(self):
+        if self._structured is None:
+            from oppp.llm import structured
 
-        self._llm = ChatOpenAI(
-            api_key=s.portkey_api_key,
-            base_url=s.portkey_endpoint,
-            model=f"{s.portkey_provider}/{model or s.tool_model}",
-            temperature=0,
-        )
+            self._structured = structured(Decomposition, model=self._model)
+        return self._structured
 
     def decompose(self, query: str, service: ServiceConfig) -> Decomposition:
-        structured = self._llm.with_structured_output(Decomposition)
         prompt = self._build_prompt(query, service)
-        result: Decomposition = structured.invoke(prompt)  # type: ignore[assignment]
+        result: Decomposition = self._get().invoke(prompt)  # type: ignore[assignment]
         result.query = query
         result.service = service.name
         return result
@@ -281,106 +292,23 @@ class LangChainDecomposer:
     def _build_prompt(self, query: str, service: ServiceConfig) -> str:
         fields = ", ".join(service.fields)
         return (
-            "Decompose the pharmacology question into single-field components.\n"
-            f"Available fields: {fields}\n"
-            "For each component set: field, nl_fragment, type (filter|question), "
-            "a one-sentence reason, and source. 'filter' constrains retrieval; "
-            "'question' is answered over the results.\n\n"
+            "You decompose a pharmacology question into single-field components. "
+            "This is ONLY segmentation — you split, you do not resolve.\n\n"
+            "Hard rules:\n"
+            "- Copy the user's own words verbatim into nl_fragment. Do NOT normalize, "
+            "correct spelling, translate synonyms, expand abbreviations, or invent values.\n"
+            "- Do NOT use any controlled vocabulary or guess canonical labels; grounding "
+            "to real values happens in a later stage.\n"
+            "- One component per single-field idea. If a field has several values joined "
+            "by 'and'/'or' (e.g. 'rats or mice'), emit one component per value and put them "
+            "in the same boolean_group with the matching op (OR for 'or', AND for 'and').\n"
+            "- type='filter' constrains retrieval; type='question' is what the user wants "
+            "reported over the results.\n"
+            "- If a square-bracketed '[Recognized entities ...]' hint block is present, you "
+            "may use it to choose the right field, but still copy the user's surface words.\n\n"
+            f"Available fields: {fields}\n\n"
             f"Question: {query}"
         )
 
 
-decomposer_registry.add("llm", lambda **kw: LangChainDecomposer(**kw))
-
-
-# ---------------------------------------------------------------------------
-# TERMite (SciBite NER) decomposer — the design's intended Stage-1 seeder
-# ---------------------------------------------------------------------------
-# PP TERMite vocabulary id -> the entity type used in ServiceConfig.termite_type_map.
-TERMITE_VOCAB_TO_TYPE = {
-    "PP_DRUG": "DRUG",
-    "PP_AE": "ADVERSE_EVENT",
-    "PP_TOX": "TOXICITY_PARAMETER",
-    "PP_SPECIES": "SPECIES",
-    "PP_ROUTE": "ROUTE",
-    "PP_INDICATION": "INDICATION",
-    "PP_TARGET": "TARGET",
-    "PP_PK": "PARAMETER",
-    "PP_AGE": "AGE",
-}
-
-
-class TermiteDecomposer:
-    """Annotate entities with SciBite TERMite, then map them to fields.
-
-    TERMite resolves synonyms, brand names, and variants to preferred labels
-    (e.g. 'homo sapiens' -> Human, 'Columvi' -> Glofitamab) which the offline
-    gazetteer cannot. Unclaimed spans + patterns/questions fall back to the
-    gazetteer so recall is preserved.
-
-    Needs the SciBite toolkit and TERMITE_* credentials in .env (lazy, like the
-    'llm' backend).
-    """
-
-    def __init__(self, fallback: bool = True, fuzzy_fallback: bool = True) -> None:
-        from oppp.config import get_settings, load_dotenv_if_present
-
-        load_dotenv_if_present()
-        s = get_settings()
-        if not (s.termite_home and s.termite_client_name and s.termite_client_secret):
-            raise RuntimeError(
-                "termite decomposer needs TERMITE_HOME/AUTH_URL/CLIENT_NAME/"
-                "CLIENT_SECRET in .env (the gazetteer backend runs offline)."
-            )
-        try:
-            from scibite_toolkit import termite7
-        except ImportError as e:  # pragma: no cover
-            raise RuntimeError(
-                "install the SciBite toolkit to use the termite backend"
-            ) from e
-
-        self._builder_factory = termite7.Termite7RequestBuilder
-        self._cfg = s
-        self._fallback = GazetteerDecomposer(fuzzy=fuzzy_fallback) if fallback else None
-
-    def _annotate(self, query: str, vocabs: list[str]):
-        b = self._builder_factory()
-        b.set_token_url(self._cfg.termite_auth_url)
-        b.set_url(self._cfg.termite_home)
-        b.set_oauth2(self._cfg.termite_client_name, self._cfg.termite_client_secret)
-        return b.annotate_text(text=query, vocabulary=vocabs)
-
-    def decompose(self, query: str, service: ServiceConfig) -> Decomposition:
-        vocabs = list(TERMITE_VOCAB_TO_TYPE)
-        annotation = self._annotate(query, vocabs)
-
-        comps: list[Component] = []
-        for group in (annotation or {}).get("included", []) or []:
-            for ent in group.get("entities", []) or []:
-                vocab = ent.get("vocabularyId")
-                etype = TERMITE_VOCAB_TO_TYPE.get(vocab)
-                field_name = service.termite_type_map.get(etype) if etype else None
-                if not field_name or field_name not in service.fields:
-                    continue
-                name = ent.get("name", "").strip()
-                if not name:
-                    continue
-                comps.append(Component(
-                    field=field_name, nl_fragment=name, type=ComponentType.FILTER,
-                    reason=f"TERMite annotated {name!r} as {etype} -> {field_name}.",
-                    source=f"termite:{vocab}",
-                ))
-
-        # Fill gaps (unmatched closed/open fields, patterns, questions) with the gazetteer.
-        if self._fallback is not None:
-            existing = {(c.field, c.nl_fragment.lower()) for c in comps}
-            for g in self._fallback.decompose(query, service).components:
-                if (g.field, g.nl_fragment.lower()) not in existing:
-                    comps.append(g)
-
-        _group_effects(comps, query.lower())
-        _detect_questions(query.lower(), service, comps)
-        return Decomposition(query=query, service=service.name, components=comps)
-
-
-decomposer_registry.add("termite", lambda **kw: TermiteDecomposer(**kw))
+decomposer_registry.add("llm", lambda **kw: LLMDecomposer(**kw))

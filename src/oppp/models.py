@@ -106,6 +106,58 @@ class TermSelection(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Stage 0 — enhancement (optional, pre-decomposition)
+# ---------------------------------------------------------------------------
+class EntityAnnotation(BaseModel):
+    """One entity the enhancer (e.g. TERMite) recognized in the raw query."""
+
+    surface: str  # span as it appears in the query
+    label: str  # preferred/normalized label
+    entity_type: str | None = None  # e.g. DRUG | SPECIES | ADVERSE_EVENT
+
+
+class EnhancedQuery(BaseModel):
+    """Output of the optional Stage-0 enhancer.
+
+    ``text`` is the query the decomposer should read (unchanged for the no-op
+    enhancer; possibly annotated with a hints block by TERMite). ``annotations``
+    carries the structured recognitions for auditing and as decomposer hints.
+    """
+
+    text: str
+    annotations: list[EntityAnnotation] = Field(default_factory=list)
+    source: str = "noop"
+
+
+# ---------------------------------------------------------------------------
+# Stage 3 — aggregation plan (LLM-decided boolean structure)
+# ---------------------------------------------------------------------------
+class FieldCombine(BaseModel):
+    """How to combine the (possibly multiple) values of one field."""
+
+    field: str
+    op: BooleanOp = BooleanOp.OR  # OR within a field by default
+    negate: bool = False  # wrap the field's constraint in NOT
+
+
+class AggregationPlan(BaseModel):
+    """LLM-decided global combination logic for the machine query (Stage 3).
+
+    The model sees the decomposition (the user's intent) plus every machine
+    subquery and decides only the *structure*: how to combine values within each
+    field and how to combine fields together. Concrete constraint JSON is still
+    rendered (and validated) deterministically from this plan, so the output is
+    always a legal query.
+    """
+
+    top_op: BooleanOp = BooleanOp.AND  # how to combine the per-field constraints
+    fields: list[FieldCombine] = Field(default_factory=list)
+    facets: list[str] = Field(default_factory=list)
+    display_columns: list[str] = Field(default_factory=list)
+    reason: str = ""
+
+
+# ---------------------------------------------------------------------------
 # Stage 2 output
 # ---------------------------------------------------------------------------
 class MachineSubquery(BaseModel):
@@ -185,6 +237,7 @@ class PipelineResult(BaseModel):
 
     query: str
     service: str
+    enhanced: EnhancedQuery | None = None
     decomposition: Decomposition
     subqueries: list[MachineSubquery] = Field(default_factory=list)
     machine_query: MachineQuery | None = None

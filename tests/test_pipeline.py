@@ -4,8 +4,20 @@ from oppp.services.base import get_service
 from oppp.stages.aggregate import validate
 
 
+def run_offline(query, **kw):
+    """Run the pipeline with the hermetic offline doubles (no LLM/network).
+
+    The production defaults are llm-based; tests pin the gazetteer decomposer and
+    deterministic aggregator so the suite exercises Stage 2/3 logic without creds.
+    """
+    kw.setdefault("decomposer", "gazetteer")
+    kw.setdefault("translator", "deterministic")
+    kw.setdefault("aggregator", "deterministic")
+    return run_pipeline(query, **kw)
+
+
 def test_simple_drug_species_query():
-    r = run_pipeline("What are the ADRs of Sunitinib in human", normalizer="fuzzy")
+    r = run_offline("What are the ADRs of Sunitinib in human", normalizer="fuzzy")
     assert r.ok
     fields = {c.field for c in r.decomposition.filters}
     assert {"drugs", "species"} <= fields
@@ -21,12 +33,25 @@ def test_simple_drug_species_query():
 def test_boolean_or_within_effects():
     q = ("What are the drug causing neutropenia or Thrombocytopenia in human, "
          "at which dose, dosing regimen and route?")
-    r = run_pipeline(q, normalizer="fuzzy")
+    r = run_offline(q, normalizer="fuzzy")
     assert r.ok
     payload = r.machine_query.to_payload()
     # OR group over two effects MATCHes
     assert '"OR"' in str(payload).replace("'", '"')
     assert "displayColumns" in payload and "dose" in payload["displayColumns"]
+
+
+def test_irregular_plural_species_and_or_group():
+    # "mice" (irregular plural) must resolve to Mouse, and "rats or mice" must
+    # combine into an OR group on the species field.
+    r = run_offline("Does abemaciclib cause liver disorders in rats or mice?")
+    assert r.ok
+    species = [s for s in r.subqueries if s.field == "species"]
+    names = {s.value for s in species}
+    assert names == {"Rat", "Mouse"}
+    assert all(s.boolean_group and s.boolean_group.op.value == "OR" for s in species)
+    payload_str = str(r.machine_query.to_payload()).replace("'", '"')
+    assert '"OR"' in payload_str
 
 
 def test_misspelled_drug_corrected_in_stage2():
@@ -45,7 +70,7 @@ def test_misspelled_drug_corrected_in_stage2():
 
 def test_fuzzy_gazetteer_recovers_misspelled_drug():
     # Stage 1 must DETECT a misspelled drug (not just correct an already-routed one).
-    r = run_pipeline("ADRs of suntinib in human", normalizer="fuzzy")
+    r = run_offline("ADRs of suntinib in human", normalizer="fuzzy")
     drugs = [c for c in r.decomposition.filters if c.field == "drugs"]
     assert drugs and drugs[0].nl_fragment == "Sunitinib"
     assert drugs[0].source == "gazetteer-fuzzy:drugs"
@@ -53,7 +78,7 @@ def test_fuzzy_gazetteer_recovers_misspelled_drug():
 
 def test_fuzzy_gazetteer_no_false_positives():
     # 'related' / 'maternal toxicity' must NOT be fuzzy-matched to doseType/effects.
-    r = run_pipeline(
+    r = run_offline(
         "What is the NOAEL for sunitinib in rats related to maternal toxicity",
         normalizer="fuzzy",
     )
@@ -67,7 +92,7 @@ def test_fuzzy_gazetteer_no_false_positives():
 
 def test_meddra_rollup_expands_effect_to_family():
     # 'neutropenia' must roll up to its MedDRA family (parent 'Neutropenias').
-    r = run_pipeline("drugs causing neutropenia in human", normalizer="fuzzy")
+    r = run_offline("drugs causing neutropenia in human", normalizer="fuzzy")
     eff = [s for s in r.subqueries if s.field == "effects"]
     assert eff and isinstance(eff[0].value, list)
     assert {"Neutropenia", "Agranulocytosis", "Febrile neutropenia"} <= set(eff[0].value)
@@ -79,7 +104,7 @@ def test_budget_guard_collapses_oversized_rollup():
     # the guard must collapse one back to its canonical term and stay valid.
     from oppp.stages.aggregate import MAX_CONSTRAINTS
 
-    r = run_pipeline(
+    r = run_offline(
         "drugs causing neutropenia and cytopenia in human", normalizer="fuzzy"
     )
     total = sum(s.value_count() for s in r.subqueries)
@@ -89,7 +114,7 @@ def test_budget_guard_collapses_oversized_rollup():
 
 
 def test_year_range():
-    r = run_pipeline("adverse events for tolvaptan in human after 2020", normalizer="fuzzy")
+    r = run_offline("adverse events for tolvaptan in human after 2020", normalizer="fuzzy")
     flat = str(r.machine_query.to_payload())
     assert "RANGE" in flat and "2020" in flat
 
