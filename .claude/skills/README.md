@@ -54,6 +54,14 @@ the only coupling; a skill never calls the next one except where noted
 > nothing else (no specs, no code, no config). After a `docs` change, run
 > `/technical` to propagate the new intent down the chain.
 
+> Standalone note: `issue` is **not** part of the forward chain either. It is the
+> human-in-the-loop bug-repair loop: when you find a defect by testing the running
+> system yourself, `/issue <what broke>` diagnoses and fixes it in the code, verifies
+> it (Quality Gates + reproduction), then **asks you to confirm it is truly fixed**.
+> Only once you confirm does it hand off to `/docs` (`EXECUTE_COMMAND: docs …`) so the
+> documentation reflects the corrected behaviour. It writes code/tests/env-template,
+> never runs git, and never auto-runs `/docs` without your confirmation.
+
 > Path note: the skills declare short default artefact paths
 > (`specs/product.md`, `specs/technical.md`, `specs/evaluation.md`) in each skill's
 > `argument-hint` and body — **not** in front-matter (which holds only

@@ -31,3 +31,6 @@ htmlcov/
 .idea/
 .vscode/
 .DS_Store
+
+# Generated evaluation reports (oppp eval --output)
+report/

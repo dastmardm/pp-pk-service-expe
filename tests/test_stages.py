@@ -94,3 +94,31 @@ def test_aggregator_deterministic_builds_or_group():
     mq, issues = get_aggregator("deterministic").aggregate(decomp, subs, SVC)
     assert not any(i.level == "error" for i in issues)
     assert "OR" in str(mq.query)
+
+
+def test_translate_preclinical_species_curated_expansion():
+    # "preclinical species" is a curated concept (no single taxonomy node): it must
+    # expand to grounded member species, never pass through as the raw, invented
+    # value (CONST-1). Substring-matched, so LLM phrasings resolve too. Regression
+    # for the case-7 eval bug.
+    for frag in ("preclinical species", "at least one preclinical species", "non-clinical species"):
+        comp = Component(field="species", nl_fragment=frag, type=ComponentType.FILTER, reason="x")
+        sq = translate_one(comp, "safety", "noop", llm_select=False)
+        values = sq.value if isinstance(sq.value, list) else [sq.value]
+        assert sq.grounding is not None and sq.grounding.expanded_from == "curated", frag
+        assert frag not in values
+        assert {"Rat", "Mouse", "Dog"}.issubset(set(values)), frag
+
+
+def test_translate_ispreclinical_boolean_true_on_preclinical_phrasings():
+    for frag, expected in [
+        ("at least one preclinical species", True),
+        ("preclinical", True),
+        ("yes", True),
+        ("clinical only", False),
+    ]:
+        comp = Component(
+            field="isPreclinical", nl_fragment=frag, type=ComponentType.FILTER, reason="x"
+        )
+        sq = translate_one(comp, "safety", "noop", llm_select=False)
+        assert sq.value is expected, (frag, sq.value)

@@ -23,7 +23,8 @@ llm = [
 ]
 ui = ["streamlit>=1.36"]
 viz = ["matplotlib>=3.7"]  # `oppp dag` PNG export (pure-pip; no system Graphviz)
-dev = ["ruff>=0.5", "pytest>=8.0"]
+report = ["openpyxl>=3.1"]  # `oppp eval --output report.xlsx` Excel export (lazy)
+dev = ["ruff>=0.5", "pytest>=8.0", "openpyxl>=3.1"]
 
 [project.scripts]
 oppp = "oppp.cli:app"

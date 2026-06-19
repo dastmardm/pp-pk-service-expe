@@ -25,6 +25,9 @@ class FieldSpec:
     facetable: bool = False
     display_column: str | None = None  # response column for displayColumns
     rollup_to_siblings: bool = False  # MedDRA-style: leaf -> parent's children
+    # Curated concepts with no single taxonomy node (e.g. "preclinical species"):
+    # alias (lowercased) -> the member terms to expand to (resolved against the CSV).
+    curated: dict[str, list[str]] = field(default_factory=dict)
 
     @property
     def emit_field(self) -> str:

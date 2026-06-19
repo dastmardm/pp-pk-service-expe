@@ -47,7 +47,13 @@ class FuzzyNormalizer:
             return NormalizationResult(normalized=fragment, changed=False)
 
         index = get_index(taxonomy)
-        if index.get_exact(fragment) is not None:
+        # Never "correct" a fragment that already resolves in the vocabulary — an
+        # exact name, a plural of one, OR a class/rollup node (e.g. "rodent", whose
+        # node is the parent_name "Rodent", not a leaf row). Without the class/plural
+        # guard, fuzzy WRatio over-scored a short fragment that is merely a SUBSTRING
+        # of an unrelated entry and rewrote the valid class "rodent" to the opposite
+        # term "Not-rodent (unspecified)", breaking Stage-2 class expansion.
+        if index.contains(fragment) is not None or index.is_class(fragment):
             return NormalizationResult(normalized=fragment, changed=False, confidence=1.0)
 
         hits = index.lookup(fragment, match="fuzzy", limit=5, cutoff=70.0)

@@ -27,6 +27,7 @@ Current uses:
 |----------------|-----------|--------|
 | `fix` | `EXECUTE_COMMAND: evaluation` | re-audits after repairs (the only built-in loop) |
 | `critique` | `EXECUTE_COMMAND: fix specs/critique/report{NN}.md` | hands code-level findings to `/fix` |
+| `issue` | `EXECUTE_COMMAND: docs <change>` | reflects a fixed defect into the docs — emitted **only after** the user confirms the fix (the confirmation is a human checkpoint; the directive fires on the turn after it passes) |
 
 Skills that hand off to a **human checkpoint** (e.g. `/technical` after a docs
 clarification, `/evaluation` before `/fix`) use prose (`Next step: …`) instead,

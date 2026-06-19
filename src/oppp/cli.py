@@ -248,21 +248,24 @@ def dag(
 @app.command(name="eval")
 def eval_cmd(
     service: str = "safety",
-    enhancer: str = typer.Option("noop", help="Stage 0 enhancer."),
-    decomposer: str = typer.Option("gazetteer", help="Stage 1 (offline default for cheap eval)."),
-    translator: str = typer.Option(
-        "deterministic", help="Stage 2 (offline default for cheap eval)."
-    ),
-    aggregator: str = typer.Option(
-        "deterministic", help="Stage 3 (offline default for cheap eval)."
-    ),
+    enhancer: str = typer.Option("termite", help="Stage 0 enhancer (default: termite)."),
+    decomposer: str = typer.Option("llm", help="Stage 1 decomposer (default: llm)."),
+    translator: str = typer.Option("tool", help="Stage 2 translator (default: tool)."),
+    aggregator: str = typer.Option("llm", help="Stage 3 aggregator (default: llm)."),
     normalizer: str = "fuzzy",
     tolerance: float = typer.Option(0.10, help="Within-tolerance band for count match."),
     execute: bool = typer.Option(True, help="Execute queries against the API to get counts."),
     limit: int = typer.Option(0, help="0 = all gold cases."),
     show_cases: bool = typer.Option(False, help="Print per-case expected vs actual counts."),
+    output: str = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Write the report (params + summary on top, then cases). Default .xlsx "
+        "(needs the 'report' extra); .csv also supported.",
+    ),
 ):
-    """Evaluate against the SME gold set by expected result count (column `s`)."""
+    """Evaluate against the per-step gold set (docs/sme_stage_cases.csv) by `counts`."""
     report = evaluate(
         service=service,
         enhancer=enhancer,
@@ -288,6 +291,26 @@ def eval_cmd(
                 f"  {c.query_number:>3}        {str(c.expected):>7}  {str(c.actual):>7}   "
                 f"{'Y' if c.ok else 'N'}   {note[:50]}"
             )
+
+    if output:
+        from oppp.eval.harness import write_report
+
+        run_config = {
+            "service": service,
+            "enhancer": enhancer,
+            "decomposer": decomposer,
+            "translator": translator,
+            "aggregator": aggregator,
+            "normalizer": normalizer,
+            "execute": execute,
+            "limit": limit,
+        }
+        try:
+            written = write_report(report, output, run_config=run_config)
+        except (ValueError, RuntimeError) as e:
+            typer.echo(f"\nCould not write report: {e}")
+            raise typer.Exit(1) from e
+        typer.echo(f"\nWrote report to {written}")
 
 
 if __name__ == "__main__":

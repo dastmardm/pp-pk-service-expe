@@ -92,7 +92,7 @@ if st.button("Translate", type="primary") and query.strip():
                 {"surface": a.surface, "label": a.label, "type": a.entity_type or ""}
                 for a in enhanced.annotations
             ],
-            use_container_width=True,
+            width="stretch",
         )
     else:
         st.caption(f"enhancer={enhancer}: query passed through unchanged (no annotations).")
@@ -112,7 +112,7 @@ if st.button("Translate", type="primary") and query.strip():
                 }
                 for c in result.decomposition.components
             ],
-            use_container_width=True,
+            width="stretch",
         )
         st.subheader("Stage 2 — machine subqueries")
         for sq in result.subqueries:
