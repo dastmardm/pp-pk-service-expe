@@ -42,13 +42,15 @@ doubles skip LLM calls, not the API — add `--no-execute` to skip the API too.)
 
 | Stage | Job | Backends (default in **bold**) | Run alone |
 |-------|-----|--------------------------------|-----------|
-| 0 Enhance *(optional)* | normalize entities in the raw query | **`noop`**, `termite` | `oppp enhance` |
+| 0 Enhance *(optional)* | normalize entities in the raw query | **`termite`**, `noop` (offline) | `oppp enhance` |
 | 1 Decompose | split into single-field components — **no vocab, no guessing** | **`llm`**, `gazetteer` (offline double) | `oppp decompose` |
 | 2 Translate | ground each field via its taxonomy tool(s) | **`tool`** (LLM term-select), `deterministic` (offline double) | `oppp field` |
 | 3 Aggregate | assemble the global boolean query | **`llm`**, `deterministic` (offline double) | `oppp aggregate` |
 
-For an LLM-free run pin the doubles
-(`--decomposer gazetteer --translator deterministic --aggregator deterministic`);
+The defaults match `oppp eval` (termite enhance · llm decompose · tool translate ·
+llm aggregate · fuzzy normalize). For an LLM-free run pin the doubles and disable
+the enhancer
+(`--enhancer noop --decomposer gazetteer --translator deterministic --aggregator deterministic`);
 add `--no-execute` to also skip the API and stay fully offline.
 
 ![Agent component DAG](agent-dag.png)
@@ -69,21 +71,22 @@ backends need the `llm` extra: `pip install -e '.[llm]'` + `.env` creds).
 | `oppp enhance "<question>"` | **Stage 0 only** — show the enhanced query + entity annotations. |
 | `oppp decompose "<question>"` | **Stage 1 only** — show the per-field components as JSON. |
 | `oppp field <field> "<fragment>"` | **Stage 2 only** — translate a single field fragment to a machine subquery. |
-| `oppp aggregate "<question>"` | **Stage 3 only** — decompose+translate (offline), then aggregate with the chosen backend. |
+| `oppp aggregate "<question>"` | **Stage 3 only** — decompose+translate, then aggregate with the chosen backend. |
 | `oppp lookup <taxonomy> "<term>"` | Inspect the **grounding layer** — look a term up in a taxonomy CSV. |
 | `oppp services` | List configured services and their fields. |
 | `oppp eval` | Evaluate against the SME gold set by expected result count. |
 
 ```bash
-# Full pipeline (production defaults: llm decompose + tool translate + llm aggregate)
+# Full pipeline (defaults match `oppp eval`: termite enhance + llm decompose +
+# tool translate + llm aggregate + fuzzy normalize)
 oppp run "adverse effects of sunitinib in humans"
 
-# Fully offline run (no LLM), pinning the doubles
+# Fully offline run (no LLM), disabling the enhancer and pinning the doubles
 oppp run "adverse effects of sunitinib in humans" \
-  --decomposer gazetteer --translator deterministic --aggregator deterministic
+  --enhancer noop --decomposer gazetteer --translator deterministic --aggregator deterministic
 
-# Optional TERMite enhancer before decomposition
-oppp run "<question>" --enhancer termite
+# Disable the TERMite enhancer (Stage 0 defaults to termite)
+oppp run "<question>" --enhancer noop
 
 # Print only the API payload JSON, or POST it to get countTotal
 oppp run "<question>" --payload-only

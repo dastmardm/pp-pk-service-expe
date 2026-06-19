@@ -120,7 +120,7 @@ src/oppp/
   models/               # pydantic contracts (component, subquery, machine query)
   pipeline/
     graph.py            # langgraph wiring of the stages
-    stage0_enhance.py   # optional enhancer (noop default, termite opt-in)
+    stage0_enhance.py   # optional enhancer (termite default, noop opt-out)
     stage1_decompose.py # dspy module (vocab-free)
     stage2_translate/   # per-field translators (pluggable, registered)
     stage2_lookup/      # csv lookup tools + hierarchy expansion

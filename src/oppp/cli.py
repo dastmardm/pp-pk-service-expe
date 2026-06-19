@@ -26,13 +26,13 @@ app = typer.Typer(no_args_is_help=True, help="Decomposed NL -> machine-query tra
 def run(
     query: str = typer.Argument(None, help="The NL question (omit when using --case)."),
     service: str = "safety",
-    enhancer: str = typer.Option("noop", help="Stage 0 enhancer: noop | termite."),
+    enhancer: str = typer.Option("termite", help="Stage 0 enhancer: noop | termite."),
     decomposer: str = typer.Option("llm", help="Stage 1 decomposer: llm | gazetteer (offline)."),
     translator: str = typer.Option("tool", help="Stage 2 translator."),
     aggregator: str = typer.Option(
         "llm", help="Stage 3 aggregator: llm | deterministic (offline)."
     ),
-    normalizer: str = "noop",
+    normalizer: str = "fuzzy",
     case: int = typer.Option(
         None, "--case", help="Load the question from the SME gold set by query_number."
     ),
@@ -146,7 +146,7 @@ def run(
 
 
 @app.command()
-def enhance(query: str, service: str = "safety", backend: str = "noop"):
+def enhance(query: str, service: str = "safety", backend: str = "termite"):
     """Stage 0 only: show the enhanced query + entity annotations."""
     e = run_enhance(query, service, backend)
     typer.echo(json.dumps(e.model_dump(mode="json"), indent=2, ensure_ascii=False))
@@ -164,13 +164,15 @@ def aggregate(
     query: str,
     service: str = "safety",
     backend: str = typer.Option("llm", help="Aggregator: llm | deterministic."),
-    decomposer: str = "gazetteer",
-    translator: str = "deterministic",
-    normalizer: str = "noop",
+    decomposer: str = "llm",
+    translator: str = "tool",
+    normalizer: str = "fuzzy",
 ):
-    """Stage 3 only: decompose+translate (offline by default), then aggregate.
+    """Stage 3 only: decompose+translate, then aggregate.
 
     Isolates the aggregator: hold the upstream stages fixed and compare backends.
+    Defaults match `oppp eval` (llm / tool); pass the offline doubles
+    (--decomposer gazetteer --translator deterministic) to run hermetically.
     """
     from oppp.stages.decompose import get_decomposer
     from oppp.stages.translate import get_translator

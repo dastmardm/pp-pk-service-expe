@@ -11,8 +11,8 @@ behind lazy imports and optional extras.
 | Pydantic contracts | [models.py](../../src/oppp/models.py) | `EnhancedQuery`, `Component` (`type` filter/question + `reason`), `MachineSubquery`, `MachineQuery`, grounding, validation. |
 | Pluggable registry | [registry.py](../../src/oppp/registry.py) | Every step resolved by name from config. |
 | Taxonomy grounding | [taxonomy/index.py](../../src/oppp/taxonomy/index.py) | CSV load, exact + fuzzy (rapidfuzz) lookup, class→members hierarchy expansion, gazetteer membership. |
-| Misspelling normalizer | [normalize/](../../src/oppp/normalize/) | `noop` (default) + `fuzzy`; conservative on open fields. |
-| Stage 0 — enhance | [stages/enhance.py](../../src/oppp/stages/enhance.py) | `noop` (default, offline) + `termite` (SciBite NER, lazy) — prepends a recognized-entities hints block. Optional. |
+| Misspelling normalizer | [normalize/](../../src/oppp/normalize/) | `fuzzy` (default) + `noop`; conservative on open fields. |
+| Stage 0 — enhance | [stages/enhance.py](../../src/oppp/stages/enhance.py) | `termite` (default; SciBite NER, lazy) + `noop` (offline) — prepends a recognized-entities hints block. Optional. |
 | Stage 1 — decompose | [stages/decompose.py](../../src/oppp/stages/decompose.py) | `llm` (LangChain structured output, lazy; **vocab-free**) + `gazetteer` (offline double; exact **+ fuzzy** taxonomy detection). |
 | Stage 2 — translate | [stages/translate.py](../../src/oppp/stages/translate.py) | closed-vocab grounding + expansion, open→REGEX, enum, boolean, year→RANGE. |
 | Stage 3 — aggregate | [stages/aggregate.py](../../src/oppp/stages/aggregate.py) | boolean tree, entityFilters routing, facets/displayColumns, validation, service invariants hook. |
