@@ -51,8 +51,11 @@ def test_decompose_gazetteer_isolated():
 
 def test_translate_one_closed_field_isolated():
     comp = Component(
-        field="species", nl_fragment="mice", type=ComponentType.FILTER,
-        reason="isolated", source="test",
+        field="species",
+        nl_fragment="mice",
+        type=ComponentType.FILTER,
+        reason="isolated",
+        source="test",
     )
     sq = translate_one(comp, "safety", "noop")
     assert sq is not None and sq.value == "Mouse"
@@ -63,12 +66,30 @@ def test_aggregator_deterministic_builds_or_group():
     decomp = Decomposition(query="rats or mice", service="safety", components=[])
     grp = BooleanGroup(id="species-group", op=BooleanOp.OR)
     subs = [
-        translate_one(Component(field="species", nl_fragment="rats",
-                                type=ComponentType.FILTER, reason="x", source="t",
-                                boolean_group=grp), "safety", "noop"),
-        translate_one(Component(field="species", nl_fragment="mice",
-                                type=ComponentType.FILTER, reason="x", source="t",
-                                boolean_group=grp), "safety", "noop"),
+        translate_one(
+            Component(
+                field="species",
+                nl_fragment="rats",
+                type=ComponentType.FILTER,
+                reason="x",
+                source="t",
+                boolean_group=grp,
+            ),
+            "safety",
+            "noop",
+        ),
+        translate_one(
+            Component(
+                field="species",
+                nl_fragment="mice",
+                type=ComponentType.FILTER,
+                reason="x",
+                source="t",
+                boolean_group=grp,
+            ),
+            "safety",
+            "noop",
+        ),
     ]
     mq, issues = get_aggregator("deterministic").aggregate(decomp, subs, SVC)
     assert not any(i.level == "error" for i in issues)

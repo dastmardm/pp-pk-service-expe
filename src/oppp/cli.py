@@ -29,14 +29,18 @@ def run(
     enhancer: str = typer.Option("noop", help="Stage 0 enhancer: noop | termite."),
     decomposer: str = typer.Option("llm", help="Stage 1 decomposer: llm | gazetteer (offline)."),
     translator: str = typer.Option("tool", help="Stage 2 translator."),
-    aggregator: str = typer.Option("llm", help="Stage 3 aggregator: llm | deterministic (offline)."),
+    aggregator: str = typer.Option(
+        "llm", help="Stage 3 aggregator: llm | deterministic (offline)."
+    ),
     normalizer: str = "noop",
     case: int = typer.Option(
         None, "--case", help="Load the question from the SME gold set by query_number."
     ),
     payload_only: bool = typer.Option(False, help="Print only the API payload JSON."),
     execute: bool = typer.Option(
-        True, "--execute/--no-execute", "-e/-E",
+        True,
+        "--execute/--no-execute",
+        "-e/-E",
         help="Execute against the API and report datapoints retrieved (on by default; --no-execute to skip).",
     ),
 ):
@@ -58,8 +62,13 @@ def run(
         raise typer.Exit(2)
 
     result = run_pipeline(
-        query, service, enhancer=enhancer, decomposer=decomposer,
-        translator=translator, aggregator=aggregator, normalizer=normalizer,
+        query,
+        service,
+        enhancer=enhancer,
+        decomposer=decomposer,
+        translator=translator,
+        aggregator=aggregator,
+        normalizer=normalizer,
     )
     if payload_only:
         typer.echo(json.dumps(result.machine_query.to_payload(), indent=2, ensure_ascii=False))
@@ -88,7 +97,7 @@ def run(
         typer.echo(f"  [{c.type.value:8}] {c.field:18} <- {c.nl_fragment!r}{bg}  ({c.source})")
         typer.echo(f"             reason: {c.reason}")
 
-    typer.echo("\n# Stage 2 — machine subqueries (+ grounding)")
+    typer.echo("\n# Stage 2 — translate subqueries (+ grounding)")
     for sq in result.subqueries:
         typer.echo(f"  {json.dumps(sq.to_constraint(), ensure_ascii=False)}")
         if sq.grounding and sq.grounding.matched:
@@ -96,7 +105,9 @@ def run(
             extra = len(sq.grounding.matched) - 8
             if extra > 0:
                 names += f", (+{extra} more)"
-            tag = f" expanded_from={sq.grounding.expanded_from}" if sq.grounding.expanded_from else ""
+            tag = (
+                f" expanded_from={sq.grounding.expanded_from}" if sq.grounding.expanded_from else ""
+            )
             typer.echo(f"      grounded[{sq.grounding.confidence:.2f}]{tag}: {names}")
         if sq.notes:
             typer.echo(f"      note: {sq.notes}")
@@ -193,8 +204,11 @@ def field(
     from oppp.models import Component, ComponentType
 
     comp = Component(
-        field=field_name, nl_fragment=fragment, type=ComponentType(component_type),
-        reason="cli-isolated", source="cli",
+        field=field_name,
+        nl_fragment=fragment,
+        type=ComponentType(component_type),
+        reason="cli-isolated",
+        source="cli",
     )
     sq = translate_one(comp, service, normalizer)
     typer.echo(json.dumps(sq.model_dump(mode="json") if sq else None, indent=2, ensure_ascii=False))
@@ -220,7 +234,9 @@ def services():
 
 @app.command()
 def dag(
-    out: str = typer.Option(None, "--out", "-o", help="Output PNG path (default: docs/agent-dag.png)."),
+    out: str = typer.Option(
+        None, "--out", "-o", help="Output PNG path (default: docs/agent-dag.png)."
+    ),
 ):
     """Export the agent's component DAG to a PNG (nodes=components, edges=relations)."""
     from oppp.dag import DEFAULT_OUT, render_png
@@ -234,8 +250,12 @@ def eval_cmd(
     service: str = "safety",
     enhancer: str = typer.Option("noop", help="Stage 0 enhancer."),
     decomposer: str = typer.Option("gazetteer", help="Stage 1 (offline default for cheap eval)."),
-    translator: str = typer.Option("deterministic", help="Stage 2 (offline default for cheap eval)."),
-    aggregator: str = typer.Option("deterministic", help="Stage 3 (offline default for cheap eval)."),
+    translator: str = typer.Option(
+        "deterministic", help="Stage 2 (offline default for cheap eval)."
+    ),
+    aggregator: str = typer.Option(
+        "deterministic", help="Stage 3 (offline default for cheap eval)."
+    ),
     normalizer: str = "fuzzy",
     tolerance: float = typer.Option(0.10, help="Within-tolerance band for count match."),
     execute: bool = typer.Option(True, help="Execute queries against the API to get counts."),
@@ -244,9 +264,15 @@ def eval_cmd(
 ):
     """Evaluate against the SME gold set by expected result count (column `s`)."""
     report = evaluate(
-        service=service, enhancer=enhancer, decomposer=decomposer,
-        translator=translator, aggregator=aggregator, normalizer=normalizer,
-        tolerance=tolerance, execute=execute, limit=limit or None,
+        service=service,
+        enhancer=enhancer,
+        decomposer=decomposer,
+        translator=translator,
+        aggregator=aggregator,
+        normalizer=normalizer,
+        tolerance=tolerance,
+        execute=execute,
+        limit=limit or None,
     )
     typer.echo(
         f"cases={len(report.cases)}  valid_rate={report.valid_rate:.2f}  "

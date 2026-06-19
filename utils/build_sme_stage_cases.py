@@ -16,7 +16,9 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "inputs" / "sme_stage_cases.csv"
+# Canonical per-step gold-set location is docs/ (CONTRACT-GOLD-PERSTEP); the
+# per-step harness (oppp.eval.per_step) reads the same path.
+OUT = ROOT / "docs" / "sme_stage_cases.csv"
 
 # Reusable effect expansions (verbatim from the SME source) ------------------
 NEUTRO = [

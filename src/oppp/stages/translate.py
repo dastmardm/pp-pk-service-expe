@@ -38,26 +38,42 @@ translator_registry: Registry[Translator] = Registry("translator")
 def get_translator(name: str = "tool", **kwargs) -> Translator:
     return translator_registry.create(name, **kwargs)
 
+
 # Open fields searched as free-text substrings rather than exact values.
 _REGEX_OPEN_FIELDS = {"studyGroup", "ages"}
 
 # Minimal synonym expansion for free-text study-group conditions (extensible).
 _STUDYGROUP_SYNONYMS: dict[str, list[str]] = {
     "hepatic impairment": [
-        "cirrhosis", "liver disease", "hepatic insufficiency", "hepatic impairment",
-        "liver impairment", "Child-Pugh B", "Child-Pugh C", "liver failure",
-        "hepatic failure", "liver insufficiency", "hepatic disease",
+        "cirrhosis",
+        "liver disease",
+        "hepatic insufficiency",
+        "hepatic impairment",
+        "liver impairment",
+        "Child-Pugh B",
+        "Child-Pugh C",
+        "liver failure",
+        "hepatic failure",
+        "liver insufficiency",
+        "hepatic disease",
     ],
     "renal impairment": [
-        "renal impairment", "renal insufficiency", "kidney disease", "renal failure",
-        "chronic kidney disease", "CKD",
+        "renal impairment",
+        "renal insufficiency",
+        "kidney disease",
+        "renal failure",
+        "chronic kidney disease",
+        "CKD",
     ],
 }
 
 
 def translate_one(
-    component: Component, service: str = "safety", normalizer: str = "noop",
-    *, llm_select: bool = False,
+    component: Component,
+    service: str = "safety",
+    normalizer: str = "noop",
+    *,
+    llm_select: bool = False,
 ) -> MachineSubquery | None:
     """Convenience wrapper resolving service + normalizer by name.
 
@@ -89,8 +105,11 @@ def translate_component(
 
     if spec is None:
         return MachineSubquery(
-            field=component.field, operator=Operator.MATCH, value=frag,
-            boolean_group=component.boolean_group, notes="no field spec; raw value",
+            field=component.field,
+            operator=Operator.MATCH,
+            value=frag,
+            boolean_group=component.boolean_group,
+            notes="no field spec; raw value",
         )
 
     if spec.bucket == "closed" and spec.taxonomy:
@@ -120,9 +139,7 @@ class ToolTranslator:
 
 
 translator_registry.add("tool", lambda **kw: ToolTranslator(**{"llm_select": True, **kw}))
-translator_registry.add(
-    "deterministic", lambda **kw: ToolTranslator(**{"llm_select": False, **kw})
-)
+translator_registry.add("deterministic", lambda **kw: ToolTranslator(**{"llm_select": False, **kw}))
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +203,53 @@ def _llm_select(fragment: str, field: str, candidates: list[str]) -> list[str] |
     return chosen or None
 
 
+def _llm_map_to_vocab(
+    fragment: str, field: str, index, *, limit: int = 8, accept_score: float = 90.0
+) -> list[GroundingHit]:
+    """Closed-vocab fallback when exact/fuzzy lookup finds nothing.
+
+    The phrase is a synonym, scientific name, brand, or abbreviation the string
+    matcher missed (e.g. ``'homo sapiens' -> 'Human'``, ``'Columvi' -> 'Glofitamab'``).
+    Ask the LLM for the canonical vocabulary term(s) it refers to, then **re-ground
+    each proposal through the taxonomy** so the emitted value is guaranteed to exist
+    in the controlled vocabulary — we never emit the model's raw string (CONST-1).
+
+    Returns the grounded hits (marked ``match="llm"`` for provenance). Returns ``[]``
+    when no LLM is configured or nothing the model proposes grounds, so the caller
+    flags the gap rather than inventing a value.
+    """
+    selector = _get_term_selector()
+    if selector is None:
+        return []
+    prompt = (
+        "You map a user's phrase to a controlled pharmacology vocabulary for the "
+        f"field {field!r}. The phrase did NOT match the vocabulary by exact or fuzzy "
+        "string match — it is most likely a synonym, scientific name, brand name, or "
+        "abbreviation of a standard term.\n"
+        f"User phrase: {fragment!r}\n"
+        "Return the canonical preferred term(s) this phrase refers to (e.g. "
+        "'homo sapiens' -> 'Human'; 'Columvi' -> 'Glofitamab'; 'per os' -> 'Oral'). "
+        "Use standard term spellings. Return several only if the phrase genuinely "
+        "refers to multiple terms; otherwise return the single best term."
+    )
+    try:
+        result: TermSelection = selector.invoke(prompt)  # type: ignore[assignment]
+    except Exception:  # pragma: no cover - network/credential failure -> fallback
+        return []
+    hits: list[GroundingHit] = []
+    seen: set[str] = set()
+    for proposal in result.selected:
+        match = index.lookup(proposal, match="fuzzy", limit=1)
+        if match and match[0].score >= accept_score and match[0].name.lower() not in seen:
+            hit = match[0]
+            hit.match = "llm"  # record that this term was reached via LLM mapping
+            seen.add(hit.name.lower())
+            hits.append(hit)
+        if len(hits) >= limit:
+            break
+    return hits
+
+
 # ---------------------------------------------------------------------------
 def _translate_closed(component, spec, service, normalizer, *, llm_select=True) -> MachineSubquery:
     """Resolve a closed-vocabulary field's value by grounding free text against a taxonomy.
@@ -201,8 +265,11 @@ def _translate_closed(component, spec, service, normalizer, *, llm_select=True) 
          roll up to its MedDRA family/sibling set;
        - otherwise -> exact/fuzzy lookup builds a candidate pool, and the optional
          LLM selector (:func:`_llm_select`) picks the final term(s) from it; offline
-         this falls back to the top-5 fuzzy hits.
-    3. If nothing matches, the normalized term is passed through unmatched (confidence 0).
+         this falls back to the top-5 fuzzy hits. When exact+fuzzy find nothing, the
+         LLM maps the phrase to canonical vocabulary term(s) (:func:`_llm_map_to_vocab`),
+         re-grounded against the taxonomy so the value stays in-vocabulary.
+    3. If nothing matches even then (or offline with no LLM), the term is flagged
+       unmatched (confidence 0) rather than emitting an invented value (CONST-1).
     4. For drug-style fields (``fuzzy_wildcard``), a single leaf term gets a trailing
        ``*`` wildcard to broaden the match.
 
@@ -232,6 +299,9 @@ def _translate_closed(component, spec, service, normalizer, *, llm_select=True) 
     elif spec.rollup_to_siblings:
         # Resolve to the canonical label, then roll up to its MedDRA family.
         base = index.lookup(term, match="fuzzy", limit=1)
+        if not base and llm_select:
+            # Synonym the string matcher missed -> map via LLM, then re-ground.
+            base = _llm_map_to_vocab(frag, component.field, index, limit=1)
         canonical = base[0].name if base else term
         family = index.expand_family(canonical)
         if family:
@@ -240,24 +310,34 @@ def _translate_closed(component, spec, service, normalizer, *, llm_select=True) 
         else:
             hits = base
     else:
-        # Exact + fuzzy candidate pool, then (when enabled) let the LLM pick the
-        # final term(s). Deterministic fallback is the top hits — also the path
-        # taken offline / when llm_select is False.
+        # Resolution order: exact -> close (fuzzy) -> LLM. Exact/fuzzy build the
+        # candidate pool and, when enabled, the LLM picks the final term(s) from it.
+        # When exact+fuzzy find nothing, fall back to the LLM mapping the phrase to
+        # canonical vocabulary term(s) (e.g. 'homo sapiens' -> 'Human'), re-grounded
+        # so the value is always drawn from the vocabulary. Offline (llm_select=False)
+        # this yields no hits and the gap is flagged below rather than invented.
         candidates = index.lookup(term, match="fuzzy", limit=8)
-        chosen = (
-            _llm_select(frag, component.field, [h.name for h in candidates])
-            if llm_select else None
-        )
-        if chosen:
-            chosen_set = {c.lower() for c in chosen}
-            hits = [h for h in candidates if h.name.lower() in chosen_set]
+        if candidates:
+            chosen = (
+                _llm_select(frag, component.field, [h.name for h in candidates])
+                if llm_select
+                else None
+            )
+            if chosen:
+                chosen_set = {c.lower() for c in chosen}
+                hits = [h for h in candidates if h.name.lower() in chosen_set]
+            else:
+                hits = candidates[:5]
+        elif llm_select:
+            hits = _llm_map_to_vocab(frag, component.field, index)
         else:
-            hits = candidates[:5]
+            hits = []
 
     if hits:
         values = [h.name for h in hits]
         grounding = Grounding(
-            matched=hits[:25], expanded_from=expanded_from,
+            matched=hits[:25],
+            expanded_from=expanded_from,
             confidence=min(1.0, (hits[0].score / 100.0)),
         )
     else:
@@ -277,9 +357,14 @@ def _translate_closed(component, spec, service, normalizer, *, llm_select=True) 
     # collapse back to it if the expanded query would exceed the API budget.
     collapse_to = canonical if expanded_from == "family" else None
     return MachineSubquery(
-        field=spec.emit_field, operator=Operator.MATCH, value=value,
-        boolean_group=component.boolean_group, entity_name=spec.entity_name,
-        collapse_to=collapse_to, grounding=grounding, notes=note,
+        field=spec.emit_field,
+        operator=Operator.MATCH,
+        value=value,
+        boolean_group=component.boolean_group,
+        entity_name=spec.entity_name,
+        collapse_to=collapse_to,
+        grounding=grounding,
+        notes=note,
     )
 
 
@@ -307,7 +392,9 @@ def _translate_enum(component, spec) -> MachineSubquery:
         if allowed.lower() == frag:
             return MachineSubquery(field=spec.emit_field, operator=Operator.MATCH, value=allowed)
     return MachineSubquery(
-        field=spec.emit_field, operator=Operator.MATCH, value=component.nl_fragment,
+        field=spec.emit_field,
+        operator=Operator.MATCH,
+        value=component.nl_fragment,
         notes="value not in enum allow-list",
     )
 
@@ -319,10 +406,16 @@ def _translate_open(component, spec) -> MachineSubquery:
         terms = _STUDYGROUP_SYNONYMS.get(key, [frag])
         pattern = ".*(" + "|".join(re.escape(t) for t in terms) + ").*"
         return MachineSubquery(
-            field=spec.emit_field, operator=Operator.REGEX, pattern=pattern,
-            boolean_group=component.boolean_group, entity_name=spec.entity_name,
+            field=spec.emit_field,
+            operator=Operator.REGEX,
+            pattern=pattern,
+            boolean_group=component.boolean_group,
+            entity_name=spec.entity_name,
         )
     return MachineSubquery(
-        field=spec.emit_field, operator=Operator.MATCH, value=frag,
-        boolean_group=component.boolean_group, entity_name=spec.entity_name,
+        field=spec.emit_field,
+        operator=Operator.MATCH,
+        value=frag,
+        boolean_group=component.boolean_group,
+        entity_name=spec.entity_name,
     )

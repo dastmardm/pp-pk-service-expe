@@ -46,8 +46,11 @@ def _norm_set(cell: str) -> set[str]:
         return set()
     cell = re.sub(r"\b(AND|OR)\b", ";", cell)
     cell = cell.replace("(", " ").replace(")", " ")
-    return {p.strip().lower().rstrip("*") for p in re.split(r"[;,]", cell)
-            if p.strip() and p.strip().lower() not in _EMPTY}
+    return {
+        p.strip().lower().rstrip("*")
+        for p in re.split(r"[;,]", cell)
+        if p.strip() and p.strip().lower() not in _EMPTY
+    }
 
 
 def gold_filters(row: dict) -> dict[str, str]:

@@ -126,9 +126,7 @@ class TermiteEnhancer:
 
         text = query
         if annotations:
-            hints = "; ".join(
-                f"{a.entity_type or 'ENTITY'}: {a.label}" for a in annotations
-            )
+            hints = "; ".join(f"{a.entity_type or 'ENTITY'}: {a.label}" for a in annotations)
             text = f"{query}\n\n[Recognized entities — {hints}]"
         return EnhancedQuery(text=text, annotations=annotations, source="termite")
 

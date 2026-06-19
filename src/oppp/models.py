@@ -245,6 +245,4 @@ class PipelineResult(BaseModel):
 
     @property
     def ok(self) -> bool:
-        return self.machine_query is not None and not any(
-            i.level == "error" for i in self.issues
-        )
+        return self.machine_query is not None and not any(i.level == "error" for i in self.issues)

@@ -41,7 +41,9 @@ class CaseResult:
 
     @property
     def exact(self) -> bool:
-        return self.expected is not None and self.actual is not None and self.expected == self.actual
+        return (
+            self.expected is not None and self.actual is not None and self.expected == self.actual
+        )
 
     def within(self, tol: float) -> bool:
         if self.expected is None or self.actual is None:
@@ -124,8 +126,13 @@ def evaluate(
         if not q:
             continue
         result = run_pipeline(
-            q, service, enhancer=enhancer, decomposer=decomposer,
-            translator=translator, aggregator=aggregator, normalizer=normalizer,
+            q,
+            service,
+            enhancer=enhancer,
+            decomposer=decomposer,
+            translator=translator,
+            aggregator=aggregator,
+            normalizer=normalizer,
         )
         cr = CaseResult(
             query_number=row.get("query_number", "?"),

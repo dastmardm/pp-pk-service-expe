@@ -112,13 +112,15 @@ def _apply_budget(subqueries: list[MachineSubquery], issues: list[ValidationIssu
         if total <= MAX_CONSTRAINTS:
             break
         freed = sq.value_count() - 1
-        issues.append(ValidationIssue(
-            level="warning",
-            message=(
-                f"budget: collapsed {sq.field} rollup ({sq.value_count()} terms) "
-                f"to '{sq.collapse_to}' to fit the {MAX_CONSTRAINTS}-constraint API limit"
-            ),
-        ))
+        issues.append(
+            ValidationIssue(
+                level="warning",
+                message=(
+                    f"budget: collapsed {sq.field} rollup ({sq.value_count()} terms) "
+                    f"to '{sq.collapse_to}' to fit the {MAX_CONSTRAINTS}-constraint API limit"
+                ),
+            )
+        )
         sq.value = sq.collapse_to
         if sq.grounding:
             sq.grounding.expanded_from = None
@@ -179,16 +181,16 @@ def validate(mq: MachineQuery, service: ServiceConfig) -> list[ValidationIssue]:
         issues.append(ValidationIssue(level="error", message="empty query (no filters produced)"))
     elif len(q) != 1:
         issues.append(
-            ValidationIssue(level="error", message=f"query must have exactly one top key, got {list(q)}")
+            ValidationIssue(
+                level="error", message=f"query must have exactly one top key, got {list(q)}"
+            )
         )
     else:
         _validate_node(q, issues)
 
     for f in mq.facets:
         if f not in service.facet_allow_list:
-            issues.append(
-                ValidationIssue(level="error", message=f"facet '{f}' not in allow-list")
-            )
+            issues.append(ValidationIssue(level="error", message=f"facet '{f}' not in allow-list"))
     return issues
 
 
@@ -196,7 +198,7 @@ def _validate_node(node: dict, issues: list[ValidationIssue]) -> None:
     if not isinstance(node, dict) or len(node) != 1:
         issues.append(ValidationIssue(level="error", message=f"malformed constraint: {node}"))
         return
-    (op, body), = node.items()
+    ((op, body),) = node.items()
     if op not in _VALID_TOP:
         issues.append(ValidationIssue(level="error", message=f"unknown operator '{op}'"))
         return
@@ -226,9 +228,7 @@ class DeterministicAggregator:
 aggregator_registry.add("deterministic", lambda **kw: DeterministicAggregator(**kw))
 
 
-def _render_tree_from_plan(
-    top: list[MachineSubquery], plan: AggregationPlan
-) -> dict[str, Any]:
+def _render_tree_from_plan(top: list[MachineSubquery], plan: AggregationPlan) -> dict[str, Any]:
     """Build the boolean tree from top-level subqueries per the LLM's plan.
 
     Defensive: the plan only steers structure. Fields it omits fall back to the
@@ -280,9 +280,7 @@ class LLMAggregator:
         for sq in top:
             grp = f" [group:{sq.boolean_group.op.value}]" if sq.boolean_group else ""
             lines.append(f"- field={sq.field} op={sq.operator.value} value={sq.value!r}{grp}")
-        questions = ", ".join(
-            f"{c.field}({c.nl_fragment})" for c in decomp.questions
-        ) or "(none)"
+        questions = ", ".join(f"{c.field}({c.nl_fragment})" for c in decomp.questions) or "(none)"
         prompt = (
             "Assemble a machine query from already-translated field constraints. "
             "Decide ONLY the boolean structure — do not change any field values.\n\n"
@@ -305,10 +303,12 @@ class LLMAggregator:
         try:
             plan = self._plan(decomp, top)
         except Exception as e:  # pragma: no cover - fall back to deterministic structure
-            issues.append(ValidationIssue(
-                level="warning",
-                message=f"llm aggregator fell back to deterministic structure: {e}",
-            ))
+            issues.append(
+                ValidationIssue(
+                    level="warning",
+                    message=f"llm aggregator fell back to deterministic structure: {e}",
+                )
+            )
             return _finalize(decomp, subqueries, service, _build_tree(top), issues)
 
         query = _render_tree_from_plan(top, plan)
@@ -316,9 +316,7 @@ class LLMAggregator:
         det_facets, det_display = _outputs(decomp, service)
         facets = [f for f in plan.facets if f in service.facet_allow_list] or det_facets
         display = plan.display_columns or det_display
-        return _finalize(
-            decomp, subqueries, service, query, issues, outputs=(facets, display)
-        )
+        return _finalize(decomp, subqueries, service, query, issues, outputs=(facets, display))
 
 
 aggregator_registry.add("llm", lambda **kw: LLMAggregator(**kw))

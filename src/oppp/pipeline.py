@@ -111,9 +111,13 @@ def build_langgraph(
     def n_aggregate(state: State) -> State:
         mq, issues = agg.aggregate(state["decomposition"], state["subqueries"], svc)
         state["result"] = PipelineResult(
-            query=state["query"], service=service, enhanced=state["enhanced"],
-            decomposition=state["decomposition"], subqueries=state["subqueries"],
-            machine_query=mq, issues=issues,
+            query=state["query"],
+            service=service,
+            enhanced=state["enhanced"],
+            decomposition=state["decomposition"],
+            subqueries=state["subqueries"],
+            machine_query=mq,
+            issues=issues,
         )
         return state
 

@@ -88,7 +88,9 @@ class GazetteerDecomposer:
                 if any(i in claimed for i in range(start_i, end_i + 1)):
                     continue
                 claimed.update(range(start_i, end_i + 1))
-                accepted.append((start_i, end_i, fieldname, hit_name, f"gazetteer-fuzzy:{fieldname}"))
+                accepted.append(
+                    (start_i, end_i, fieldname, hit_name, f"gazetteer-fuzzy:{fieldname}")
+                )
 
         accepted.sort(key=lambda a: a[0])
         comps: list[Component] = [
@@ -124,7 +126,7 @@ class GazetteerDecomposer:
                     if entry is not None:
                         out.append((i, i + size - 1, fieldname, entry.name))
                         break
-        out.sort(key=lambda m: (m[1] - m[0]), reverse=True)
+        out.sort(key=lambda m: m[1] - m[0], reverse=True)
         return out
 
     def _fuzzy_matches(self, words, claimed: set[int], service: ServiceConfig):
@@ -194,15 +196,24 @@ def _detect_sex(query, service: ServiceConfig, comps):
     if "sex" not in service.fields or any(c.field == "sex" for c in comps):
         return
     m = {
-        "female": "Female", "women": "Female", "woman": "Female",
-        "male": "Male", "men": "Male", "man": "Male",
+        "female": "Female",
+        "women": "Female",
+        "woman": "Female",
+        "male": "Male",
+        "men": "Male",
+        "man": "Male",
     }
     for word, val in m.items():
         if re.search(rf"\b{word}\b", query, re.I):
-            comps.append(Component(
-                field="sex", nl_fragment=val, type=ComponentType.FILTER,
-                reason=f"The user restricts results to {val} subjects.", source="pattern:sex",
-            ))
+            comps.append(
+                Component(
+                    field="sex",
+                    nl_fragment=val,
+                    type=ComponentType.FILTER,
+                    reason=f"The user restricts results to {val} subjects.",
+                    source="pattern:sex",
+                )
+            )
             return
 
 
@@ -210,11 +221,15 @@ def _detect_preclinical(query, service: ServiceConfig, comps):
     if "isPreclinical" not in service.fields or any(c.field == "isPreclinical" for c in comps):
         return
     if re.search(r"\b(pre[- ]?clinical|non[- ]?clinical)\b", query, re.I):
-        comps.append(Component(
-            field="isPreclinical", nl_fragment="true", type=ComponentType.FILTER,
-            reason="The user restricts results to preclinical (animal) studies.",
-            source="pattern:isPreclinical",
-        ))
+        comps.append(
+            Component(
+                field="isPreclinical",
+                nl_fragment="true",
+                type=ComponentType.FILTER,
+                reason="The user restricts results to preclinical (animal) studies.",
+                source="pattern:isPreclinical",
+            )
+        )
 
 
 def _detect_year(query, service: ServiceConfig, comps):
@@ -231,10 +246,15 @@ def _detect_year(query, service: ServiceConfig, comps):
         existing.reason = reason
         existing.source = "pattern:documentYear"
     else:
-        comps.append(Component(
-            field="documentYear", nl_fragment=frag, type=ComponentType.FILTER,
-            reason=reason, source="pattern:documentYear",
-        ))
+        comps.append(
+            Component(
+                field="documentYear",
+                nl_fragment=frag,
+                type=ComponentType.FILTER,
+                reason=reason,
+                source="pattern:documentYear",
+            )
+        )
 
 
 def _detect_questions(lower: str, service: ServiceConfig, comps):
@@ -242,13 +262,22 @@ def _detect_questions(lower: str, service: ServiceConfig, comps):
 
     def add_q(fieldname, frag, reason):
         if fieldname in service.fields and fieldname not in have:
-            comps.append(Component(
-                field=fieldname, nl_fragment=frag, type=ComponentType.QUESTION,
-                reason=reason, source="pattern:question",
-            ))
+            comps.append(
+                Component(
+                    field=fieldname,
+                    nl_fragment=frag,
+                    type=ComponentType.QUESTION,
+                    reason=reason,
+                    source="pattern:question",
+                )
+            )
 
     if re.search(r"\b(adrs?|adverse|side effect)", lower) and "effects" not in have:
-        add_q("effects", "adverse effects", "The user wants the adverse effects over the retrieved records.")
+        add_q(
+            "effects",
+            "adverse effects",
+            "The user wants the adverse effects over the retrieved records.",
+        )
     if re.search(r"at which dose|which dose|\bdose\b", lower):
         add_q("dose", "at which dose", "The user wants the dose reported per record.")
     if re.search(r"dosing regimen|regimen", lower):

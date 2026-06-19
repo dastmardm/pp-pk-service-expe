@@ -133,34 +133,85 @@ def render_png(out: Path | str = DEFAULT_OUT) -> Path:
             side_d = "top" if s.y > d.y else "bottom"
             p0, p1 = anchor(s, side_s), anchor(d, side_d)
             style = dict(color="#c05621", lw=1.2, linestyle=(0, (4, 3)))
-        ax.add_patch(FancyArrowPatch(
-            p0, p1, arrowstyle="-|>", mutation_scale=16,
-            shrinkA=2, shrinkB=2, **style,
-        ))
+        ax.add_patch(
+            FancyArrowPatch(
+                p0,
+                p1,
+                arrowstyle="-|>",
+                mutation_scale=16,
+                shrinkA=2,
+                shrinkB=2,
+                **style,
+            )
+        )
         if e.label:
             mx, my = (p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2
-            ax.text(mx, my + 0.18, e.label, ha="center", va="bottom",
-                    fontsize=8, color="#2b6cb0", style="italic")
+            ax.text(
+                mx,
+                my + 0.18,
+                e.label,
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                color="#2b6cb0",
+                style="italic",
+            )
 
     # nodes
     for n in nodes:
         face, edge = _COLORS[n.kind]
-        ax.add_patch(FancyBboxPatch(
-            (n.x - box_w / 2, n.y - box_h / 2), box_w, box_h,
-            boxstyle="round,pad=0.02,rounding_size=0.08",
-            facecolor=face, edgecolor=edge, linewidth=1.6, zorder=3,
-        ))
-        ax.text(n.x, n.y + (0.16 if n.backends else 0), n.label, ha="center",
-                va="center", fontsize=11, fontweight="bold", color=edge, zorder=4)
+        ax.add_patch(
+            FancyBboxPatch(
+                (n.x - box_w / 2, n.y - box_h / 2),
+                box_w,
+                box_h,
+                boxstyle="round,pad=0.02,rounding_size=0.08",
+                facecolor=face,
+                edgecolor=edge,
+                linewidth=1.6,
+                zorder=3,
+            )
+        )
+        ax.text(
+            n.x,
+            n.y + (0.16 if n.backends else 0),
+            n.label,
+            ha="center",
+            va="center",
+            fontsize=11,
+            fontweight="bold",
+            color=edge,
+            zorder=4,
+        )
         if n.backends:
-            ax.text(n.x, n.y - 0.28, "{" + " | ".join(n.backends) + "}",
-                    ha="center", va="center", fontsize=8, color=edge, zorder=4)
+            ax.text(
+                n.x,
+                n.y - 0.28,
+                "{" + " | ".join(n.backends) + "}",
+                ha="center",
+                va="center",
+                fontsize=8,
+                color=edge,
+                zorder=4,
+            )
 
-    ax.text(7.5, 4.0, "PharmaPendium NL → Machine-Query Agent",
-            ha="center", fontsize=15, fontweight="bold")
-    ax.text(7.5, 3.6, "solid = data flow   ·   dashed = depends on   ·   "
-            "{ } = pluggable backends (default first)",
-            ha="center", fontsize=10, color="#666666")
+    ax.text(
+        7.5,
+        4.0,
+        "PharmaPendium NL → Machine-Query Agent",
+        ha="center",
+        fontsize=15,
+        fontweight="bold",
+    )
+    ax.text(
+        7.5,
+        3.6,
+        "solid = data flow   ·   dashed = depends on   ·   "
+        "{ } = pluggable backends (default first)",
+        ha="center",
+        fontsize=10,
+        color="#666666",
+    )
 
     ax.set_xlim(-1.3, 16.3)
     ax.set_ylim(-3.9, 4.4)

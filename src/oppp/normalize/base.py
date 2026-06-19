@@ -24,9 +24,7 @@ class NormalizationResult(BaseModel):
 
 
 class Normalizer(Protocol):
-    def normalize(
-        self, fragment: str, *, field: str, bucket: str
-    ) -> NormalizationResult: ...
+    def normalize(self, fragment: str, *, field: str, bucket: str) -> NormalizationResult: ...
 
 
 normalizer_registry: Registry[Normalizer] = Registry("normalizer")

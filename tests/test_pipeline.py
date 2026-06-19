@@ -26,13 +26,17 @@ def test_simple_drug_species_query():
     assert "drugsFuzzy" in flat and "Sunitinib*" in flat and "Human" in flat
     # "ADRs" is a question -> effects facet, not a filter
     assert "effects" in payload["facets"]
-    assert any(c.type is ComponentType.QUESTION and c.field == "effects"
-               for c in r.decomposition.components)
+    assert any(
+        c.type is ComponentType.QUESTION and c.field == "effects"
+        for c in r.decomposition.components
+    )
 
 
 def test_boolean_or_within_effects():
-    q = ("What are the drug causing neutropenia or Thrombocytopenia in human, "
-         "at which dose, dosing regimen and route?")
+    q = (
+        "What are the drug causing neutropenia or Thrombocytopenia in human, "
+        "at which dose, dosing regimen and route?"
+    )
     r = run_offline(q, normalizer="fuzzy")
     assert r.ok
     payload = r.machine_query.to_payload()
@@ -61,8 +65,11 @@ def test_misspelled_drug_corrected_in_stage2():
     from oppp.stages.translate import translate_one
 
     comp = Component(
-        field="drugs", nl_fragment="suntinib", type=ComponentType.FILTER,
-        reason="isolated", source="test",
+        field="drugs",
+        nl_fragment="suntinib",
+        type=ComponentType.FILTER,
+        reason="isolated",
+        source="test",
     )
     sq = translate_one(comp, "safety", "fuzzy")
     assert sq is not None and sq.value == "Sunitinib*"
@@ -82,12 +89,18 @@ def test_fuzzy_gazetteer_no_false_positives():
         "What is the NOAEL for sunitinib in rats related to maternal toxicity",
         normalizer="fuzzy",
     )
-    fuzzy = {(c.field, c.nl_fragment) for c in r.decomposition.filters
-             if c.source.startswith("gazetteer-fuzzy")}
+    fuzzy = {
+        (c.field, c.nl_fragment)
+        for c in r.decomposition.filters
+        if c.source.startswith("gazetteer-fuzzy")
+    }
     assert fuzzy == set()  # all four entities are exact matches; no fuzzy noise
     fields = {c.field for c in r.decomposition.filters}
-    assert {"toxicityParameter", "drugs", "species", "parameterComment"} >= fields or \
-           {"toxicityParameter", "drugs", "species"} <= fields
+    assert {"toxicityParameter", "drugs", "species", "parameterComment"} >= fields or {
+        "toxicityParameter",
+        "drugs",
+        "species",
+    } <= fields
 
 
 def test_meddra_rollup_expands_effect_to_family():
@@ -104,9 +117,7 @@ def test_budget_guard_collapses_oversized_rollup():
     # the guard must collapse one back to its canonical term and stay valid.
     from oppp.stages.aggregate import MAX_CONSTRAINTS
 
-    r = run_offline(
-        "drugs causing neutropenia and cytopenia in human", normalizer="fuzzy"
-    )
+    r = run_offline("drugs causing neutropenia and cytopenia in human", normalizer="fuzzy")
     total = sum(s.value_count() for s in r.subqueries)
     assert total <= MAX_CONSTRAINTS
     assert r.ok  # still a valid query, no error
@@ -121,5 +132,6 @@ def test_year_range():
 
 def test_validation_flags_empty_query():
     from oppp.models import MachineQuery
+
     issues = validate(MachineQuery(query={}), get_service("safety"))
     assert any(i.level == "error" for i in issues)

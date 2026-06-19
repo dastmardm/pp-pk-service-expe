@@ -33,9 +33,7 @@ class Registry(Generic[T]):
 
     def create(self, name: str, **kwargs) -> T:
         if name not in self._factories:
-            raise KeyError(
-                f"unknown {self._kind} '{name}'. available: {sorted(self._factories)}"
-            )
+            raise KeyError(f"unknown {self._kind} '{name}'. available: {sorted(self._factories)}")
         return self._factories[name](**kwargs)
 
     def names(self) -> list[str]:
