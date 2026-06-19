@@ -99,3 +99,150 @@ earlier skill to run first. The canonical order:
 | `critique` | `specs/` artefacts | — (audits whatever exists) |
 | `git` | `specs/git.md` | `/technical` |
 | `docs` | `./docs/` | — |
+
+---
+
+## Work Breakdown Structure (WBS) — decomposition & parallel-execution model
+
+The project's work is decomposed into a **hierarchical tree** (a Work Breakdown
+Structure). `/technical` *produces* the tree (in `specs/tasks.md`, with the file-owner
+map in `specs/skeleton.md`); `/implement` *executes* it. This section is the single
+source of truth for the model; both skills cite it.
+
+**The tree is an authoritative decomposition + ordering contract, not a promise about
+runtime concurrency.** Its preferred realization is parallel — one subagent per node,
+leaves running concurrently, summary nodes joining their children — but the same tree
+walked **sequentially in bottom-up (post-order) order produces an identical result**.
+Correctness never depends on concurrency, and no part of the model assumes a worker can
+spawn further workers (nested spawning is not guaranteed). `/implement` chooses the
+realization; the contract below holds either way.
+
+### Node kinds
+
+Every node declares its kind explicitly — it is **never inferred** from shape.
+
+- **Leaf** — one logical unit of implementation. It **owns ≥ 1 file** (all of which
+  must be written *together* by one worker — a unit that cannot be split across workers,
+  e.g. a base class plus its companion). It maps to **≥ 1 `REQ-NNN`**, *or* is tagged
+  `Structural: <reason>` for files that trace to no functional requirement (package
+  markers, fixtures — mirrors the `Skeleton/Structure` category in `evaluation.md`).
+- **Summary** — an intermediate node. It **blocks until every child resolves**, then, in
+  this order: (1) writes any **convergent file(s)** it owns from its children's reported
+  contributions; (2) runs its **`Review`** (an integration check); (3) reports a
+  structured status to its parent. A summary node *may author code* (its convergent
+  files) — a deliberate extension of "summary = review only", and the only reason it can
+  is the file-ownership invariant below.
+- **Root** — the whole project; the **last** node to resolve. It is a summary node
+  (same blocking semantics). For a genuinely single-task project the root **may instead
+  be a leaf** (no children, owns files directly); its `Done-when` then doubles as the
+  project's final review.
+
+### Node identity
+
+IDs are **stable opaque keys**, assigned hierarchically at creation (`W1`, `W1.1`,
+`W1.1.2`, …) and **never renumbered** when the tree is reshaped — a node keeps its ID
+even if its position changes. Every reference (`Parent`, `Children`, `After`,
+`Contributors`, cross-tree edges) names a node by this key. The dotted form reflects the
+*initial* assignment only; the explicit `Parent`/`Children` fields are authoritative for
+structure (the dotted path is a redundant checksum, see invariants).
+
+### Node fields
+
+Each node carries: `Type` (root|summary|leaf), `Parent`, `Children`, `Owns` (file
+list), `REQ` (or `Structural:`), `After`, `Done-when`, and for summary/root a `Review`
+field plus, per convergent file it owns, a `Contributors` list. The **exact page layout**
+of these fields is fixed in `technical/reference/output-formats.md` → File 6; this
+section defines their meaning.
+
+### File-ownership invariant (the sole parallel-safety guarantee)
+
+**Every file is owned by exactly one WBS node, and the union of all `Owns` lists equals
+exactly the file set in `specs/skeleton.md`** (disjoint *and* complete — no file owned
+twice, no skeleton file left unowned). `skeleton.md`'s `Owner (WBS node)` column is the
+authoritative file→owner map; each node's `Owns` list must agree with it. Because no two
+nodes ever write the same file, any set of concurrently-active nodes is automatically
+file-disjoint — so parallel execution needs **no locking and no worktree isolation**. A
+would-be shared write anywhere else is a **spec defect**: the fix is to give the file a
+single owner (push it up to a common ancestor), never to add a lock or a worktree.
+
+### Convergent files
+
+Where many nodes must each contribute to one file (a registry/barrel, a package manifest
+or lockfile, a migration sequence), that file is owned by the **nearest common ancestor**
+of its contributors, written during that summary node's aggregate step. The owning node
+lists `Contributors: <child IDs>` so the NCA relationship is verifiable from the tree
+alone. Each class has a defined protocol:
+
+- **Registry / barrel / `__init__`** — append-only entries collected from child reports
+  (commutative; safe to assemble in any order).
+- **Manifest / lockfile** — the owner declares the *dependency set* from child reports,
+  then runs **one** resolver invocation (resolution is not commutative — it is a single
+  serialized step, and it is real implementation work, so the owning summary node is
+  permitted to run the package-manager/resolver command).
+- **Migration / ordered sequence** — the owning node **allocates all sequence numbers up
+  front** and hands each contributing leaf its assigned number as an input (numbers are
+  not child-reported, to avoid collisions).
+
+A convergent file whose contributors span subtrees (NCA = root) is a **decomposition
+smell** — prefer reshaping the tree so contributors share a lower ancestor.
+
+### Dependencies & execution order
+
+- The tree itself encodes **parent-after-children**.
+- **`After: <id,…>`** serialises siblings within one parent (e.g. a dependent waits on
+  shared scaffolding). It encodes a producer/consumer **interface** dependency, so the
+  prerequisite's `Done-when` must name the interface it exposes. Referenced IDs must
+  exist and share the same parent.
+- A dependency whose endpoints live in **different subtrees** is forbidden inline; it
+  goes in the top-level **`Cross-tree dependencies`** list naming both endpoint IDs and
+  the exposed interface (discouraged — reshape the tree to avoid it where possible).
+- The **effective execution order is the topological sort** of (parent-after-children) ∪
+  (`After`) ∪ (cross-tree edges). This combined graph **must be acyclic** (the tree alone
+  is trivially acyclic; the real check is over the full edge set). Sibling leaves with no
+  unmet dependency form a wave that may run concurrently.
+
+### Fork-join semantics
+
+A node becomes runnable once all its dependencies (children + `After` + cross-tree
+predecessors) have resolved. Leaves in a wave run concurrently; a summary node runs only
+after all its children resolve, then aggregates → reviews → reports; the root resolves
+last. **Failure does not hang the join**: a node that fails reports a `FAIL` status
+upward, its parent reports a partial result naming the failed subtree, and nodes that
+depend on a failed prerequisite are **skipped** (also reported), never blocked
+indefinitely.
+
+### Worker discipline
+
+Workers **only write the files they own**; they **never run git**. The working-tree index
+is shared single-writer state, so all staging/committing is left to the separate `/git`
+stage after the tree resolves. Only the **root** node's final report emits the prose
+chain handoff (`Next step: /evaluation`); child and summary reports return structured
+status upward and emit no chain directive.
+
+### WHAT / HOW boundary
+
+A summary node's `Review` is a **self-contained, objectively-checkable integration
+assertion phrased in `tasks.md`'s own terms** (e.g. "every child-reported interface
+resolves; the convergent file lists every contribution; the subtree imports/builds/tests
+clean"). It **must not reference `EVAL-NNN`**: `specs/evaluation.md` remains the sole
+owner of *what* gets checked, asserted only by `/evaluation`, and lineage stays
+one-directional (`evaluation.md` may cite `tasks.md`, never the reverse). A green subtree
+is an early-warning signal, not a substitute for the final `/evaluation` pass.
+
+### Quality invariants (machine-checkable over the parsed tree)
+
+1. Exactly one node has `Type: root`, and it has no `Parent`.
+2. Every non-root node has exactly one `Parent` (it is a tree, not a forest).
+3. Every `Parent`/`Children`/`After`/`Contributors`/cross-tree reference resolves to an
+   existing node ID, and each node's dotted ID is consistent with its declared `Parent`.
+4. `Type` agrees with structure: a `leaf` has no children and (≥ 1 `REQ` **or**
+   `Structural:`); a `summary` has ≥ 1 child and a non-empty `Review`; `root` per the
+   single-task carve-out above.
+5. A summary node with **exactly one child** must own ≥ 1 convergent file *or* carry a
+   `Review` asserting something beyond that child's `Done-when` — otherwise collapse it
+   into the child.
+6. `Owns` lists are pairwise disjoint **and** their union equals exactly the
+   `skeleton.md` file set (globs expanded against the skeleton tree).
+7. The dependency graph (`After` ∪ cross-tree edges) is acyclic.
+8. Every owning node of a convergent file is the nearest common ancestor of its declared
+   `Contributors`.

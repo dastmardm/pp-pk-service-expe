@@ -134,15 +134,20 @@ principles, only add or amend where the new technical spec introduces changes.
 ## Summary
 <!-- One paragraph: goal, approach, key constraints. -->
 
-## Phases
-<!-- Each phase has: name, goal, deliverable, success signal.
-     Phases are ordered by dependency — earlier phases unblock later ones.
-     Example phases: Foundation → Core → Integration → Hardening -->
+## Work Breakdown
+<!-- How the project decomposes into the WBS tree (../../CONVENTIONS.md → Work Breakdown
+     Structure): the top 1–2 levels of the tree and the rationale for the cut — why these
+     subtrees, what each is responsible for, where the convergent/integration files live.
+     This replaces flat sequential "phases": ordering is carried by the tree structure and
+     dependency edges, not by phase bands. -->
 
-### Phase N — [Name]
-**Goal**: ...
-**Deliverable**: ...
-**Success signal**: ...
+## Execution Model
+<!-- State the fork-join model so a reader knows how tasks.md will be run: leaves run
+     concurrently within a dependency wave; each summary node blocks until its children
+     resolve, then aggregates (writing any convergent files it owns) → reviews → reports
+     upward; the root resolves last. Note that the file-ownership invariant is what makes
+     parallel leaves safe, and that the same tree walked sequentially in bottom-up order is
+     equivalent — concurrency is an optimisation, not a correctness requirement. -->
 
 ## Key Decisions
 <!-- Table: Decision | Options considered | Choice | Rationale -->
@@ -159,32 +164,72 @@ principles, only add or amend where the new technical spec introduces changes.
 
 ## File 6 — `specs/tasks.md`
 
+`specs/tasks.md` is the project's **Work Breakdown Structure** — the hierarchical tree of
+nodes `/implement` executes. The full model (node kinds, the file-ownership invariant,
+convergent-file protocols, dependency edges, fork-join semantics, and the machine-checkable
+quality invariants) is defined once in `../../CONVENTIONS.md` → Work Breakdown Structure.
+This template fixes the **on-page encoding** so the tree is recoverable unambiguously.
+
 ```
 # Tasks
 
-## Format
-<!-- [ID] [P?] Description → file:path | done when: condition -->
-<!-- [P] = can run in parallel (touches different files, no shared dependency) -->
+## Overview
+<!-- One short paragraph, then the tree as an indented ID outline, e.g.
+     W1 (root)    — <project>
+       W1.1 (summary) — <name>
+         W1.1.1 (leaf) — <name>
+         W1.1.2 (leaf) — <name>
+       W1.2 (summary) — <name>
+     The outline is a reading aid only; the per-node Parent/Children fields below are
+     authoritative for structure. -->
 
-## Phase 1 — [Name]
-- [ ] T001 ...
-- [ ] T002 [P] ...
+## Nodes
+<!-- One block per node (order is free — structure comes from the fields, not position).
+     Every field is required unless marked optional. -->
 
-## Phase 2 — [Name]
-- [ ] T003 ...
+### W1 — [title]
+- **Type**: root              <!-- root | summary | leaf — declared, never inferred -->
+- **Parent**: none
+- **Children**: W1.1, W1.2
+- **Owns**: <files this node writes, comma-separated, or `none`>
+- **Contributors**: <child IDs contributing to each convergent file this node owns — required per convergent file, omitted otherwise>
+- **After**: none             <!-- same-parent sibling IDs this node waits on, or `none` -->
+- **Review**: <objectively-checkable integration assertion — REQUIRED for summary/root>
+- **Done-when**: <objectively-checkable completion condition>
 
-## Dependencies
-<!-- Which tasks block which. -->
+### W1.1.1 — [title]
+- **Type**: leaf
+- **Parent**: W1.1
+- **Children**: none
+- **Owns**: src/oppp/foo.py
+- **REQ**: REQ-007             <!-- ≥1 REQ id, OR `Structural: <reason>` for non-functional files -->
+- **After**: none
+- **Done-when**: <verifiable without running the full system>
 
-## Parallel opportunities
-<!-- Groups of tasks that can run concurrently. -->
+## Cross-tree dependencies
+<!-- The ONLY place a dependency between two DIFFERENT subtrees may appear.
+     One row each: <consumer-id> after <producer-id> — interface: <what the producer exposes>.
+     Leave empty when the tree is a clean fork-join (preferred). -->
 ```
 
-Rules for writing tasks:
-- Each task touches exactly one logical unit (one file, one migration, one config block)
-- The done-when condition is verifiable without running the full system
-- Tasks within a phase that touch different files are marked [P]
-- No task says "implement X" without naming the exact file
+Rules for writing the WBS:
+- **Declare, don't infer.** `Type`, `Parent`, `Children` are explicit on every node. A
+  node whose `Type` contradicts its `Children` (a `leaf` with children, a `summary` with
+  none) is a spec defect (`../../CONVENTIONS.md` → invariant 4).
+- **One owner per file, complete coverage.** The union of all `Owns` lists equals exactly
+  the `skeleton.md` file set, no file owned twice (invariant 6). A leaf owns the file(s)
+  that must be written *together* by one worker; a summary owns only convergent files and
+  lists their `Contributors`.
+- **Every leaf is verifiable and traceable.** Its `Done-when` is checkable without running
+  the full system, and it names ≥1 `REQ` (or is tagged `Structural:`). No node says
+  "implement X" without naming the exact file in `Owns`.
+- **Summary `Review` is self-contained** — an integration assertion in this file's own
+  terms (child interfaces resolve, convergent file lists every contribution, subtree
+  imports/builds/tests). It MUST NOT reference `EVAL-NNN` (`../../CONVENTIONS.md` →
+  WHAT/HOW boundary).
+- **Dependencies are explicit and acyclic.** `After` references existing same-parent
+  siblings; cross-subtree edges live only under `Cross-tree dependencies`; the combined
+  edge set is acyclic (invariant 7).
 
 ---
 
@@ -194,15 +239,18 @@ Rules for writing tasks:
 # Project Skeleton
 
 ## Purpose
-<!-- Why this skeleton exists: it is the agreed-upon file map that
-     `/implement` must produce and `/evaluation` will verify. -->
+<!-- Why this skeleton exists: it is the agreed-upon file map that `/implement` must
+     produce and `/evaluation` will verify, AND the authoritative file→owner map for the
+     WBS (../../CONVENTIONS.md → File-ownership invariant). -->
 
 ## Directory Tree
 <!-- Full annotated tree. Every leaf that will be created or modified is listed.
-     Annotation format: path  ← one-line purpose -->
+     Annotation format: path  ← one-line purpose  [owner: W-id] -->
 
 ## File Inventory
-<!-- Table: File | Layer | Purpose | Created by task -->
+<!-- Table: File | Layer | Purpose | Owner (WBS node) -->
+<!-- "Owner" is the AUTHORITATIVE file→node map: exactly one WBS node id per file.
+     Each node's `Owns` list in tasks.md must agree with this column. -->
 
 ## Conventions
 <!-- Naming rules, module boundaries, what goes where.
@@ -211,8 +259,12 @@ Rules for writing tasks:
 ```
 
 Rules for writing the skeleton:
-- Every file listed in `tasks.md` appears here
-- Every file here has a corresponding task
+- Every file listed in `tasks.md` appears here, and every file here has exactly one owning
+  WBS node — the union of all owners covers every file, none owned twice
+  (`../../CONVENTIONS.md` → invariant 6). The `Owner` column is the source of truth; a
+  conflict with a node's `Owns` list in `tasks.md` is a spec defect.
+- A glob or directory row may carry an `Owner` only if **every** file it expands to has
+  that same owner; otherwise expand it into concrete per-file rows so each gets its owner.
 - No implementation detail — purpose descriptions say *what* the file is for, not *how* it works
 
 ---
@@ -260,6 +312,7 @@ Rules for writing the evaluation criteria:
 - **Traceable.** Every criterion cites its source artefact + item in the `Source ref` column; nothing is invented outside the six artefacts.
 - **Complete.** The Coverage Map must show every MUST requirement, data contract, constitution principle, and promised skeleton file is covered by ≥1 criterion. Gaps go in Out of Scope with a reason, never silently dropped.
 - **Self-contained.** `/evaluation` must be able to run using only `specs/evaluation.md` + the codebase; a criterion that requires reading another spec to interpret it is underspecified — inline what is needed.
+- **WBS-agnostic.** Criteria trace to requirements, data contracts, constitution principles, and skeleton files — **never to WBS node ids**. The WBS (`tasks.md`) is an implementation-process structure that `/evaluation` does not consume, and `evaluation.md` is the sole owner of *what* gets checked; keep the lineage one-directional (`evaluation.md` may cite `tasks.md`, never the reverse). Do not add an owning-node column.
 
 ---
 
@@ -326,6 +379,15 @@ Rules for writing `.claude/settings.json`:
 - **Complete.** Every command named in any Quality Gate, Pre-Commit Gate, task, or
   the git policy has a matching allow rule. If a downstream skill would have to ask,
   the rule is missing.
+- **Covers parallel execution.** `/implement` runs the WBS by dispatching subagents from
+  the main session, and **subagents inherit this project allowlist** — so the unattended
+  guarantee holds transitively only if every `Bash`/`Edit`/`Write` command any **leaf or
+  summary** node runs is allowed here. That includes the package-manager / resolver
+  commands a summary node runs to assemble convergent manifest or lockfile files
+  (`../../CONVENTIONS.md` → Convergent files). Do **not** add allow rules for orchestration
+  tool *names* (e.g. `Agent`, `Workflow`) — they are not `Bash`-gated and would be orphan
+  rules; and do **not** rely on this file to enable worktree isolation — the file-ownership
+  invariant removes the need for it (workers also never run `git`; staging is `/git`'s job).
 - **Least-privilege.** Scope `Bash` rules to specific commands/prefixes (e.g.
   `Bash(ruff:*)`), not a blanket `Bash(*)`. Pre-authorise what the chain needs and
   no more.

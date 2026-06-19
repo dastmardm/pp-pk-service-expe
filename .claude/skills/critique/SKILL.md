@@ -41,9 +41,9 @@ Read every file in scope. For each file note its role in the chain:
 | `specs/technical.md` (or repo's technical-spec file) | Source of truth for *how* |
 | `specs/constitution.md` | Non-negotiable constraints — overrides everything |
 | `specs/requirements.md` | Numbered, testable statements of done |
-| `specs/plan.md` | Phased roadmap and key decisions |
-| `specs/tasks.md` | Ordered work items |
-| `specs/skeleton.md` | Agreed file map |
+| `specs/plan.md` | WBS decomposition + fork-join execution model, and key decisions |
+| `specs/tasks.md` | Work Breakdown Structure — the hierarchical tree of typed nodes `/implement` executes |
+| `specs/skeleton.md` | Agreed file map + authoritative file→owner (WBS node) map |
 | `specs/evaluation.md` | The `EVAL-NNN` criteria (WHAT `/evaluation` checks) |
 | `specs/git.md` | The version-control contract (WHAT `/git` applies) |
 | `specs/evaluation/report*.md` | Prior audit findings |
@@ -68,8 +68,16 @@ Check every axis below. For each problem found, record a **finding**.
 
 #### 2b. Cross-spec contradictions
 - Does a requirement in `requirements.md` conflict with a decision in `technical.md`?
-- Does `plan.md` reference a phase or component not described in `technical.md`?
-- Does `tasks.md` contain a task that creates a file absent from `skeleton.md`, or vice versa?
+- Does `plan.md` reference a component or subtree not described in `technical.md`?
+- Does the `tasks.md` Work Breakdown Structure satisfy the invariants in
+  `../CONVENTIONS.md` → Work Breakdown Structure? In particular: does every `skeleton.md`
+  file have exactly one owning WBS node; are the nodes' `Owns` lists disjoint and do they
+  cover the whole skeleton file set (no file owned twice, none unowned); does each node's
+  `Owns` agree with `skeleton.md`'s authoritative `Owner (WBS node)` column; do all node
+  references (`Parent`/`Children`/`After`/`Contributors`/cross-tree) resolve; and is the
+  `After` ∪ cross-tree dependency graph acyclic?
+- Does any summary/root node's `Review` cite an `EVAL-NNN` id? (It must not — the WHAT/HOW
+  boundary keeps `evaluation.md` the sole owner of criteria; `tasks.md` never cites it.)
 - Does `skeleton.md` describe a file whose purpose contradicts the architecture in `technical.md`?
 - Does `product.md` list a capability with no corresponding requirement in `requirements.md`?
 

@@ -74,7 +74,10 @@ Only when a complete pass of `./docs/` needs no further change do you write
 
 **You are also the chain's permission front-loader.** Everything downstream of you
 — `/implement`, `/evaluation`, `/fix`, `/git` — must run **unattended**, never
-pausing to ask the human to approve a tool call. That is only possible if *you*
+pausing to ask the human to approve a tool call. (`/implement` additionally dispatches
+one subagent per WBS node to build the tree in parallel; those subagents **inherit this
+allowlist**, so it must cover every command they run — including the package-manager /
+resolver commands a summary node runs for convergent files.) That is only possible if *you*
 work out, ahead of time, every command and file operation those skills will need
 and pre-authorise them in `.claude/settings.json`. Deriving the toolchain is
 already your job (you choose the stack, the quality gates, the git workflow), so
@@ -154,26 +157,35 @@ technical or not — knows exactly what "done" means.
 
 ### File 5 — `specs/plan.md`
 
-The implementation roadmap. Translates requirements into dependency-ordered phases
-of work, records key decisions with rationale, and defines a success signal per
-phase. Includes a Constitution Check confirming no principle is violated.
-→ template: `reference/output-formats.md` → File 5.
+The implementation roadmap. Presents the **Work Breakdown Structure** decomposition
+(the top levels of the tree and the rationale for the cut) and the **fork-join
+execution model** `/implement` will run, records key decisions with rationale, and
+includes a Constitution Check confirming no principle is violated.
+→ template: `reference/output-formats.md` → File 5; model: `../CONVENTIONS.md` → Work
+Breakdown Structure.
 
 ### File 6 — `specs/tasks.md`
 
-The full, ordered, actionable work list. Every task is self-contained: an
-implementer picks it up and knows the exact file to create or modify and how to
-verify it is done.
-→ template & task-writing rules: `reference/output-formats.md` → File 6.
+The project's **Work Breakdown Structure** — the hierarchical tree of nodes
+`/implement` executes. Leaf nodes are atomic, file-disjoint units (the unit of parallel
+execution); summary nodes block on their children, then aggregate, review, and report
+upward; the root resolves last, bottom-up. Every node is self-contained: its kind, owned
+files, dependencies, and a verifiable done-when are explicit on the node.
+→ template & node grammar: `reference/output-formats.md` → File 6; model (node kinds,
+ownership invariant, fork-join semantics, quality invariants): `../CONVENTIONS.md` → Work
+Breakdown Structure.
 
 ### File 7 — `specs/skeleton.md`
 
 The complete map of every file and directory the implementation will create or
-significantly modify, with a one-line purpose for each — the blueprint of the
-codebase shape, written before any code. Its `## Conventions` section is where you
-define the migration-naming and env-template conventions that `/implement` and
-`/fix` consult.
-→ template & skeleton-writing rules: `reference/output-formats.md` → File 7.
+significantly modify, with a one-line purpose for each — the blueprint of the codebase
+shape, written before any code. It is also the **authoritative file→owner map** for the
+WBS: its File Inventory carries an `Owner (WBS node)` column that each node's `Owns` list
+in `tasks.md` must agree with (one owner per file, every file owned). Its `## Conventions`
+section is where you define the migration-naming and env-template conventions that
+`/implement` and `/fix` consult.
+→ template & skeleton-writing rules: `reference/output-formats.md` → File 7; ownership
+invariant: `../CONVENTIONS.md` → Work Breakdown Structure.
 
 ### File 8 — `specs/evaluation.md`
 
@@ -224,8 +236,12 @@ Derive the allow list **from the artefacts you just wrote**, not from guesswork:
 - From **`constitution.md` → Quality Gates** and **`git.md` → Pre-Commit Gates**:
   every checker/test/build command → `Bash(...)` allow rules.
 - From **`git.md` → Push & PR Policy**: `git`/`gh` → `Bash(git:*)`, `Bash(gh:*)`.
-- From **`tasks.md` / `skeleton.md`**: the directories implementation writes under,
-  and any build/run/migration commands → matching `Bash(...)` and `Edit`/`Write` rules.
+- From **`tasks.md` (the WBS) / `skeleton.md`**: the directories implementation writes
+  under, and any build/run/migration commands → matching `Bash(...)` and `Edit`/`Write`
+  rules. Include the **package-manager / resolver commands summary nodes run for
+  convergent manifest/lockfile files** (`../CONVENTIONS.md` → Convergent files). The
+  subagents `/implement` dispatches inherit this allowlist; add **no** rules for
+  orchestration tool names (`Agent`, `Workflow`) and **none** for worktree isolation.
 - From **`technical.md` → Configuration and Secrets**: writing the env template file
   → covered by `Edit`/`Write`.
 
@@ -236,8 +252,8 @@ Derive the allow list **from the artefacts you just wrote**, not from guesswork:
 ### Quality check (all ten outputs)
 
 - `specs/product.md` exists, has `## Sources` first listing **only** `./docs/` files, contains no implementation detail, and asserts no product-design fact absent from `./docs/`
-- Every requirement in `requirements.md` is addressed by at least one task in `tasks.md`
-- Every task in `tasks.md` maps to at least one file in `skeleton.md`
+- Every requirement in `requirements.md` is addressed by at least one WBS leaf in `tasks.md` (each leaf names ≥1 `REQ`, or is tagged `Structural:`)
+- The WBS in `tasks.md` satisfies every invariant in `../CONVENTIONS.md` → Work Breakdown Structure: exactly one root; every non-root has one parent; all node references resolve; declared `Type` agrees with structure; `Owns` lists are pairwise disjoint and their union equals exactly the `skeleton.md` file set (one owner per file, every file owned); the `After` ∪ cross-tree edge set is acyclic; every convergent-file owner is the nearest common ancestor of its declared `Contributors`; every summary/root `Review` is objectively checkable and references no `EVAL-NNN`
 - Every technology choice in `technical.md` appears in the Technology Stack table of `constitution.md`
 - No orphaned decisions (every choice has a rationale)
 - Data contracts are expressed as named templates, not prose
@@ -246,10 +262,10 @@ Derive the allow list **from the artefacts you just wrote**, not from guesswork:
 - `specs/evaluation.md` exists and its Coverage Map accounts for every MUST requirement, every data contract, every constitution principle, and every promised skeleton file — each covered by ≥1 EVAL-NNN, or listed in Out of Scope with a reason
 - Every criterion in `specs/evaluation.md` is objectively decidable (states the evidence that makes it PASS) and cites its source artefact in the `Source ref` column
 - `specs/git.md` exists; its branch-naming rules are path-keyed and deterministic, and its pre-commit gates and "never commit" rules are consistent with `constitution.md`
-- `.claude/settings.json` exists and pre-authorises **every** command named in the Quality Gates, Pre-Commit Gates, git policy, and tasks — so no downstream skill (`/implement`, `/evaluation`, `/fix`, `/git`) will hit a permission prompt — while withholding destructive/secret-exposing actions and preserving any pre-existing settings
+- `.claude/settings.json` exists and pre-authorises **every** command named in the Quality Gates, Pre-Commit Gates, git policy, and tasks — including the package-manager/resolver commands summary nodes run for convergent files — so no downstream skill (`/implement` **and the per-node subagents it dispatches**, `/evaluation`, `/fix`, `/git`) will hit a permission prompt; it adds no orphan orchestration-tool rules and does not enable worktree isolation, while withholding destructive/secret-exposing actions and preserving any pre-existing settings
 
 ---
 
 ### Report
 
-List all nine `specs/` files (`product.md` first, then the eight technical artefacts) plus `.claude/settings.json` written; any `./docs/` edits made during the clarify loop (file + what changed) and how many clean-restart passes the product synthesis took; any open questions captured; confirm `specs/evaluation.md` is complete (Coverage Map has no uncovered MUST items); confirm the permission allowlist covers every downstream command so the rest of the chain runs unattended; and next steps: `/implement` to build, and `/git` to commit changes per `specs/git.md`.
+List all nine `specs/` files (`product.md` first, then the eight technical artefacts) plus `.claude/settings.json` written; any `./docs/` edits made during the clarify loop (file + what changed) and how many clean-restart passes the product synthesis took; any open questions captured; confirm `specs/evaluation.md` is complete (Coverage Map has no uncovered MUST items); confirm the `tasks.md` WBS satisfies the `../CONVENTIONS.md` invariants (one owner per file, every file owned, acyclic dependency graph); confirm the permission allowlist covers every downstream command — including those the per-node subagents run — so the rest of the chain runs unattended; and next steps: `/implement` to build, and `/git` to commit changes per `specs/git.md`.
