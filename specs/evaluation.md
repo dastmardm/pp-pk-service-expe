@@ -50,7 +50,7 @@ deterministic core + model backends + baseline UI)**; deferred items are in
 | EVAL-029 | CONST-4 | Constitution | A single field is translatable in isolation via `oppp field`/`translate_one` without running other stages. | `src/oppp/cli.py:field`; `src/oppp/stages/translate.py:translate_one` | MAJOR |
 | EVAL-031 | CONST-11, NFR-002 | Non-functional | Ruff (lint+format, line 100, `E,F,I,UP,B,SIM`) and pytest (`pythonpath=src`,`testpaths=tests`) are configured; the suite needs no network. | `pyproject.toml` `[tool.ruff]`/`[tool.pytest.ini_options]`; `tests/` | MAJOR |
 | EVAL-032 | CONST-12 | Constitution | Stage modules contain no service-specific field/facet literals; per-service data lives only under `services/`. | `grep` `stages/*.py` for hardcoded field/facet lists | MINOR |
-| EVAL-033 | skeleton (Phase 1) | Skeleton/Structure | All Phase-1 `src/oppp/**` files in `specs/skeleton.md` exist and import without error. | the listed module paths | MAJOR |
+| EVAL-033 | skeleton (core src) | Skeleton/Structure | All already-built `src/oppp/**` files in `specs/skeleton.md` (the foundation/services/stages/integration/eval-baseline leaves) exist and import without error. | the listed module paths | MAJOR |
 | EVAL-034 | skeleton (tests), NFR-001 | Skeleton/Structure | `tests/test_{taxonomy,stages,pipeline,eval}.py` exist and `pytest -q` passes offline. | `tests/`; a clean `pytest -q` run | MAJOR |
 | EVAL-035 | skeleton (build) | Skeleton/Structure | `pyproject.toml` defines the `oppp` console script and the `llm`/`ui`/`viz`/`dev` extras. | `pyproject.toml` `[project.scripts]`, `[project.optional-dependencies]` | MINOR |
 
@@ -77,7 +77,7 @@ deterministic core + model backends + baseline UI)**; deferred items are in
 | REQ-017 | EVAL-017 |
 | REQ-018 | EVAL-018 |
 | REQ-019 | EVAL-019 |
-| REQ-020/021/023 (SHOULD) | Out of Scope (Phase 3/4) |
+| REQ-020/021/023 (SHOULD) | Out of Scope (forward work: per-step + judge eval, full UI selectors) |
 | REQ-022 | EVAL-020 |
 | REQ-024 | EVAL-006 |
 | REQ-025 | EVAL-021 |
@@ -104,22 +104,23 @@ deterministic core + model backends + baseline UI)**; deferred items are in
 | CONST-6 | EVAL-007 |
 | CONST-7 | EVAL-003 |
 | CONST-8 | EVAL-017 |
-| CONST-9 | EVAL-019 (baseline); per-step+judge Out of Scope (Phase 3) |
+| CONST-9 | EVAL-019 (baseline); per-step+judge Out of Scope (forward work) |
 | CONST-10 | EVAL-021 |
 | CONST-11 | EVAL-031 |
 | CONST-12 | EVAL-014 / EVAL-026 / EVAL-032 |
-| Skeleton: Phase-1 src files | EVAL-033 |
+| Skeleton: core src files (W2/W3.1-3.2/W4/W5/W6.1-6.2) | EVAL-033 |
 | Skeleton: test files | EVAL-034 |
 | Skeleton: pyproject | EVAL-035 |
 | Skeleton: gold sets (perfield/perstep) | EVAL-019 / EVAL-028 |
-| Skeleton: pk.py, rtb.py, eval/per_step.py, eval/judge.py, ui selectors, .env.example, test_per_step_eval.py, test_services.py | Out of Scope (Phase 2–5; not yet built) |
+| Skeleton: pk.py, rtb.py, eval/per_step.py, eval/judge.py, ui selectors, .env.example, test_per_step_eval.py, test_services.py | Out of Scope (forward work — owned by W3.3/W3.4/W6.3/W6.4/W5.5/W2.3/W7.5/W7.6; not yet built) |
 
 ## Out of Scope
 - **REQ-020/021/023 and per-step/judge evaluators** (`eval/per_step.py`,
-  `eval/judge.py`, full UI selectors) — Phase 3/4; not yet built. N/A until then.
+  `eval/judge.py`, full UI selectors) — forward work (W6.3/W6.4/W5.5); not yet built.
+  N/A until then.
 - **PK/RTB service configs** (`services/pk.py`, `services/rtb.py`,
-  `tests/test_services.py`) — Phase 5. N/A.
-- **`.env.example`** — Phase 2 (T022); N/A until created.
+  `tests/test_services.py`) — forward work (W3.3/W3.4/W7.6). N/A.
+- **`.env.example`** — forward work (W2.3); N/A until created.
 - **TERMite env-var-name mismatch & per-step dataset path mismatch** — known,
   tracked defects (`specs/technical.md` → Open Questions; `specs/plan.md` → Risks);
   the `termite` backend is optional and the core is unaffected, so not gated here.

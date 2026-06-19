@@ -69,6 +69,13 @@ or a decision the docs do not settle**:
 either: leave it as an `## Open Questions` entry in `specs/product.md`. A spec must
 never assert something `./docs/` does not.)
 
+**Running unattended.** This clarify loop is interactive. When `/technical` is run
+without a human to answer — under `/flow`, in a dispatched subagent, or when told not to
+stop — treat every ambiguity as if the human were unavailable: do **not** block, record
+it as an `## Open Questions` entry, proceed from what `./docs/` unambiguously states, and
+list all deferrals in the final report (`../CONVENTIONS.md` → Interactive vs autonomous
+skills).
+
 Only when a complete pass of `./docs/` needs no further change do you write
 `specs/product.md` and proceed to the technical artefacts.
 
@@ -101,6 +108,11 @@ defined once in [../CONVENTIONS.md](../CONVENTIONS.md).
    error above. Otherwise read every documentation file under `./docs/` (recurse
    into all subdirectories); follow cross-references *within* `./docs/`, but never
    out of it. Record every `./docs/` file read for the product spec's `## Sources`.
+   Treat `./docs/research/**` as **derived evidence**, not ratified intent
+   (`../CONVENTIONS.md` → `docs/` authority): it informs the product spec but does not
+   by itself settle a product decision, and where it conflicts with human-authored docs
+   the human-authored intent wins — record the conflict as an `## Open Questions` entry
+   rather than resolving it in the derived file's favour.
 
 2. **Synthesise the product specification** (File 1, `specs/product.md`), running
    the **clarify-in-docs loop** above until a full pass of `./docs/` reads cleanly.

@@ -65,6 +65,10 @@ Check every axis below. For each problem found, record a **finding**.
   (Stale spec — re-run `/technical`.)
 - Does `specs/product.md`'s `## Sources` list match what the product spec actually
   draws on (the `docs/…` files it was derived from — the whole tree, indexed by `docs/index.md`)?
+- Does anything under `docs/research/**` (machine-derived evidence) contradict
+  human-authored docs? If so, human-authored intent wins (`../CONVENTIONS.md` → `docs/`
+  authority) — raise it as a `QUESTION` for a human to reconcile in `docs/`, never treat
+  the derived file as settling the matter.
 
 #### 2b. Cross-spec contradictions
 - Does a requirement in `requirements.md` conflict with a decision in `technical.md`?
@@ -123,6 +127,14 @@ labels, so a code finding Typed otherwise (e.g. `contradiction`) is silently ski
 ### Phase 4 — Ask the user about QUESTION findings
 
 Present every QUESTION finding to the user clearly and concisely. Wait for answers before proceeding to Phase 5.
+
+**Running unattended.** This phase is interactive. When `/critique` is run without a human
+to answer — under `/flow`, in a dispatched subagent, or when told not to stop — do **not**
+block: leave the QUESTION findings unresolved in the report, **skip Phase 5's
+question-driven resolution** for them, and surface the full list in the final report for a
+human to resolve later (`../CONVENTIONS.md` → Interactive vs autonomous skills). Findings
+that need no human input (code-divergence, contradictions you can resolve from the specs)
+are still routed normally.
 
 For each question:
 - State exactly what information is missing

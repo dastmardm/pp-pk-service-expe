@@ -37,7 +37,7 @@ the **WHAT**; you are the **HOW**.
         └────────┬────────┘
                  ▼
         ┌─────────────────┐
-        │ run each skill  │  ← Skill tool, in order; respect dependencies
+        │ run each skill  │  ← Skill tool; safe independent branches concurrently
         └────────┬────────┘
                  ▼
         ┌─────────────────┐
@@ -70,19 +70,46 @@ the **WHAT**; you are the **HOW**.
 
 - Compute a **topological order** of the nodes from the edges: every skill runs
   only after all of its declared dependencies have completed.
-- Where the DAG allows independent branches (no dependency between them), run them
-  in any order that respects the edges; note them as independent.
+- Where the DAG allows independent branches (no dependency between them), they are
+  candidates to run **concurrently** — identify these independent sets; Phase 3
+  decides which are *safe* to actually parallelise.
 - **Detect cycles.** If the dependencies form a cycle (no valid order exists), stop
-  and report the cycle — do not run a partial, ambiguous order.
+  and report the cycle — do not run a partial, ambiguous order. (The `fix`↔`evaluation`
+  loop is a deliberate cycle handled *inside* those skills via `EXECUTE_COMMAND`, not a
+  DAG edge — do not encode it as one.)
 - If the file is ambiguous about ordering in a way you cannot resolve from its
   content, ask the user rather than guessing.
 
 ### Phase 3 — Execute
 
-For each skill, in the resolved order:
-1. Invoke it with the **Skill tool**, passing the arguments the DAG file specifies
-   for that node (empty if none).
-2. Wait for it to complete before starting any skill that depends on it.
+`/flow` runs **unattended**, so every skill it invokes runs in **autonomous mode**
+(`../CONVENTIONS.md` → Interactive vs autonomous skills): an interactive skill
+(`technical`, `critique`) must not block asking the user — it defers each unresolved
+ambiguity to its structured output (`## Open Questions` / `QUESTION` findings) and
+continues. Collect every deferral and surface it in the Phase 4 report.
+
+Run the DAG in dependency order, **fanning out independent branches that are safe to
+run together**:
+
+1. A set of nodes is **parallel-eligible** when they have no dependency between them
+   **and** are safe to run concurrently — i.e. every skill in the set is **autonomous**
+   **and** their **write scopes are disjoint**. Determine both mechanically from
+   `../CONVENTIONS.md` → Interactive vs autonomous skills (the autonomous list and the
+   skill→write-scope table); it is the same file-disjointness reasoning as
+   `../CONVENTIONS.md` → Work Breakdown Structure. For example, two `research` runs over
+   different sources are eligible — each writes a different `docs/research/` file — but
+   their shared touch on the `docs/` **index is a convergent write**, so that one
+   registration is **serialised** as a join step, not raced (WBS → Convergent files).
+   Skills with overlapping scopes (e.g. `technical` and `evaluation`/`critique`, which
+   all write under `specs/`) are **not** eligible. Dispatch a parallel-eligible set
+   **concurrently** — you own the fan-out (author a Workflow, or dispatch parallel
+   subagents; do **not** assume a worker can spawn further workers). If concurrent
+   execution is not feasible, run the set sequentially — the result is identical.
+   Anything **interactive**, or whose writes **overlap** another node's, runs
+   **sequentially**.
+2. Invoke each node with the **Skill tool** (or, for a parallel branch, inside its
+   dispatched worker), passing the arguments the DAG file specifies for that node
+   (empty if none). A skill never starts before every skill it depends on has finished.
 3. If a skill **emits an `EXECUTE_COMMAND` directive** (see `../CONVENTIONS.md`),
    that chained invocation is part of that skill's own run — let it complete, then
    continue with the DAG. Do not double-run a skill the DAG already scheduled and a
@@ -96,8 +123,10 @@ For each skill, in the resolved order:
 
 Summarise:
 - The skills that ran, in the order they ran.
-- Any independent branches and how they were ordered.
+- Any independent branches and how they were ordered (run **concurrently** or sequentially, and why).
 - Each skill's outcome (succeeded / failed / skipped-because-dependency-failed).
+- The **consolidated list of questions / Open Questions** the interactive skills deferred
+  (they could not ask mid-run) — so the human can resolve them in `docs/` and re-run.
 - Anything the DAG file asked for that could not be done, and why.
 
 ---
@@ -112,3 +141,10 @@ Summarise:
   list. An unknown node name is an error to report, not a name to guess.
 - **Respect dependencies strictly.** A skill never starts before every skill it
   depends on has finished.
+- **Parallelise only when safe.** Independent branches run concurrently only when every
+  skill in them is autonomous and their write targets are disjoint; anything interactive
+  or write-overlapping runs sequentially. Concurrency is an optimisation — the sequential
+  order always produces the same result.
+- **Run unattended; defer, don't block.** Skills run in autonomous mode; interactive
+  skills defer clarifications to their structured outputs and `/flow` surfaces them in the
+  final report (`../CONVENTIONS.md` → Interactive vs autonomous skills).

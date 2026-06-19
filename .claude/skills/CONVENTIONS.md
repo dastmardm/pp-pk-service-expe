@@ -99,6 +99,66 @@ earlier skill to run first. The canonical order:
 | `critique` | `specs/` artefacts | — (audits whatever exists) |
 | `git` | `specs/git.md` | `/technical` |
 | `docs` | `./docs/` | — |
+| `research` | data source(s) + the project | — (writes its insight under `./docs/`) |
+| `flow` | a DAG-of-skills markdown file | — |
+
+---
+
+## `docs/` authority — ratified intent vs derived evidence
+
+`docs/` holds two kinds of content, and consumers must not treat them as equal:
+
+- **Ratified intent** — human-authored documentation (via `/docs`), anywhere under
+  `docs/`. This is the source of truth the whole chain projects from.
+- **Derived evidence** — machine-produced analysis written by `/research`, confined to
+  **`docs/research/**`** and marked as derived. It *informs* design but does not by itself
+  *ratify* intent.
+
+When the two conflict, **human-authored intent wins.** `/technical` and `/critique` treat
+`docs/research/**` as evidence, not as settled product decisions: a contradiction between
+derived evidence and human-authored docs is surfaced (an `## Open Questions` entry /
+`QUESTION` finding) for a human to reconcile in `docs/`, never silently resolved in the
+derived file's favour.
+
+---
+
+## Interactive vs autonomous skills
+
+Some skills are designed to **converse with the human** mid-run; others run to
+completion **unattended**. The distinction matters because `/flow` — and any unattended
+or parallel invocation — cannot relay a question to the user from inside a running skill.
+
+- **Autonomous** (never need the human to proceed once started): `implement`,
+  `evaluation`, `fix`, `git`, `flow`, `docs`, and `research`. They may ask **once, up
+  front** if a required input is genuinely missing, but they do not block mid-run.
+- **Interactive** (designed to clarify with the human as they work): `technical` (the
+  clarify-in-docs loop) and `critique` (its `QUESTION` findings).
+
+**Autonomous-mode contract.** When an interactive skill is run unattended — under
+`/flow`, inside a dispatched subagent, or when the user says "don't stop to ask" — it
+must **not block**. It records each unresolved ambiguity as a structured deferral
+(`technical` → `specs/product.md` `## Open Questions`; `critique` → `QUESTION` findings),
+continues with everything that *is* unambiguous, and surfaces the full deferral list in
+its final report. It never invents an answer and bakes it into an artefact. (`technical`
+already does this when the human declines to record a clarification; the contract
+generalises that behaviour to every unattended run.)
+
+**Write scopes (for `/flow` parallel-eligibility).** Two branches are write-disjoint —
+hence safe to run concurrently — only if their write scopes below do not overlap. A
+shared **index/registry file** (e.g. the `docs/` index) is a *convergent* file (see Work
+Breakdown Structure → Convergent files): when parallel branches each need to register an
+entry, that single write is **serialised** as a join step, not raced.
+
+| Skill | Writes |
+|-------|--------|
+| `technical` | `specs/**` and `.claude/settings.json` (and `./docs/` during its interactive clarify loop) |
+| `research` | `docs/research/**` only (plus its one entry in the `docs/` index) |
+| `docs` | `docs/**` |
+| `evaluation` | `specs/evaluation/report*.md` |
+| `critique` | `specs/critique/report*.md` (and may edit `specs/**` during its resolution phase) |
+| `implement` / `fix` | source code, the env template, migrations (never git) |
+| `git` | git refs / index only — no working-tree file writes |
+| `flow` | nothing of its own (it dispatches other skills) |
 
 ---
 
