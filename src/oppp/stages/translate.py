@@ -24,7 +24,7 @@ from oppp.models import (
 from oppp.normalize.base import Normalizer, get_normalizer
 from oppp.registry import Registry
 from oppp.services.base import ServiceConfig, get_service
-from oppp.taxonomy.index import get_index
+from oppp.taxonomy.index import get_index, singular_candidates
 
 
 class Translator(Protocol):
@@ -46,6 +46,35 @@ def get_translator(name: str = "tool", **kwargs) -> Translator:
 
 # Open fields searched as free-text substrings rather than exact values.
 _REGEX_OPEN_FIELDS = {"studyGroup", "ages"}
+
+# Minimum fuzzy score for a *non-exact* match to be trusted enough to anchor a
+# MedDRA family rollup. Legitimate anchors land exact/near-exact (>=98); spurious
+# shared-word matches (e.g. result-qualifier phrases like 'positive Ames Test') sit
+# in the mid-80s. Below this, we prefer the LLM map (which re-grounds) or leave the
+# term unmatched rather than expanding an unrelated family.
+_ROLLUP_ANCHOR_MIN_SCORE = 95.0
+
+# Result/polarity qualifier words that name an *outcome*, not the assay/finding the
+# effects vocabulary is keyed on. They are high-frequency tokens shared by hundreds
+# of entries, so they hijack a whole-phrase fuzzy match ('positive Ames Test' ranks
+# 'Amniotic membrane rupture test positive' top). Stripping them before grounding
+# keys on the assay/finding name ('Ames Test' -> the Ames assay family). General —
+# not tied to any one phrase.
+_RESULT_QUALIFIERS = re.compile(
+    r"\b(positive|negative|abnormal|normal|elevated|increased|decreased|raised|reduced|low|high)\b",
+    re.IGNORECASE,
+)
+
+
+def _strip_result_qualifiers(text: str) -> str:
+    """Drop leading/standalone result-polarity words; collapse leftover whitespace."""
+    return re.sub(r"\s+", " ", _RESULT_QUALIFIERS.sub("", text)).strip()
+
+
+# Acceptance score for a *qualifier-stripped* fuzzy anchor. Lower than the general
+# rollup gate: the strip already removed the noise tokens, so a strong stem match
+# (an assay/finding name) reliably lands ~80-90 and is trustworthy here.
+_ROLLUP_QUALIFIER_MIN_SCORE = 80.0
 
 # Minimal synonym expansion for free-text study-group conditions (extensible).
 _STUDYGROUP_SYNONYMS: dict[str, list[str]] = {
@@ -285,6 +314,58 @@ def _llm_map_to_vocab(
 
 
 # ---------------------------------------------------------------------------
+def _surfaces_overlap(ann, fragment: str) -> bool:
+    """Textual correspondence: annotation surface/label overlaps the fragment."""
+    frag = fragment.strip().lower()
+    if not frag:
+        return False
+    frag_forms = {frag, *(x.lower() for x in singular_candidates(frag))}
+    for s in (ann.surface, ann.label):
+        s = (s or "").strip().lower()
+        if not s:
+            continue
+        s_forms = {s, *(x.lower() for x in singular_candidates(s))}
+        if frag_forms & s_forms:
+            return True
+        if any(sf and (sf in frag or frag in sf) for sf in s_forms):
+            return True
+    return False
+
+
+def _annotation_corresponds(ann, fragment: str, index) -> bool:
+    """Does this annotation describe *this* component's fragment (not just its field)?
+
+    A query can carry several values of one field ('rats or mice', 'neutropenia or
+    thrombocytopenia') -> several same-typed annotations and several same-field
+    components. Binding by *type* alone would collapse every value onto the first
+    annotation of that type ('Rat' and 'mice' both -> the lone 'Mouse' annotation).
+
+    Two complementary signals make this robust to both abbreviations and multi-value
+    fields:
+
+    * **Textual overlap** — surface/label shares words with the fragment (handles the
+      common case and qualifier-dropping: 'inhibitors of kinases' ~ surface 'kinases').
+    * **No grounding conflict** — the annotation still binds when surfaces *differ*
+      (e.g. fragment 'No Observed Adverse Effect Level' vs label 'NOAEL'), UNLESS the
+      fragment *itself* strongly grounds (exact / high fuzzy) to a *different* vocab
+      entry than the annotation's label. That conflict is exactly the multi-value
+      case: 'Rat' grounds to 'Rat' (100) while the annotation label is 'Mouse', so the
+      annotation is rejected and 'Rat' grounds itself. When the fragment has no strong
+      self-grounding (the abbreviation/expansion case), there is nothing to displace,
+      so the annotation's verified label wins.
+    """
+    if _surfaces_overlap(ann, fragment):
+        return True
+    # Surfaces differ: bind unless the fragment self-grounds to a *different* term.
+    label = (ann.label or "").strip().lower()
+    own = index.lookup(fragment, match="exact", limit=1)
+    if not own:
+        fuzzy = index.lookup(fragment, match="fuzzy", limit=1)
+        own = fuzzy if (fuzzy and fuzzy[0].score >= _ROLLUP_ANCHOR_MIN_SCORE) else []
+    # Reject only when the fragment has its own strong, *conflicting* self-grounding.
+    return not (own and own[0].name.strip().lower() != label)
+
+
 def _annotation_hit(component, spec, service, index, annotations) -> GroundingHit | None:
     """Resolution-order step 1: ground the Stage-0 enhancer's preferred label.
 
@@ -294,9 +375,16 @@ def _annotation_hit(component, spec, service, index, annotations) -> GroundingHi
     exists in the field's CSV (exact, incl. singular forms) and use that hit —
     the highest-precision path, ahead of fuzzy/LLM on the raw user fragment.
 
-    Returns the verified GroundingHit, or None when there is no matching
-    annotation, the type map has no entry for the field, or the label is not in
-    the vocabulary (so we never emit the enhancer's raw string — CONST-1).
+    The annotation must *correspond to this component's fragment*, not merely share
+    its field — otherwise a multi-value field ('rats or mice') would bind every
+    value to the first same-typed annotation, silently duplicating one and dropping
+    the others. We therefore match on surface/label correspondence
+    (:func:`_annotation_corresponds`).
+
+    Returns the verified GroundingHit, or None when no corresponding annotation,
+    the type map has no entry for the field, or the label is not in the vocabulary
+    (so we never emit the enhancer's raw string — CONST-1) — in which case the
+    caller falls through to fragment-based fuzzy/LLM grounding.
     """
     if not annotations:
         return None
@@ -306,6 +394,8 @@ def _annotation_hit(component, spec, service, index, annotations) -> GroundingHi
         if not ann.entity_type:
             continue
         if type_map.get(ann.entity_type) != component.field:
+            continue
+        if not _annotation_corresponds(ann, component.nl_fragment, index):
             continue
         hits = index.lookup(ann.label, match="exact", limit=1)
         if hits:
@@ -365,23 +455,72 @@ def _translate_closed(
 
     expanded_from = None
     canonical = term
-    if index.is_class(term):
-        hits = index.expand_children(term)
+    class_label = index.class_label(term) if not ann_hit else None
+    if class_label is not None:
+        # The term names a taxonomy class (drug class 'Kinase inhibitors', a species
+        # class, an indication that is also a parent node). The API resolves a class
+        # *label* server-side to its whole member set, so emit the single label rather
+        # than inlining every child: inlining busts the API's ~49-value per-MATCH-list
+        # cap (HTTP 400) for large classes (monoclonal antibodies has 100+ members)
+        # and is redundant (the parent already matches its subtree). We record the
+        # expanded children in the grounding for provenance only.
+        hits = [index.class_hit(class_label)]
+        canonical = class_label
         expanded_from = "class"
     elif spec.rollup_to_siblings:
-        # Resolve to the canonical label, then roll up to its MedDRA family. Prefer
-        # the verified enhancer label as the canonical anchor when one is present.
-        base = [ann_hit] if ann_hit else index.lookup(term, match="fuzzy", limit=1)
-        if not base and llm_select:
-            # Synonym the string matcher missed -> map via LLM, then re-ground.
-            base = _llm_map_to_vocab(frag, component.field, index, limit=1)
-        canonical = base[0].name if base else term
-        family = index.expand_family(canonical)
-        if family:
-            hits = family
-            expanded_from = "family"
+        # Resolve to a canonical anchor, then roll up to its MedDRA family — but only
+        # on a *high-confidence* anchor. A weak fuzzy hit (e.g. 'positive Ames Test'
+        # ~ 'Amniotic membrane rupture test positive' @86, 'maternal toxicity' ~
+        # 'Chemotherapy toxicity attenuation' @86) would otherwise drive a rollup into
+        # an unrelated family. Below threshold we ask the LLM to map the phrase to a
+        # real term instead (which re-grounds exactly), and if that fails we leave it
+        # unmatched rather than inventing a family.
+        anchor_is_exact = False
+        if ann_hit:
+            base = [ann_hit]
+            anchor_is_exact = True
         else:
-            hits = base
+            base = index.lookup(term, match="exact", limit=1)
+            anchor_is_exact = bool(base)
+            if not base:
+                fuzzy = index.lookup(term, match="fuzzy", limit=1)
+                if fuzzy and fuzzy[0].score >= _ROLLUP_ANCHOR_MIN_SCORE:
+                    base = fuzzy
+                else:
+                    # Result/assay phrase? Drop polarity words and re-ground on the
+                    # assay/finding name ('positive Ames Test' -> 'Ames Test'). Only
+                    # used when stripping actually changed the phrase, so plain terms
+                    # are unaffected.
+                    stripped = _strip_result_qualifiers(term)
+                    if stripped and stripped.lower() != term.lower():
+                        sfuzzy = index.lookup(stripped, match="fuzzy", limit=1)
+                        if sfuzzy and sfuzzy[0].score >= _ROLLUP_QUALIFIER_MIN_SCORE:
+                            base = sfuzzy
+                    if not base and llm_select:
+                        base = _llm_map_to_vocab(frag, component.field, index, limit=1)
+        if base:
+            canonical = base[0].name
+            family = index.expand_family(canonical)
+            if family:
+                # Additive rollup: keep the canonical term itself alongside its family
+                # so we never lose the broad/grounded term, only add recall.
+                names = {canonical: base[0]}
+                for h in family:
+                    names.setdefault(h.name, h)
+                # When the anchor was *guessed* (fuzzy/LLM, not an exact CSV hit), the
+                # user's original phrase may be a broad category the API resolves
+                # server-side even though it isn't a local leaf ('Mutagenicity' -> 445,
+                # while the LLM's nearest leaf 'Mutagenic effect' + its NEC family -> 30).
+                # Additively include the original term so the broad reading is kept;
+                # values are OR'd, so a non-matching extra term is harmless.
+                if not anchor_is_exact and term not in names:
+                    names[term] = GroundingHit(name=term, match="llm", score=100.0)
+                hits = list(names.values())
+                expanded_from = "family"
+            else:
+                hits = base
+        else:
+            hits = []
     elif ann_hit:
         hits = [ann_hit]
     else:
@@ -422,8 +561,11 @@ def _translate_closed(
             confidence=0.0,
         )
 
-    # Drug-style fuzzy broadening: trailing wildcard on a single leaf term.
-    if spec.fuzzy_wildcard and expanded_from is None and len(values) == 1:
+    # Drug-style fuzzy broadening: trailing wildcard on a single leaf term. The API
+    # rejects (HTTP 400) a bare trailing '*' on a multi-word value ('Cytotoxic drugs*',
+    # 'Monoclonal antibodies*'), so only broaden single-token values; a multi-word
+    # value is emitted as-is.
+    if spec.fuzzy_wildcard and expanded_from is None and len(values) == 1 and " " not in values[0]:
         values = [f"{values[0]}*"]
 
     value = values if len(values) != 1 else values[0]
@@ -501,7 +643,13 @@ def _translate_open(component, spec, service=None, annotations=None) -> MachineS
     if spec.entity_name and service is not None and annotations:
         type_map = service.termite_type_map
         for ann in annotations:
-            if ann.entity_type and type_map.get(ann.entity_type) == component.field and ann.label:
+            if (
+                ann.entity_type
+                and type_map.get(ann.entity_type) == component.field
+                and ann.label
+                # open field: no vocabulary to ground against, so use textual overlap
+                and _surfaces_overlap(ann, frag)
+            ):
                 value = ann.label.strip()
                 if value.lower() != frag.lower():
                     note = (

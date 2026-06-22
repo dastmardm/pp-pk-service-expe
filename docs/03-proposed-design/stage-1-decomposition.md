@@ -74,15 +74,33 @@ A list of items like:
    resolves by attempting the relevant CSV lookups and comparing confidence.
 5. **Annotation reconciliation (deterministic, post-decompose).** Because the
    vocab-free LLM still routes by intuition, a small deterministic pass honours the
-   enhancer's annotations rather than trusting the prompt hint alone. Its first
-   rule resolves the "kinase" case above: when TERMite recognized a `TARGET`
-   entity and the decomposer parked a mechanism phrase containing that target
-   surface (e.g. "inhibitors of kinases") on `drugs`, the phrase is rerouted to
-   `targets` — a mechanism filter answered via the `DrugsTargets` entity filter
-   (Q8 expects ~1851 records), not a drug name fuzzy-matched against `drugs.csv`
-   (which yields nonsense). An untagged "CDk4 inhibitors" (no TERMite TARGET, Q21)
-   stays on `drugs`. Implemented as `reconcile_with_annotations`, run by the
-   pipeline after any decomposer backend.
+   enhancer's annotations rather than trusting the prompt hint alone. It resolves
+   the "kinase" case above: when TERMite recognized a `TARGET` entity and the
+   decomposer parked a mechanism phrase containing that target surface (e.g.
+   "inhibitors of kinases") on `drugs`, the phrase has two readings, resolved by
+   probing the drugs taxonomy:
+   - **Drug class (preferred when it exists):** if "<target> inhibitors" is a real
+     drug-class node (e.g. `Kinase inhibitors`), the phrase denotes that class. Keep
+     it on `drugs` and rewrite the fragment to the class label — the tighter,
+     intended set (Q8 → ~1851). The earlier assumption that the `DrugsTargets`
+     reading yields ~1851 was wrong: `targets=Kinases` is a strictly broader set
+     (~6980).
+   - **Target (fallback):** otherwise route to `targets`, answered via the
+     `DrugsTargets` entity filter using the TERMite preferred label.
+   An untagged "CDk4 inhibitors" (no TERMite TARGET, Q21) stays on `drugs`.
+
+   A second rule promotes **retrieval-defining** entities: a recognized toxicity
+   parameter (NOAEL/NOEL/LD50/MTD/…) names the *kind of record* sought, so it must
+   be a **filter**, not just a reported column. "What is the **Maximum tolerated
+   dose** of X" asks about MTD *and* restricts retrieval to MTD records, but the
+   decomposer often emits only a `toxicityParameter` *question*, dropping the
+   constraint (MTD: 2292 records vs the intended 4). When TERMite recognized such an
+   entity, the pass promotes the same-field question to a filter on the preferred
+   label (the field is still reported via Stage-3 facets/displayColumns). Plain
+   questions like "at which dose" are untouched.
+
+   Both rules live in `reconcile_with_annotations`, run by the pipeline after any
+   decomposer backend.
 
 ## Granularity: per field or per concept?
 

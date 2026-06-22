@@ -162,7 +162,40 @@ class TaxonomyIndex:
         return out
 
     def is_class(self, name: str) -> bool:
-        return name.strip().lower() in self._children
+        return self.class_label(name) is not None
+
+    def class_label(self, name: str) -> str | None:
+        """Canonical (CSV-cased) class label for `name`, or None if it's not a class.
+
+        A class is any value that appears as a `parent_name` (it has children),
+        tried as given then via singular forms ('Monkeys' -> 'Monkey'), so plural /
+        lowercase user phrasings still resolve. Returns the label exactly as it is
+        spelled in the taxonomy so it round-trips to the API.
+        """
+        for cand in (name, *singular_candidates(name)):
+            members = self._children.get(cand.strip().lower())
+            if members:
+                # Prefer the child's stored parent_name (canonical casing); fall back
+                # to a matching own-row name, else the candidate as given.
+                pn = members[0].parent_name
+                if pn:
+                    return pn
+                own = self._by_name.get(cand.strip().lower())
+                return own.name if own else cand
+        return None
+
+    def class_hit(self, class_label: str) -> GroundingHit:
+        """A GroundingHit representing a class node by its label.
+
+        The API resolves a class label server-side to its whole member set, so we
+        emit the single label rather than inlining children. If the class also has
+        its own taxonomy row we carry its id/parent; otherwise (the label exists only
+        as a `parent_name`) we still emit the label as a class hit.
+        """
+        own = self.get_exact(class_label)
+        if own is not None:
+            return self._hit(own, score=100.0, match="class")
+        return GroundingHit(name=class_label, score=100.0, match="class")
 
     def expand_family(self, term: str) -> list[GroundingHit]:
         """MedDRA-style rollup: a leaf term -> all members of its parent group.

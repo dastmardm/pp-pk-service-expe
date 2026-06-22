@@ -28,7 +28,7 @@ from oppp.models import (
 )
 from oppp.registry import Registry
 from oppp.services.base import ServiceConfig, get_service
-from oppp.taxonomy.index import get_index
+from oppp.taxonomy.index import get_index, singular_candidates
 
 
 class Decomposer(Protocol):
@@ -291,26 +291,53 @@ def _detect_questions(lower: str, service: ServiceConfig, comps):
 # ---------------------------------------------------------------------------
 # Annotation-driven reconciliation (runs after any decomposer, in the pipeline)
 # ---------------------------------------------------------------------------
-def reconcile_with_annotations(decomp, service: ServiceConfig, annotations) -> None:
-    """Reroute a mechanism filter to `targets` when the enhancer recognized a TARGET.
+def _drug_class_for_mechanism(target_surface: str, service: ServiceConfig) -> str | None:
+    """A drug-class label for an '<target> inhibitor(s)' mechanism phrase, or None.
 
-    A phrase like 'inhibitors of kinases' is a *target/mechanism* filter, not a drug
-    name — the back-end answers it via the DrugsTargets entity filter (gold case Q:
-    'inhibitors of kinases ...' expects ~1851 records). But a vocab-free decomposer
-    routinely parks it on `drugs`, where grounding the literal phrase against
-    drugs.csv yields nonsense fuzzy hits (a gallium kit, an MMR vaccine) and zero
-    results. TERMite's TARGET annotation is the authoritative signal that this is a
-    target filter; honour it deterministically rather than hoping the LLM reads the
-    hint block.
-
-    Rule (conservative, so plain drug queries and untagged 'CDk4 inhibitors' are
-    untouched): for each TARGET annotation whose type maps to the `targets` field,
-    find a `drugs`/`targets` FILTER whose fragment contains the target surface word,
-    and move it to `targets` (which is entity-routed via DrugsTargets in Stage 3).
-    Mutates `decomp.components` in place; a no-op when there is no TARGET annotation
-    or no matching fragment.
+    A phrase like 'inhibitors of kinases' has two readings: the biological *target*
+    (Kinases) and the antineoplastic *drug class* ('Kinase inhibitors'). The gold
+    set resolves it as the drug class (a strictly tighter, intended set). We probe
+    the drugs taxonomy for a class node named '<target-singular> inhibitors' (and a
+    few light variants); if one exists, return its canonical label. Returns None when
+    no such drug class exists, so the target reading is used instead. Field-agnostic:
+    works for any target whose '<x> inhibitors' is a real drug class.
     """
-    if not annotations or "targets" not in service.fields:
+    if "drugs" not in service.fields:
+        return None
+    spec = service.fields["drugs"]
+    if not spec.taxonomy:
+        return None
+    idx = get_index(spec.taxonomy)
+    base = target_surface.strip().lower()
+    singulars = [base, *[s.lower() for s in singular_candidates(base)]]
+    for stem in dict.fromkeys(singulars):  # preserve order, dedupe
+        for cand in (f"{stem} inhibitors", f"{stem} inhibitor"):
+            label = idx.class_label(cand)
+            if label is not None:
+                return label
+    return None
+
+
+# Closed-vocab fields where a *recognized entity defines the record type* and so must
+# constrain retrieval (a FILTER), even when the question is phrased as "what is the
+# <param>" — the param is both asked-about and filtered-on. A toxicity parameter
+# (NOAEL/NOEL/LD50/MTD/…) names the kind of study record sought; left as a pure
+# question it drops the constraint and the query goes overbroad.
+_RETRIEVAL_DEFINING_FIELDS = ("toxicityParameter",)
+
+
+def _reconcile_target_mechanism(decomp, service: ServiceConfig, annotations) -> None:
+    """Resolve a mechanism phrase ('inhibitors of kinases') by its TARGET annotation.
+
+    Two readings, picked deterministically by probing the drugs taxonomy:
+    1. **Drug class** (preferred): if '<target> inhibitors' is a real drug-class node
+       ('Kinase inhibitors'), keep it on `drugs` and rewrite the fragment to the class
+       label — the tighter, intended set.
+    2. **Target** (fallback): otherwise route to `targets` (DrugsTargets entity filter).
+    Only fires on a TARGET annotation whose surface appears in a `drugs`/`targets`
+    filter fragment, so plain drug queries and untagged 'CDk4 inhibitors' are untouched.
+    """
+    if "targets" not in service.fields:
         return
     type_map = service.termite_type_map
     target_surfaces = [
@@ -324,13 +351,93 @@ def reconcile_with_annotations(decomp, service: ServiceConfig, annotations) -> N
         if comp.type is not ComponentType.FILTER or comp.field not in ("drugs", "targets"):
             continue
         frag_low = comp.nl_fragment.lower()
-        if any(surface and surface in frag_low for surface in target_surfaces):
+        matched = next((s for s in target_surfaces if s and s in frag_low), None)
+        if matched is None:
+            continue
+        class_label = _drug_class_for_mechanism(matched, service)
+        if class_label is not None:
+            comp.field = "drugs"
+            comp.nl_fragment = class_label
+            comp.reason = (
+                f"{comp.reason} (resolved to the drug class {class_label!r}: the "
+                "mechanism phrase names a drug class in the taxonomy)."
+            )
+            comp.source = f"{comp.source}+drug-class"
+        else:
             comp.field = "targets"
             comp.reason = (
                 f"{comp.reason} (rerouted to targets: enhancer recognized a TARGET "
-                "entity, so this is a mechanism filter answered via DrugsTargets)."
+                "entity with no matching drug class, so this is a mechanism filter "
+                "answered via DrugsTargets)."
             )
             comp.source = f"{comp.source}+termite:TARGET"
+
+
+def _reconcile_retrieval_defining_filters(decomp, service: ServiceConfig, annotations) -> None:
+    """Ensure a recognized retrieval-defining entity (e.g. a tox parameter) is a FILTER.
+
+    'What is the Maximum tolerated dose of X' asks about MTD *and* restricts retrieval
+    to MTD records, but the decomposer often emits only a `toxicityParameter` QUESTION
+    (a reported column), dropping the constraint -> overbroad results. When TERMite
+    recognized an entity for a retrieval-defining field, promote/convert the existing
+    same-field QUESTION to a FILTER (or add a filter if none exists), using the
+    enhancer's preferred label as the fragment. Field-agnostic over
+    ``_RETRIEVAL_DEFINING_FIELDS``; a no-op when the entity is already a filter.
+    """
+    type_map = service.termite_type_map
+    for field in _RETRIEVAL_DEFINING_FIELDS:
+        if field not in service.fields:
+            continue
+        labels = [
+            ann.label.strip()
+            for ann in annotations
+            if ann.entity_type and type_map.get(ann.entity_type) == field and ann.label
+        ]
+        if not labels:
+            continue
+        existing = [c for c in decomp.components if c.field == field]
+        if any(c.type is ComponentType.FILTER for c in existing):
+            continue  # already a filter
+        label = labels[0]
+        question = next((c for c in existing if c.type is ComponentType.QUESTION), None)
+        if question is not None:
+            # Promote the question to a filter on the recognized label; the field is
+            # still reported (the question intent) via Stage 3 facets/displayColumns.
+            question.type = ComponentType.FILTER
+            question.nl_fragment = label
+            question.reason = (
+                f"{question.reason} (promoted to a filter: enhancer recognized "
+                f"{label!r}, which defines the record type to retrieve)."
+            )
+            question.source = f"{question.source}+termite-filter"
+        else:
+            decomp.components.append(
+                Component(
+                    field=field,
+                    nl_fragment=label,
+                    type=ComponentType.FILTER,
+                    reason=f"Enhancer recognized {label!r}, which defines the record type.",
+                    source="termite-filter",
+                )
+            )
+
+
+def reconcile_with_annotations(decomp, service: ServiceConfig, annotations) -> None:
+    """Deterministic post-decompose reconciliation against the enhancer's annotations.
+
+    The vocab-free LLM decomposer routes by intuition; this pass honours TERMite's
+    structured recognitions rather than trusting the prompt hint alone. Two rules:
+
+    * mechanism phrases -> drug class or `targets` (:func:`_reconcile_target_mechanism`);
+    * recognized retrieval-defining entities (tox parameters) must be FILTERS, not just
+      reported questions (:func:`_reconcile_retrieval_defining_filters`).
+
+    Mutates ``decomp.components`` in place; a no-op without annotations.
+    """
+    if not annotations:
+        return
+    _reconcile_target_mechanism(decomp, service, annotations)
+    _reconcile_retrieval_defining_filters(decomp, service, annotations)
 
 
 # ---------------------------------------------------------------------------

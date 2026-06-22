@@ -58,7 +58,18 @@ lookup_<field>(
 
 1. **TERMite preferred label** — if the fragment came from a TERMite annotation,
    its preferred label is usually already a taxonomy term; verify it exists in the
-   CSV and use it. Highest precision.
+   CSV and use it. Highest precision. The annotation must **correspond to this
+   component's fragment**, not merely share the field type — otherwise a multi-value
+   field (`rats or mice`, `neutropenia or thrombocytopenia`) would bind every value
+   to the *first* same-typed annotation, silently duplicating one and dropping the
+   rest. Correspondence uses two signals: **textual overlap** of surface/label with
+   the fragment, OR **no grounding conflict** — the annotation still binds when the
+   surfaces differ (e.g. fragment `No Observed Adverse Effect Level` vs label
+   `NOAEL`, an abbreviation TERMite normalised) *unless* the fragment itself strongly
+   self-grounds (exact/high-fuzzy) to a **different** vocab entry. That conflict is
+   exactly the multi-value case (`Rat` self-grounds to `Rat` while the lone
+   annotation is `Mouse`), so the annotation is rejected and the fragment grounds
+   itself. When no annotation corresponds, fall through to fragment-based grounding.
 2. **Exact name match** (case-insensitive) in the CSV.
 3. **Fuzzy / synonym / wildcard** match; rank by closeness and, where present, by
    the corpus `count` column (more frequent → more likely intended). This is also
@@ -98,11 +109,25 @@ annotation, the fragment passes through unchanged.
 The hierarchical CSVs (`name,id,parent_id,parent_name`) let us answer the gold
 set's class/rollup questions correctly:
 
-- **Down (class → members):** find the node whose `name` is the class, then select
-  all rows whose `parent_id` chains to it. Drug classes (Q8, Q23, Q24), species
-  classes (Q23 "Monkeys", Q6 rodents), effect categories.
-- **Up (term → category):** follow `parent_id` to the SOC/category for MedDRA-style
-  effect rollups.
+- **Down (class → label, not inlined members):** a class term emits the **class
+  label** as a single value. The API resolves the label server-side to its whole
+  subtree (verified: `species="Rodent"` and `species=[14 members]` both return the
+  same count; `drugsFuzzy="Kinase inhibitors"` resolves the antineoplastic class).
+  We do **not** inline every child: a large class (monoclonal antibodies has 100+
+  members) busts the API's ~49-value-per-`MATCH`-list cap (HTTP 400), and inlining
+  is redundant since the parent already matches its subtree. The expanded children
+  are kept in the `grounding` record for provenance only.
+- **Up (term → category), additive + score-gated:** a leaf rolls up to its MedDRA
+  family, but **(a)** the rollup is *additive* — the canonical/grounded term stays
+  in the value set so the broad term is never lost (`Mutagenicity` survives rather
+  than being replaced by its narrow NEC siblings), and **(b)** a rollup only fires on
+  a *high-confidence anchor* (exact, or fuzzy ≥95). A weak fuzzy match (`positive
+  Ames Test` ranks `Amniotic membrane rupture test positive` @86 on shared words)
+  must not anchor a family — it would expand an unrelated set. Result/polarity words
+  (`positive`, `negative`, `abnormal`, …) are stripped before grounding so an
+  assay-result phrase keys on the assay name (`positive Ames Test` → `Ames Test` →
+  the Ames assay family), since the vocabulary names the *assay/finding*, not its
+  polarity.
 - **Curated sets:** "preclinical / non-clinical species" (Q7, Q16) is a named set
   the back-end already defines; expose it as a special `expand="preclinical"` mode
   or a small curated list, since it doesn't correspond to a single taxonomy node.

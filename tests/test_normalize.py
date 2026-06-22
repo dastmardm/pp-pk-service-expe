@@ -35,12 +35,15 @@ def test_fuzzy_still_corrects_a_real_typo():
     assert res.normalized == "Sunitinib"
 
 
-def test_rodent_class_expands_through_fuzzy_normalizer():
-    # End-to-end Stage 2: the reported bug. With the fuzzy normalizer, "rodent" must
-    # still class-expand to its member species, not collapse to "Not-rodent (unspecified)".
+def test_rodent_class_resolves_to_class_label_through_fuzzy_normalizer():
+    # End-to-end Stage 2: the reported bug was "rodent" collapsing to a junk fuzzy hit
+    # ("Not-rodent (unspecified)"). It must resolve as the species CLASS. We emit the
+    # class label ("Rodent") rather than inlining every member: the API resolves the
+    # label server-side to the identical member set (verified: species="Rodent" and
+    # species=[14 members] both return 344917), and inlining large classes busts the
+    # API's per-MATCH-list cap. So the contract is "class label", not a member list.
     comp = Component(field="species", nl_fragment="rodent", type=ComponentType.FILTER, reason="x")
     sq = translate_one(comp, "safety", "fuzzy", llm_select=False)
-    values = sq.value if isinstance(sq.value, list) else [sq.value]
     assert sq.grounding is not None and sq.grounding.expanded_from == "class"
-    assert "Rat" in values and "Mouse" in values
-    assert not any("Not-rodent" in str(v) for v in values)
+    assert sq.value == "Rodent"
+    assert "Not-rodent" not in str(sq.value)

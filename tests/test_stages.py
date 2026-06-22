@@ -49,13 +49,14 @@ def test_decompose_gazetteer_isolated():
     assert {"drugs", "species"} <= fields
 
 
-def test_reconcile_reroutes_mechanism_filter_to_targets_on_target_annotation():
-    """A mechanism phrase ('inhibitors of kinases') belongs on `targets`, not `drugs`.
+def test_reconcile_mechanism_phrase_resolves_to_drug_class_when_one_exists():
+    """'inhibitors of kinases' (+TARGET:Kinases) resolves to the drug class, not target.
 
-    The decomposer parks it on `drugs` (where it fuzzy-matches nonsense and returns
-    zero records); TERMite's TARGET annotation reroutes it to the DrugsTargets
-    entity filter. Regression for the zero-results 'inhibitors of kinases' bug
-    (gold case expects ~1851 records).
+    The phrase has two readings; the gold answer is the antineoplastic drug class
+    'Kinase inhibitors' (a real class node), the tighter intended set (~1851), not
+    the broader DrugsTargets=Kinases set (~6980). Reconciliation keeps it on `drugs`
+    and rewrites the fragment to the class label. Regression for the case-8 over-broad
+    target routing.
     """
     from oppp.models import Component, ComponentType, Decomposition, EntityAnnotation
     from oppp.stages.decompose import reconcile_with_annotations
@@ -76,9 +77,38 @@ def test_reconcile_reroutes_mechanism_filter_to_targets_on_target_annotation():
     anns = [EntityAnnotation(surface="Kinases", label="Kinases", entity_type="TARGET")]
     reconcile_with_annotations(decomp, SVC, anns)
 
-    by_frag = {c.nl_fragment: c.field for c in decomp.filters}
-    assert by_frag["inhibitors of kinases"] == "targets"  # rerouted
-    assert by_frag["human"] == "species"  # untouched
+    drug = next(c for c in decomp.filters if c.field == "drugs")
+    assert drug.nl_fragment == "Kinase inhibitors"  # rewritten to the class label
+    assert "drug-class" in drug.source
+    assert {c.field for c in decomp.filters} == {"drugs", "species"}  # no targets reroute
+
+
+def test_reconcile_routes_to_targets_when_no_matching_drug_class():
+    """A TARGET phrase with no '<x> inhibitors' drug class falls back to `targets`.
+
+    When the mechanism phrase does not name a drug class in the taxonomy, the target
+    reading (DrugsTargets entity filter) is correct. Keeps the two readings distinct.
+    """
+    from oppp.models import Component, ComponentType, Decomposition, EntityAnnotation
+    from oppp.stages.decompose import reconcile_with_annotations
+
+    decomp = Decomposition(
+        query="effects for inhibitors of zzznotadrugclass",
+        service="safety",
+        components=[
+            Component(
+                field="drugs",
+                nl_fragment="inhibitors of zzznotadrugclass",
+                type=ComponentType.FILTER,
+                reason="x",
+            ),
+        ],
+    )
+    anns = [
+        EntityAnnotation(surface="zzznotadrugclass", label="zzznotadrugclass", entity_type="TARGET")
+    ]
+    reconcile_with_annotations(decomp, SVC, anns)
+    assert decomp.filters[0].field == "targets"
 
 
 def test_reconcile_leaves_drug_inhibitor_without_target_annotation():
@@ -101,6 +131,63 @@ def test_reconcile_leaves_drug_inhibitor_without_target_annotation():
     )
     reconcile_with_annotations(decomp, SVC, annotations=[])  # no TARGET annotation
     assert decomp.filters[0].field == "drugs"  # untouched
+
+
+def test_reconcile_promotes_recognized_tox_parameter_question_to_filter():
+    """A recognized tox parameter must constrain retrieval, not just be a column.
+
+    'What is the Maximum tolerated dose of X' -> the decomposer often emits a
+    toxicityParameter QUESTION (reported column), dropping the filter and going
+    overbroad (MTD: 2292 vs gold 4). TERMite recognized MTD, so the question is
+    promoted to a FILTER on the preferred label. Regression for case 17.
+    """
+    from oppp.models import Component, ComponentType, Decomposition, EntityAnnotation
+    from oppp.stages.decompose import reconcile_with_annotations
+
+    decomp = Decomposition(
+        query="What is the Maximum tolerated dose of Alpelisib in human",
+        service="safety",
+        components=[
+            Component(
+                field="toxicityParameter",
+                nl_fragment="Maximum tolerated dose",
+                type=ComponentType.QUESTION,
+                reason="x",
+            ),
+            Component(
+                field="drugs", nl_fragment="Alpelisib", type=ComponentType.FILTER, reason="x"
+            ),
+        ],
+    )
+    anns = [EntityAnnotation(surface="MTD", label="MTD", entity_type="TOXICITY_PARAMETER")]
+    reconcile_with_annotations(decomp, SVC, anns)
+
+    tox = next(c for c in decomp.components if c.field == "toxicityParameter")
+    assert tox.type is ComponentType.FILTER  # promoted from question
+    assert tox.nl_fragment == "MTD"  # uses the recognized preferred label
+
+
+def test_reconcile_leaves_pure_question_field_alone():
+    """A non-retrieval-defining question (e.g. dose) is NOT promoted to a filter.
+
+    'what is the dose' is a reported column, not a constraint — only fields in
+    _RETRIEVAL_DEFINING_FIELDS (tox parameters) are promoted, and only when an
+    annotation recognized them. A plain dose question stays a question.
+    """
+    from oppp.models import Component, ComponentType, Decomposition
+    from oppp.stages.decompose import reconcile_with_annotations
+
+    decomp = Decomposition(
+        query="drugs causing neutropenia in human, at which dose",
+        service="safety",
+        components=[
+            Component(
+                field="dose", nl_fragment="at which dose", type=ComponentType.QUESTION, reason="x"
+            ),
+        ],
+    )
+    reconcile_with_annotations(decomp, SVC, annotations=[])
+    assert decomp.components[0].type is ComponentType.QUESTION  # untouched
 
 
 def test_translate_entity_routed_open_field_uses_enhancer_label():
@@ -129,6 +216,125 @@ def test_translate_entity_routed_open_field_uses_enhancer_label():
     grounded = translate_one(comp, "safety", "noop", llm_select=False, annotations=anns)
     assert grounded.value == "Kinases"
     assert grounded.entity_name == "DrugsTargets"
+
+
+def test_annotation_binds_to_corresponding_fragment_not_first_of_type():
+    """Multi-value same-field: each value binds to its OWN annotation, not the first.
+
+    'rats or mice' with only a 'mouse' annotation must NOT collapse both species to
+    Mouse — 'Rat' has to ground from its own fragment. Regression for the OR(Mouse,
+    Mouse) bug that silently dropped half of any multi-value closed field (cases 12,
+    16: neutropenia/thrombocytopenia, Rat/Mouse).
+    """
+    from oppp.models import Component, ComponentType, EntityAnnotation
+
+    anns = [EntityAnnotation(surface="mouse", label="Mouse", entity_type="SPECIES")]
+    rat = Component(field="species", nl_fragment="Rat", type=ComponentType.FILTER, reason="x")
+    mouse = Component(field="species", nl_fragment="mice", type=ComponentType.FILTER, reason="x")
+
+    rat_sq = translate_one(rat, "safety", "noop", llm_select=False, annotations=anns)
+    mouse_sq = translate_one(mouse, "safety", "noop", llm_select=False, annotations=anns)
+    assert rat_sq.value == "Rat"  # not hijacked to Mouse by the lone annotation
+    assert mouse_sq.value == "Mouse"
+
+
+def test_annotation_binds_abbreviation_when_fragment_has_no_self_grounding():
+    """An abbreviation annotation still binds when surfaces differ but don't conflict.
+
+    TERMite tags 'No Observed Adverse Effect Level' as label/surface 'NOAEL' (the
+    abbreviation, not the matched span). The fragment text doesn't textually overlap
+    'NOAEL' AND doesn't self-ground to any *other* vocab term, so the verified NOAEL
+    label must still win. Regression: the fragment-correspondence guard (added for
+    the Rat/Mouse multi-value bug) must NOT re-break the original NOAEL grounding.
+    """
+    from oppp.models import Component, ComponentType, EntityAnnotation
+
+    for frag, label in [
+        ("No Observed Adverse Effect Level", "NOAEL"),
+        ("No Observed Effect Level", "NOEL"),
+    ]:
+        comp = Component(
+            field="toxicityParameter", nl_fragment=frag, type=ComponentType.FILTER, reason="x"
+        )
+        ann = [EntityAnnotation(surface=label, label=label, entity_type="TOXICITY_PARAMETER")]
+        sq = translate_one(comp, "safety", "noop", llm_select=False, annotations=ann)
+        assert sq.value == label, frag  # grounds to the verified abbreviation
+
+
+def test_no_trailing_wildcard_on_multiword_drug_value():
+    """A bare trailing '*' on a multi-word drugsFuzzy value is rejected (HTTP 400).
+
+    So 'CDk4 inhibitors' must NOT become 'CDk4 inhibitors*'; a single-token drug
+    still gets the wildcard. Regression for cases 14/20/22 (multi-word wildcard 400).
+    """
+    from oppp.models import Component, ComponentType
+
+    multi = Component(
+        field="drugs", nl_fragment="CDk4 inhibitors", type=ComponentType.FILTER, reason="x"
+    )
+    single = Component(
+        field="drugs", nl_fragment="Sunitinib", type=ComponentType.FILTER, reason="x"
+    )
+    assert translate_one(multi, "safety", "noop", llm_select=False).value == "CDk4 inhibitors"
+    assert translate_one(single, "safety", "noop", llm_select=False).value == "Sunitinib*"
+
+
+def test_drug_class_emits_label_not_member_explosion():
+    """A drug/indication class emits its LABEL (API resolves it), not all children.
+
+    Inlining 100+ class members busts the API's ~49-value-per-list cap (HTTP 400).
+    'monoclonal antibodies' and 'kinase inhibitors' must emit the single class label.
+    Regression for cases 14/22 (uncapped class expansion 400).
+    """
+    from oppp.models import Component, ComponentType
+
+    for frag, label in [
+        ("monoclonal antibodies", "Monoclonal antibodies"),
+        ("kinase inhibitors", "Kinase inhibitors"),
+    ]:
+        comp = Component(field="drugs", nl_fragment=frag, type=ComponentType.FILTER, reason="x")
+        sq = translate_one(comp, "safety", "noop", llm_select=False)
+        assert sq.value == label  # single class label, not a list of members
+        assert sq.grounding.expanded_from == "class"
+
+
+def test_effects_rollup_is_additive_and_score_gated():
+    """Family rollup keeps the canonical term (additive) and skips weak anchors.
+
+    'Neutropenia' rolls up to its family but the value set still INCLUDES
+    'Neutropenia' (additive — never loses the broad term). Regression for case 18
+    (Mutagenicity over-narrow): the broad/canonical term must survive the rollup.
+    """
+    from oppp.models import Component, ComponentType
+
+    neutro = Component(
+        field="effects", nl_fragment="Neutropenia", type=ComponentType.FILTER, reason="x"
+    )
+    sq = translate_one(neutro, "safety", "noop", llm_select=False)
+    values = sq.value if isinstance(sq.value, list) else [sq.value]
+    assert sq.grounding.expanded_from == "family"
+    assert "Neutropenia" in values  # additive: canonical term retained
+    assert len(values) > 1
+
+
+def test_effects_result_qualifier_is_stripped_before_grounding():
+    """A polarity word must not hijack the rollup anchor into an unrelated family.
+
+    'positive Ames Test' grounds whole-phrase to 'Amniotic membrane rupture test
+    positive' (shared 'positive'/'test' words) -> the foetal-diagnostics family.
+    Stripping the result qualifier keys grounding on 'Ames Test' -> the Ames assay
+    family. The raw phrase is also kept additively. Regression for case 19.
+    """
+    from oppp.models import Component, ComponentType
+
+    ames = Component(
+        field="effects", nl_fragment="positive Ames Test", type=ComponentType.FILTER, reason="x"
+    )
+    sq = translate_one(ames, "safety", "noop", llm_select=False)
+    vals = sq.value if isinstance(sq.value, list) else [sq.value]
+    assert sq.grounding.expanded_from == "family"
+    assert any("Ames test" in v for v in vals)  # correct assay family
+    assert not any("Amniotic" in v for v in vals)  # not the foetal mis-match
 
 
 def test_llm_map_unions_over_attempts_for_flaky_mapping(monkeypatch):
