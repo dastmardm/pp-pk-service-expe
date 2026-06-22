@@ -139,6 +139,10 @@ backend selection is a flag that maps one-to-one to a `run_pipeline` argument.
   (`config.py:get_settings`).
 - **Model provider (Portkey).** `PORTKEY_ENDPOINT`, `PORTKEY_API_KEY`,
   `PORTKEY_PROVIDER`, `TOOL_MODEL` — read only when a model-backed backend runs.
+  Every model is built for reproducibility in one place (`llm.py:get_chat_model`):
+  `temperature=0`, `top_p=0`, and a fixed `seed` (`LLM_SEED`, default 7). These are
+  best-effort — hosted models still drift run-to-run from batched-GPU float
+  non-associativity / MoE routing — but remove every source of variance we control.
 - **Entity recognition (TERMite).** `config.py` currently reads `TERMITE_HOME`,
   `TERMITE_AUTH_URL`, `TERMITE_CLIENT_NAME`, `TERMITE_CLIENT_SECRET`.
 - Secrets are loaded best-effort from the project `.env` (`config.py:load_dotenv_if_present`)
