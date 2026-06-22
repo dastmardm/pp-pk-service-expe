@@ -72,6 +72,17 @@ A list of items like:
 4. **Disambiguation.** When a span could be two fields (the classic "kinase" =
    drug *class* vs *target*, Q8/Q21), Stage 1 records both candidates; Stage 2
    resolves by attempting the relevant CSV lookups and comparing confidence.
+5. **Annotation reconciliation (deterministic, post-decompose).** Because the
+   vocab-free LLM still routes by intuition, a small deterministic pass honours the
+   enhancer's annotations rather than trusting the prompt hint alone. Its first
+   rule resolves the "kinase" case above: when TERMite recognized a `TARGET`
+   entity and the decomposer parked a mechanism phrase containing that target
+   surface (e.g. "inhibitors of kinases") on `drugs`, the phrase is rerouted to
+   `targets` — a mechanism filter answered via the `DrugsTargets` entity filter
+   (Q8 expects ~1851 records), not a drug name fuzzy-matched against `drugs.csv`
+   (which yields nonsense). An untagged "CDk4 inhibitors" (no TERMite TARGET, Q21)
+   stays on `drugs`. Implemented as `reconcile_with_annotations`, run by the
+   pipeline after any decomposer backend.
 
 ## Granularity: per field or per concept?
 

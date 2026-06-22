@@ -289,6 +289,51 @@ def _detect_questions(lower: str, service: ServiceConfig, comps):
 
 
 # ---------------------------------------------------------------------------
+# Annotation-driven reconciliation (runs after any decomposer, in the pipeline)
+# ---------------------------------------------------------------------------
+def reconcile_with_annotations(decomp, service: ServiceConfig, annotations) -> None:
+    """Reroute a mechanism filter to `targets` when the enhancer recognized a TARGET.
+
+    A phrase like 'inhibitors of kinases' is a *target/mechanism* filter, not a drug
+    name — the back-end answers it via the DrugsTargets entity filter (gold case Q:
+    'inhibitors of kinases ...' expects ~1851 records). But a vocab-free decomposer
+    routinely parks it on `drugs`, where grounding the literal phrase against
+    drugs.csv yields nonsense fuzzy hits (a gallium kit, an MMR vaccine) and zero
+    results. TERMite's TARGET annotation is the authoritative signal that this is a
+    target filter; honour it deterministically rather than hoping the LLM reads the
+    hint block.
+
+    Rule (conservative, so plain drug queries and untagged 'CDk4 inhibitors' are
+    untouched): for each TARGET annotation whose type maps to the `targets` field,
+    find a `drugs`/`targets` FILTER whose fragment contains the target surface word,
+    and move it to `targets` (which is entity-routed via DrugsTargets in Stage 3).
+    Mutates `decomp.components` in place; a no-op when there is no TARGET annotation
+    or no matching fragment.
+    """
+    if not annotations or "targets" not in service.fields:
+        return
+    type_map = service.termite_type_map
+    target_surfaces = [
+        (ann.surface or ann.label).strip().lower()
+        for ann in annotations
+        if ann.entity_type and type_map.get(ann.entity_type) == "targets"
+    ]
+    if not target_surfaces:
+        return
+    for comp in decomp.components:
+        if comp.type is not ComponentType.FILTER or comp.field not in ("drugs", "targets"):
+            continue
+        frag_low = comp.nl_fragment.lower()
+        if any(surface and surface in frag_low for surface in target_surfaces):
+            comp.field = "targets"
+            comp.reason = (
+                f"{comp.reason} (rerouted to targets: enhancer recognized a TARGET "
+                "entity, so this is a mechanism filter answered via DrugsTargets)."
+            )
+            comp.source = f"{comp.source}+termite:TARGET"
+
+
+# ---------------------------------------------------------------------------
 # LLM decomposer (default) — structured output, vocab-free, decompose-only
 # ---------------------------------------------------------------------------
 class LLMDecomposer:

@@ -67,15 +67,31 @@ lookup_<field>(
 4. **LLM map → re-ground** *(when exact + fuzzy return an empty candidate pool)* —
    the fragment is a synonym, scientific name, brand name, or abbreviation the
    string matcher cannot reach (e.g. `homo sapiens` for `species`, whose preferred
-   label is `Human`; `per os` → `Oral`; `Columvi` → `Glofitamab`). The LLM is asked
-   for the canonical vocabulary term(s) the phrase refers to, and **each proposal is
-   then looked up again against the CSV** (steps 2–3) so the emitted value is always
-   a real taxonomy entry — never the model's raw string. This keeps **ground, don't
-   generate** intact even when the model is doing the mapping. Runs only on the
-   production (LLM-enabled) lookup path; the offline deterministic double skips it.
+   label is `Human`; `per os` → `Oral`; `Columvi` → `Glofitamab`;
+   `IV administration` → `intravenous`). The LLM is asked for the canonical
+   vocabulary term(s) the phrase refers to, and **each proposal is then looked up
+   again against the CSV** (steps 2–3) so the emitted value is always a real
+   taxonomy entry — never the model's raw string. This keeps **ground, don't
+   generate** intact even when the model is doing the mapping. The mapping call is
+   non-deterministic in practice even at temperature 0 (e.g. `IV administration`
+   resolves only ~half the calls), so it is **retried and unioned over a few
+   attempts** — a single empty response must not silently drop the constraint to
+   confidence 0. Runs only on the production (LLM-enabled) lookup path; the offline
+   deterministic double skips it.
 5. **No match** → return empty; Stage 2 flags the constraint (confidence 0) rather
    than inventing a value. Reached only when even the LLM's proposal fails to ground
-   (or offline, when no LLM is available).
+   across attempts (or offline, when no LLM is available).
+
+### Entity-routed open fields (e.g. `targets`)
+
+`targets` has no taxonomy CSV (it is an *open* field routed through the
+`DrugsTargets` entity filter), but the back-end still matches it against the
+enhancer's **preferred label**, not a free phrase: the filter accepts `Kinases`
+(the TERMite label) and returns nothing for the raw `inhibitors of kinases`. So
+for an entity-routed open field, when a TERMite annotation of the matching type is
+present, Stage 2 emits its label — the same "use the enhancer's preferred label"
+principle as step 1 above, applied where there is no CSV to verify against. With no
+annotation, the fragment passes through unchanged.
 
 ## Hierarchy expansion (the rollup engine)
 

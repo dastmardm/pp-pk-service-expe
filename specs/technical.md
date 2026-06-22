@@ -47,6 +47,9 @@ NL query
 - **Stage 1 — decompose** (`stages/decompose.py`): `llm` (default; **vocab-free**
   structured-output segmentation/routing) or `gazetteer` (**offline double only**;
   vocab-based exact+fuzzy detection — explicitly not the production behaviour).
+  After any backend, the pipeline runs `reconcile_with_annotations`: a deterministic
+  pass that honours the enhancer's annotations, e.g. rerouting a mechanism phrase to
+  `targets` (DrugsTargets entity filter) when TERMite recognized a `TARGET`.
 - **Stage 2 — translate** (`stages/translate.py`): `tool` (default; closed-vocab
   grounding + hierarchy expansion + an LLM term-selector refining candidates) or
   `deterministic` (offline double; same grounding without the LLM selector). Runs
@@ -107,7 +110,7 @@ machine query additionally passes Stage 3 structural validation
 |-----------|------------------------|----------|
 | Enhancer | `enhance(query:str, service:ServiceConfig) -> EnhancedQuery` | `noop`, `termite` |
 | Decomposer | `decompose(query:str, service:ServiceConfig) -> Decomposition` | `llm`, `gazetteer` |
-| Translator | `translate(component:Component, service:ServiceConfig, normalizer) -> MachineSubquery\|None` | `tool`, `deterministic` |
+| Translator | `translate(component:Component, service:ServiceConfig, normalizer, annotations?:[EntityAnnotation]) -> MachineSubquery\|None` — closed-vocab fields ground a matching enhancer preferred label first (verified against the CSV) per the grounding resolution order | `tool`, `deterministic` |
 | Aggregator | `aggregate(decomp:Decomposition, subqueries:[MachineSubquery], service:ServiceConfig) -> (MachineQuery, [ValidationIssue])` | `llm`, `deterministic` |
 | Normalizer | `normalize(fragment:str, field:str, bucket:str, context) -> {normalized, candidates?, changed, confidence, note?}` | `noop`, `fuzzy` |
 | TaxonomyIndex | `lookup(term, limit)`, `is_class(term)`, `expand_children(term)` → `[GroundingHit]` | per-taxonomy in-memory index |

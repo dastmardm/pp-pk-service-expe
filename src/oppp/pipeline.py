@@ -19,7 +19,7 @@ from oppp.models import Decomposition, EnhancedQuery, MachineSubquery, PipelineR
 from oppp.normalize.base import get_normalizer
 from oppp.services.base import get_service
 from oppp.stages.aggregate import get_aggregator
-from oppp.stages.decompose import get_decomposer
+from oppp.stages.decompose import get_decomposer, reconcile_with_annotations
 from oppp.stages.enhance import get_enhancer
 from oppp.stages.translate import get_translator
 
@@ -41,11 +41,12 @@ def run_pipeline(
     enhanced: EnhancedQuery = get_enhancer(enhancer).enhance(query, svc)
     decomp: Decomposition = get_decomposer(decomposer).decompose(enhanced.text, svc)
     decomp.query = query  # keep the original user query as the canonical record
+    reconcile_with_annotations(decomp, svc, enhanced.annotations)
 
     tr = get_translator(translator)
     subqueries: list[MachineSubquery] = []
     for comp in decomp.filters:
-        sq = tr.translate(comp, svc, norm)
+        sq = tr.translate(comp, svc, norm, enhanced.annotations)
         if sq is not None:
             subqueries.append(sq)
 
@@ -100,11 +101,13 @@ def build_langgraph(
     def n_decompose(state: State) -> State:
         d = dec.decompose(state["enhanced"].text, svc)
         d.query = state["query"]
+        reconcile_with_annotations(d, svc, state["enhanced"].annotations)
         state["decomposition"] = d
         return state
 
     def n_translate(state: State) -> State:
-        subs = [tr.translate(c, svc, norm) for c in state["decomposition"].filters]
+        anns = state["enhanced"].annotations
+        subs = [tr.translate(c, svc, norm, anns) for c in state["decomposition"].filters]
         state["subqueries"] = [s for s in subs if s is not None]
         return state
 
