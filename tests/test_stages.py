@@ -434,6 +434,38 @@ def test_llm_map_unions_over_attempts_for_flaky_mapping(monkeypatch):
     assert calls["n"] >= 2  # it did not give up after the first empty response
 
 
+def test_llm_map_grounds_class_members_as_subset_of_closed_set(monkeypatch):
+    """A class/group phrase ('ADC') has no row, but its members do.
+
+    The string matcher can't reach 'ADC' (no such drug/class name in drugs.csv), so
+    the LLM points at the specific member entries it knows. Each is re-grounded against
+    the taxonomy (exact first), so the emitted value is always a SUBSET of the closed
+    set — real rows, never the invented group string. Regression for case 24 (ADC).
+    """
+    from oppp.models import TermSelection
+    from oppp.stages.translate import _llm_map_to_vocab
+    from oppp.taxonomy.index import get_index
+
+    class MemberSelector:
+        def invoke(self, _prompt):
+            # real drugs.csv rows + one hallucination that must be dropped (not in CSV)
+            return TermSelection(
+                selected=[
+                    "Brentuximab Vedotin",
+                    "Gemtuzumab Ozogamicin",
+                    "Not A Real Drug 123",
+                ]
+            )
+
+    monkeypatch.setattr("oppp.stages.translate._get_term_selector", lambda: MemberSelector())
+    hits = _llm_map_to_vocab("ADC", "drugs", get_index("drugs"))
+    names = {h.name for h in hits}
+    assert "Brentuximab Vedotin" in names  # real member -> grounded
+    assert "Gemtuzumab Ozogamicin" in names
+    assert "Not A Real Drug 123" not in names  # ungroundable proposal dropped (CONST-1)
+    assert all(get_index("drugs").get_exact(n) is not None for n in names)  # all real rows
+
+
 def test_translate_one_closed_field_isolated():
     comp = Component(
         field="species",

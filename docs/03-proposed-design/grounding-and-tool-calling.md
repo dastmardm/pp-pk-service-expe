@@ -76,18 +76,30 @@ lookup_<field>(
    where misspellings are reconciled — the pluggable normalizer feeds candidates
    here (see [misspelling-strategy.md](misspelling-strategy.md)).
 4. **LLM map → re-ground** *(when exact + fuzzy return an empty candidate pool)* —
-   the fragment is a synonym, scientific name, brand name, or abbreviation the
-   string matcher cannot reach (e.g. `homo sapiens` for `species`, whose preferred
-   label is `Human`; `per os` → `Oral`; `Columvi` → `Glofitamab`;
-   `IV administration` → `intravenous`). The LLM is asked for the canonical
-   vocabulary term(s) the phrase refers to, and **each proposal is then looked up
-   again against the CSV** (steps 2–3) so the emitted value is always a real
-   taxonomy entry — never the model's raw string. This keeps **ground, don't
-   generate** intact even when the model is doing the mapping. The mapping call is
-   non-deterministic in practice even at temperature 0 (e.g. `IV administration`
-   resolves only ~half the calls), so it is **retried and unioned over a few
-   attempts** — a single empty response must not silently drop the constraint to
-   confidence 0. Runs only on the production (LLM-enabled) lookup path; the offline
+   the fragment is something the string matcher cannot reach, in one of two shapes:
+   * a **synonym / scientific name / brand / abbreviation of one term** (e.g. `homo
+     sapiens` → `Human`; `per os` → `Oral`; `Columvi` → `Glofitamab`; `IV
+     administration` → `intravenous`); or
+   * a **class/group whose members are listed individually but the group itself is
+     not** — the vocabulary names the *members*, not the concept. `ADC` /
+     `antibody-drug conjugates` is no row in `drugs.csv`, yet Brentuximab Vedotin,
+     Trastuzumab Deruxtecan, Gemtuzumab Ozogamicin… all are. A pure string matcher
+     can never bridge this (there is no string to match), but the model's
+     pharmacology knowledge can: it is asked to **point at the specific member
+     entries** it is confident belong to the group.
+
+   In both shapes the LLM names *what to look up*; **each proposal is then re-grounded
+   against the CSV** (exact first so a named real entity binds to its own row, then
+   fuzzy for spelling drift). The emitted value is therefore **always a subset of the
+   closed set** — every entry is a verified taxonomy row, never the model's raw string
+   or the group abbreviation (CONST-1). A proposal that does not ground (a
+   hallucinated drug) is simply dropped; if nothing grounds, the filter is dropped
+   rather than invented. This keeps **ground, don't generate** intact even when the
+   model supplies the membership knowledge a string match cannot. The call is
+   non-deterministic in practice even at temperature 0, so it is **retried and unioned
+   over a few attempts** (a single empty response must not silently drop the
+   constraint), and the kept set is capped below the API's ~49-value-per-`MATCH`-list
+   ceiling. Runs only on the production (LLM-enabled) lookup path; the offline
    deterministic double skips it.
 5. **No match** → the constraint is **dropped** (marked `dropped`, confidence 0)
    rather than inventing a value. Reached only when even the LLM's proposal fails to

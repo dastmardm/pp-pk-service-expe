@@ -265,31 +265,34 @@ def _llm_map_to_vocab(
     field: str,
     index,
     *,
-    limit: int = 8,
+    limit: int = 40,
     accept_score: float = 90.0,
     attempts: int = 3,
 ) -> list[GroundingHit]:
     """Closed-vocab fallback when exact/fuzzy lookup finds nothing.
 
-    The phrase is a synonym, scientific name, brand, or abbreviation the string
-    matcher missed (e.g. ``'homo sapiens' -> 'Human'``, ``'Columvi' -> 'Glofitamab'``,
-    ``'IV administration' -> 'intravenous'``). Ask the LLM for the canonical
-    vocabulary term(s) it refers to, then **re-ground each proposal through the
-    taxonomy** so the emitted value is guaranteed to exist in the controlled
-    vocabulary — we never emit the model's raw string (CONST-1).
+    The phrase is a synonym, scientific name, brand, abbreviation, or a *class/group*
+    name the string matcher missed (e.g. ``'homo sapiens' -> 'Human'``,
+    ``'Columvi' -> 'Glofitamab'``, ``'IV administration' -> 'intravenous'``, or
+    ``'ADC' -> the antibody-drug-conjugate member drugs``). The string matcher fails
+    here because the vocabulary names the *members*, not the concept ('ADC' /
+    'antibody-drug conjugate' is no row in drugs.csv, yet Brentuximab Vedotin,
+    Trastuzumab Deruxtecan, … all are).
 
-    The mapping call is *non-deterministic in practice* even at temperature 0 (e.g.
-    'IV administration' resolves to 'intravenous' only ~half the time per call), so a
-    single empty response would intermittently drop a constraint to confidence 0.
-    We therefore make up to ``attempts`` calls and **union the grounded proposals**,
-    stopping as soon as a non-empty result is confirmed by a second pass. This is a
-    general recall safeguard — it adds no domain-specific knowledge, just resilience
-    against the flaky single call — so it helps every synonym/abbreviation case, not
-    one hard-coded phrase.
+    So we let the LLM use its pharmacology knowledge to **point at the real rows it
+    thinks match** — the canonical synonym for a simple phrase, OR the member entries
+    for a class/group concept — and then **re-ground every proposal through the
+    taxonomy** (exact first, then fuzzy). The emitted value is therefore *always a
+    subset of the closed set*; we never emit the model's raw string (CONST-1). If
+    nothing the model names grounds, the result is empty and the caller drops the
+    filter rather than inventing a value.
 
-    Returns the grounded hits (marked ``match="llm"`` for provenance). Returns ``[]``
-    when no LLM is configured or nothing the model proposes grounds across attempts,
-    so the caller flags the gap rather than inventing a value.
+    The call is non-deterministic in practice even at temperature 0, so we make up to
+    ``attempts`` calls and **union** the grounded proposals, stopping once a non-empty
+    result is confirmed by a second pass. ``limit`` caps how many rows we keep (kept
+    below the API's ~49-value-per-MATCH-list ceiling).
+
+    Returns the grounded hits (marked ``match="llm"`` for provenance), or ``[]``.
     """
     selector = _get_term_selector()
     if selector is None:
@@ -297,14 +300,20 @@ def _llm_map_to_vocab(
     prompt = (
         "You map a user's phrase to a controlled pharmacology vocabulary for the "
         f"field {field!r}. The phrase did NOT match the vocabulary by exact or fuzzy "
-        "string match — it is most likely a synonym, scientific name, brand name, or "
-        "abbreviation of a standard term.\n"
+        "string match.\n"
         f"User phrase: {fragment!r}\n"
-        "Return the canonical preferred term(s) this phrase refers to (e.g. "
-        "'homo sapiens' -> 'Human'; 'Columvi' -> 'Glofitamab'; 'per os' -> 'Oral'; "
-        "'IV administration' -> 'intravenous'). "
-        "Use standard term spellings. Return several only if the phrase genuinely "
-        "refers to multiple terms; otherwise return the single best term."
+        "Two cases:\n"
+        "1. The phrase is a synonym / scientific name / brand / abbreviation of ONE "
+        "standard term -> return that canonical term (e.g. 'homo sapiens' -> 'Human'; "
+        "'Columvi' -> 'Glofitamab'; 'per os' -> 'Oral'; 'IV administration' -> "
+        "'intravenous').\n"
+        "2. The phrase names a CLASS or GROUP whose members are listed individually in "
+        "the vocabulary but the group itself is not (e.g. 'ADC' / 'antibody-drug "
+        "conjugates' -> the specific ADC drugs like 'Brentuximab Vedotin', "
+        "'Trastuzumab Deruxtecan', 'Gemtuzumab Ozogamicin', …) -> return the SPECIFIC "
+        "member entries you are confident belong to the group.\n"
+        "Return the standard preferred name(s) of the matching vocabulary entries. Use "
+        "real, specific entity names — never the group/abbreviation itself."
     )
     hits: list[GroundingHit] = []
     seen: set[str] = set()
@@ -314,7 +323,12 @@ def _llm_map_to_vocab(
         except Exception:  # pragma: no cover - network/credential failure -> fallback
             break
         for proposal in result.selected:
-            match = index.lookup(proposal, match="fuzzy", limit=1)
+            # Exact first: a named real entity (a member drug, a canonical synonym)
+            # must bind to its own row, not the nearest fuzzy neighbour. Fall back to
+            # fuzzy for spelling/word-order drift in the model's proposal.
+            match = index.lookup(proposal, match="exact", limit=1)
+            if not match:
+                match = index.lookup(proposal, match="fuzzy", limit=1)
             if match and match[0].score >= accept_score and match[0].name.lower() not in seen:
                 hit = match[0]
                 hit.match = "llm"  # record that this term was reached via LLM mapping

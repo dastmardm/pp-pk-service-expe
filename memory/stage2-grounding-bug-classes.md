@@ -90,6 +90,17 @@ hits before trusting a "miss".
   1628 GI+Human rows, 32 are IV, 78 are single-dose, but ZERO are both IV AND single-dose. The
   SME-shaped query (full arrhythmia family + Human + Single + Intravenous) also returns 0 live.
   Pure data gap; the route value is already correctly grounded to 'intravenous'. Don't chase it.
+- **H. Empty closed-vocab pool -> LLM picks rows FROM the closed set (incl. class members).**
+  `_llm_map_to_vocab` (translate.py) used to ask the LLM for a canonical *string* then fuzzy-re-ground
+  it — which fails for a class concept whose group name is no row but whose members are (e.g. 'ADC' /
+  'antibody-drug conjugates': Brentuximab Vedotin, Gemtuzumab Ozogamicin, … all in drugs.csv, the group
+  isn't). Fix (user 2026-06-22, "just ask llm to find matches, output always a subset of the closed
+  set"): prompt now invites EITHER the canonical synonym OR the specific member entries; re-ground each
+  proposal EXACT-first then fuzzy (a named real entity binds to its own row); limit=40 (< API ~49 cap);
+  ungroundable/hallucinated proposals dropped; empty -> drop the filter. Proven: 'ADC' -> [Brentuximab
+  Vedotin, Fam-Trastuzumab Deruxtecan, Gemtuzumab Ozogamicin] all grounded@1.00, case 24 -> 14. This is
+  why ChatGPT "found" ADCs (world-knowledge classification over all rows) and the old string-reground
+  couldn't — now we let the LLM classify but the index confirms every row (ground, don't generate).
 - **Case 20 (CDk4 inhibitors / NOEL / mice) needs a TARGETS canonical spelling we can't reach:**
   'CDk4 inhibitors' is routed as drugsFuzzy (no such drug -> 0). SME-correct query routes via
   DrugsTargets with the EXACT label 'Cyclin-dependent kinase 4 (CDK4)' (any other spelling -> 0)
