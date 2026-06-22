@@ -18,7 +18,7 @@ from __future__ import annotations
 from oppp.models import Decomposition, EnhancedQuery, MachineSubquery, PipelineResult
 from oppp.normalize.base import get_normalizer
 from oppp.services.base import get_service
-from oppp.stages.aggregate import get_aggregator
+from oppp.stages.aggregate import drop_empty_open_filters, get_aggregator
 from oppp.stages.decompose import get_decomposer, reconcile_with_annotations
 from oppp.stages.enhance import get_enhancer
 from oppp.stages.translate import get_translator
@@ -33,8 +33,16 @@ def run_pipeline(
     translator: str = "tool",
     aggregator: str = "llm",
     normalizer: str = "noop",
+    probe_open_filters: bool = False,
 ) -> PipelineResult:
-    """Full end-to-end run, returning every intermediate artifact."""
+    """Full end-to-end run, returning every intermediate artifact.
+
+    ``probe_open_filters`` (live paths only) asks the API to drop any open-set
+    filter whose isolated server-side count is 0 — a value that matches no record
+    and would silently zero the query. It costs one cheap count call per open-set
+    filter, so it is off by default (offline/test runs stay hermetic) and enabled by
+    the CLI ``run`` and the eval harness.
+    """
     svc = get_service(service)
     norm = get_normalizer(normalizer)
 
@@ -50,7 +58,12 @@ def run_pipeline(
         if sq is not None:
             subqueries.append(sq)
 
+    probe_issues: list = []
+    if probe_open_filters:
+        subqueries = drop_empty_open_filters(subqueries, svc, probe_issues)
+
     machine_query, issues = get_aggregator(aggregator).aggregate(decomp, subqueries, svc)
+    issues = probe_issues + issues
 
     return PipelineResult(
         query=query,

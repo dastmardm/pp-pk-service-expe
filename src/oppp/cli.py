@@ -69,6 +69,7 @@ def run(
         translator=translator,
         aggregator=aggregator,
         normalizer=normalizer,
+        probe_open_filters=execute,
     )
     if payload_only:
         typer.echo(json.dumps(result.machine_query.to_payload(), indent=2, ensure_ascii=False))

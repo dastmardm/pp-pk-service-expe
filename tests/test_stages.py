@@ -548,6 +548,48 @@ def test_ungroundable_closed_vocab_is_dropped_and_excluded_by_aggregator():
     assert any("dropped ungroundable" in i.message for i in issues)
 
 
+def test_open_set_zero_count_filter_is_probed_and_dropped(monkeypatch):
+    # Open-set fields have no CSV to validate against, so Stage 3 probes each one's
+    # isolated server-side count and drops it ONLY when 0 (matches no record). Closed
+    # and entity-routed fields are not probed. On probe error it keeps (fail open).
+    import oppp.execute as execute_mod
+    from oppp.execute import ExecutionResult
+    from oppp.models import MachineSubquery, Operator
+    from oppp.stages.aggregate import drop_empty_open_filters
+
+    # value -> (ok, count): 'related to maternal toxicity' matches nothing.
+    counts = {
+        "maternal toxicity": ExecutionResult(ok=True, count_total=1029),
+        "related to maternal toxicity": ExecutionResult(ok=True, count_total=0),
+    }
+
+    def fake_count(mq, service, **kw):
+        val = mq.query.get("MATCH", {}).get("value")
+        return counts.get(val, ExecutionResult(ok=False, error="boom"))
+
+    monkeypatch.setattr(execute_mod, "execute_count", fake_count)
+
+    good = MachineSubquery(field="parameterComment", operator=Operator.MATCH, value="maternal toxicity")
+    empty = MachineSubquery(
+        field="parameterComment", operator=Operator.MATCH, value="related to maternal toxicity"
+    )
+    failopen = MachineSubquery(field="parameterComment", operator=Operator.MATCH, value="unknown phrase")
+    closed = MachineSubquery(field="drugsFuzzy", operator=Operator.MATCH, value="Sunitinib*")
+    entity = MachineSubquery(
+        field="targets", operator=Operator.MATCH, value="Kinases", entity_name="DrugsTargets"
+    )
+
+    issues = []
+    kept = drop_empty_open_filters([good, empty, failopen, closed, entity], SVC, issues)
+    kept_vals = {(s.field, s.value) for s in kept}
+    assert ("parameterComment", "maternal toxicity") in kept_vals  # nonzero -> kept
+    assert ("parameterComment", "related to maternal toxicity") not in kept_vals  # zero -> dropped
+    assert ("parameterComment", "unknown phrase") in kept_vals  # probe failed -> fail open
+    assert ("drugsFuzzy", "Sunitinib*") in kept_vals  # closed field -> not probed
+    assert ("targets", "Kinases") in kept_vals  # entity-routed -> not probed
+    assert any("dropped open-set parameterComment" in i.message for i in issues)
+
+
 def test_free_text_field_strips_leading_connective():
     # parameterComment is a free-text field; the decomposer copies the query's glue
     # ('...related to maternal toxicity') into the fragment, but the API matches the

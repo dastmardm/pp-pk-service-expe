@@ -150,6 +150,9 @@ def evaluate(
             translator=translator,
             aggregator=aggregator,
             normalizer=normalizer,
+            # Only the live path probes open-set filters (it hits the API anyway);
+            # offline eval (execute=False) stays hermetic.
+            probe_open_filters=execute,
         )
         cr = CaseResult(
             query_number=str(idx),

@@ -79,6 +79,58 @@ def _finalize(
     return mq, issues
 
 
+def drop_empty_open_filters(
+    subqueries: list[MachineSubquery],
+    service: ServiceConfig,
+    issues: list[ValidationIssue],
+) -> list[MachineSubquery]:
+    """Server-side guard for OPEN-SET fields: drop a filter that matches no record.
+
+    Closed-vocab fields are validated against their CSV before they are ever emitted.
+    Open-set fields (``parameterComment``, ``studyGroup``, ``ages``, ``dose`` — free
+    text matched as substring/REGEX) have no vocabulary to check against, so a fragment
+    the decomposer mis-routed or copied with extra glue can carry a value that exists in
+    *no* record and silently zeroes the whole AND. There is no local way to know.
+
+    So we ask the API: probe each open-set filter **in isolation** (one cheap
+    server-side ``countTotal``, never fetching rows) and drop it only when the count is
+    confirmed **0** — i.e. the value matches nothing in the entire corpus, so it cannot
+    legitimately constrain anything. The probe is intentionally the filter ALONE (not
+    ANDed with the others): that drops only genuinely-invalid values, never a valid
+    value that merely happens to be empty in combination. On any probe error/timeout we
+    **keep** the filter (fail open) — an unconfirmable filter is never dropped on a blip.
+
+    Entity-routed fields (``targets``/``indications`` via ``entityFilters``) are skipped:
+    the API rejects an ``entityFilters``-only query (no top-level ``query``) with HTTP
+    400, so they can't be probed alone and fall through to keep.
+    """
+    from oppp.execute import execute_count
+
+    kept: list[MachineSubquery] = []
+    for s in subqueries:
+        spec = service.spec(s.field) or next(
+            (sp for sp in service.fields.values() if sp.emit_field == s.field), None
+        )
+        if spec is None or spec.bucket != "open" or s.entity_name:
+            kept.append(s)
+            continue
+        probe = MachineQuery(query=s.to_constraint())
+        result = execute_count(probe, service)
+        if result.ok and result.count_total == 0:
+            issues.append(
+                ValidationIssue(
+                    level="warning",
+                    message=(
+                        f"dropped open-set {s.field} filter {s.value or s.pattern!r}: "
+                        "server-side count is 0 (matches no record); it does not constrain the query"
+                    ),
+                )
+            )
+            continue
+        kept.append(s)
+    return kept
+
+
 def _drop_ungroundable(
     subqueries: list[MachineSubquery], issues: list[ValidationIssue]
 ) -> list[MachineSubquery]:
