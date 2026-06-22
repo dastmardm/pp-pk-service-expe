@@ -58,7 +58,12 @@ A list of items like:
    field using the field catalogue and the user's own words. It does **not**
    resolve, normalize, or consult any taxonomy — that is Stage 2's grounded job.
    It also assigns each component its `type` and writes its one-sentence `reason`.
-   These carry `source: llm`.
+   These carry `source: llm`. The prompt instructs it to emit a `drugs` filter only
+   when a **specific drug or drug class is named** (Sunitinib, kinase inhibitors):
+   the bare head noun "drugs" in a *"drugs treating/causing/for `<condition>`"*
+   construction is the thing asked about, not a filter — the `<condition>` routes to
+   `indications`/`effects` and "drugs" becomes a `question` (the reported output).
+   Otherwise the carrier phrase fuzzy-grounds to a nonsense drug and zeroes the query.
 2. **Optional Stage 0 hints.** When the TERMite enhancer is enabled, its
    annotations carry a type that maps cleanly to a field: `DRUG→drugs`,
    `SPECIES→species`, `ROUTE→route`, `ADVERSE_EVENT→effects`,

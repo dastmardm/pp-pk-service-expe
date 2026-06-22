@@ -527,12 +527,13 @@ def test_term_selector_routes_through_central_llm_factory(monkeypatch):
     assert seen["schema"] is TermSelection
 
 
-def test_every_llm_call_is_built_with_temperature_zero(monkeypatch):
-    """Every LLM client (central factory + Stage-2 selector) is temperature=0.
+def test_every_llm_call_is_built_for_reproducibility(monkeypatch):
+    """Every LLM client (central factory + Stage-2 selector) is built deterministically.
 
     Stubs langchain_openai with a recorder so the test stays hermetic whether or
     not the optional 'llm' extra is installed (CONST-8/9), then exercises both
-    construction routes and asserts the recorded temperature is 0.
+    construction routes and asserts the reproducibility knobs: temperature=0,
+    top_p=0, and a fixed integer seed.
     """
     import sys
     import types
@@ -567,3 +568,5 @@ def test_every_llm_call_is_built_with_temperature_zero(monkeypatch):
 
     assert recorded, "no LLM client was constructed"
     assert all(kw.get("temperature") == 0 for kw in recorded), recorded
+    assert all(kw.get("top_p") == 0 for kw in recorded), recorded
+    assert all(isinstance(kw.get("seed"), int) for kw in recorded), recorded
