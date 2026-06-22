@@ -79,6 +79,33 @@ def _finalize(
     return mq, issues
 
 
+def _drop_ungroundable(
+    subqueries: list[MachineSubquery], issues: list[ValidationIssue]
+) -> list[MachineSubquery]:
+    """Remove subqueries Stage 2 flagged ``dropped`` (ungroundable closed-vocab terms).
+
+    Such a constraint has no in-vocabulary value, so emitting it as a hard MATCH
+    would zero the whole query (CONST-1). It is excluded from the boolean tree,
+    entity routing, and the budget count alike; the gap is surfaced as a warning so
+    the dropped filter is visible rather than silently absent.
+    """
+    kept: list[MachineSubquery] = []
+    for s in subqueries:
+        if s.dropped:
+            issues.append(
+                ValidationIssue(
+                    level="warning",
+                    message=(
+                        f"dropped ungroundable {s.field} filter {s.value!r} "
+                        "(no matching vocabulary value); it does not constrain the query"
+                    ),
+                )
+            )
+        else:
+            kept.append(s)
+    return kept
+
+
 def aggregate(
     decomp: Decomposition,
     subqueries: list[MachineSubquery],
@@ -86,6 +113,7 @@ def aggregate(
 ) -> tuple[MachineQuery, list[ValidationIssue]]:
     """Deterministic aggregation core (the `deterministic` backend / offline double)."""
     issues: list[ValidationIssue] = []
+    subqueries = _drop_ungroundable(subqueries, issues)
     _apply_budget(subqueries, issues)
     top = [s for s in subqueries if not s.entity_name]
     return _finalize(decomp, subqueries, service, _build_tree(top), issues)
@@ -297,6 +325,7 @@ class LLMAggregator:
 
     def aggregate(self, decomp, subqueries, service):
         issues: list[ValidationIssue] = []
+        subqueries = _drop_ungroundable(subqueries, issues)
         _apply_budget(subqueries, issues)
         top = [s for s in subqueries if not s.entity_name]
 

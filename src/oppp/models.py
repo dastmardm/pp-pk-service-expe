@@ -172,6 +172,7 @@ class MachineSubquery(BaseModel):
     collapse_to: str | None = None  # canonical term to fall back to under API budget
     grounding: Grounding | None = None
     notes: str | None = None
+    dropped: bool = False  # ungroundable closed-vocab term -> excluded from the query (CONST-1)
 
     def value_count(self) -> int:
         """How many API constraints this filter contributes (one per MATCH value)."""

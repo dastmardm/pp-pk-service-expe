@@ -71,6 +71,22 @@ def _strip_result_qualifiers(text: str) -> str:
     return re.sub(r"\s+", " ", _RESULT_QUALIFIERS.sub("", text)).strip()
 
 
+# Relational connectives the decomposer copies into a free-text fragment from the
+# query's glue ('...NOAEL related to maternal toxicity' -> fragment 'related to
+# maternal toxicity'), but which are not part of the searchable comment/value. A
+# free-text field matches on the substantive phrase, so strip a leading connective.
+# General over open free-text fields — not tied to any one comment.
+_LEADING_CONNECTIVE = re.compile(
+    r"^(?:related to|associated with|due to|caused by|regarding|concerning|relating to|about|for|on|of|in)\s+",
+    re.IGNORECASE,
+)
+
+
+def _strip_leading_connective(text: str) -> str:
+    """Drop a single leading relational connective from a free-text fragment."""
+    return _LEADING_CONNECTIVE.sub("", text.strip(), count=1).strip()
+
+
 # Acceptance score for a *qualifier-stripped* fuzzy anchor. Lower than the general
 # rollup gate: the strip already removed the noise tokens, so a strong stem match
 # (an assay/finding name) reliably lands ~80-90 and is trustworthy here.
@@ -555,10 +571,24 @@ def _translate_closed(
             confidence=min(1.0, (hits[0].score / 100.0)),
         )
     else:
-        values = [term]
-        grounding = Grounding(
-            matched=[GroundingHit(name=term, match="unmatched", score=0.0)],
-            confidence=0.0,
+        # Nothing grounded — not even via fuzzy or the LLM map. Emitting the raw
+        # out-of-vocabulary phrase as a hard MATCH would silently zero the whole
+        # query (an AND with a value that exists in no record). CONST-1: never emit
+        # an invented value. Mark the subquery dropped so Stage 3 excludes it from
+        # the query entirely (and the gap is recorded as an issue), leaving the
+        # valid superset rather than a guaranteed-empty result.
+        return MachineSubquery(
+            field=spec.emit_field,
+            operator=Operator.MATCH,
+            value=term,
+            boolean_group=component.boolean_group,
+            entity_name=spec.entity_name,
+            grounding=Grounding(
+                matched=[GroundingHit(name=term, match="unmatched", score=0.0)],
+                confidence=0.0,
+            ),
+            notes=f"ungroundable closed-vocab term {term!r}; dropped to avoid zeroing the query",
+            dropped=True,
         )
 
     # Drug-style fuzzy broadening: trailing wildcard on a single leaf term. The API
@@ -599,7 +629,15 @@ def _translate_year(component, spec) -> MachineSubquery:
 
 
 def _translate_boolean(component, spec) -> MachineSubquery:
-    val = str(component.nl_fragment).strip().lower() in ("true", "yes", "1", "preclinical")
+    # The decomposer copies the user's surface words, so a boolean field arrives as a
+    # phrase, not a literal 'true'. Treat an explicit truthy token OR a preclinical /
+    # non-clinical phrasing ('non clinical species', 'preclinical', 'non-clinical') as
+    # True; anything else (incl. an explicit negation) as False. Matching on the concept
+    # keeps this general over how the user phrases the same boolean intent.
+    frag = str(component.nl_fragment).strip().lower()
+    val = frag in ("true", "yes", "1") or bool(
+        re.search(r"\b(pre[- ]?clinical|non[- ]?clinical)\b", frag)
+    )
     return MachineSubquery(field=spec.emit_field, operator=Operator.MATCH, value=val)
 
 
@@ -638,8 +676,17 @@ def _translate_open(component, spec, service=None, annotations=None) -> MachineS
     # to verify against for an open field, but the label is exactly the API's
     # vocabulary — the same "use the enhancer's preferred label" principle applied to
     # closed fields. No annotation -> pass the fragment through as before.
+    # Plain free-text field (e.g. parameterComment): the API matches the substantive
+    # phrase, so drop a leading relational connective the decomposer copied from the
+    # query ('related to maternal toxicity' -> 'maternal toxicity'). Entity-routed open
+    # fields keep the full fragment (their label is resolved below).
     value = frag
     note = None
+    if not spec.entity_name:
+        stripped = _strip_leading_connective(frag)
+        if stripped and stripped != frag:
+            value = stripped
+            note = f"{frag!r} -> {value!r} (stripped leading connective)"
     if spec.entity_name and service is not None and annotations:
         type_map = service.termite_type_map
         for ann in annotations:

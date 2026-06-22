@@ -45,6 +45,27 @@ returns 0 / nonsense / HTTP 400:
 - **Case 8 correction:** a TERMite TARGET must NOT unconditionally route to `targets`. When
   '<target> inhibitors' is a real drug-class node, prefer the drug class (Kinase inhibitors ->
   1851) over targets=Kinases (6980). `_drug_class_for_mechanism` in decompose.py.
+- **E. OOV closed-vocab term emitted as a hard MATCH -> silent zero.** When a closed field
+  grounds to NOTHING (no exact/fuzzy/LLM hit), the old fallback emitted `values=[term]` (the
+  raw ungrounded phrase) as a MATCH -> an AND with a value in no record zeroes the WHOLE query
+  ('non clinical species' killed case 15; ungrounded 'maternal toxicity' in effects killed case
+  11). Fix (CONST-1, user-confirmed "drop it, don't contribute downstream"): mark the subquery
+  `dropped=True` (translate.py unmatched branch); `_drop_ungroundable` in aggregate.py excludes
+  it from the tree/entityFilters/budget and logs a warning. Query returns the valid superset, not 0.
+- **F. Free-text field keeps the query's relational glue.** Decomposer copies surface words, so
+  `parameterComment` arrived as 'related to maternal toxicity'; the API matches the substantive
+  phrase ('maternal toxicity', and it's CASE-SENSITIVE lowercase here). `_strip_leading_connective`
+  (translate.py) drops a leading connective (related to|associated with|due to|for|of|in|...) for
+  plain (non-entity, non-regex) open fields. Case 11 -> 1 (SME gold; docs gold 2 is stale).
+- **Field-routing prompt rules (decompose.py `_build_prompt`):** added a "route by MEANING not
+  keyword" block: (a) an adverse event the drug CAUSES is `effects`; a phrase QUALIFYING the
+  study/parameter context ('related to maternal toxicity') is free-text `parameterComment`. (b)
+  'single/repeated administration|dose(s)' is `doseType`, not studyGroup/ages. (c) 'preclinical /
+  non-clinical / non clinical species' is the boolean `isPreclinical=true` (NEVER a literal species
+  value). `_translate_boolean` now parses preclinical phrasing -> True.
+- **Preclinical modelling (user decision 2026-06-22):** route to `isPreclinical=true` (semantically
+  correct) EVEN THOUGH the dev API underpopulates the flag (case 15: isPreclinical=true -> 6-10 vs
+  the ~166 you'd get unconstrained). Honest modelling over chasing the gold count on quirky dev data.
 
 **Method that worked:** dispatch one investigation subagent per failing case (read-only:
 run `oppp run`, then probe the LIVE API with isolated MachineQuery+execute_count to find which
@@ -54,5 +75,17 @@ cases. See [[enhancer-annotations-must-flow-downstream]].
 **Gold/data caveats (NOT code bugs):** offline eval (gazetteer+deterministic, no LLM/TERMite)
 can't ground synonyms/NOEL/MTD -> 0s that production fixes; some gold counts are stale
 (row 13 'neutropenia or thrombo' gold 68809 but its own JSON returns 61874 live) or were
-measured on a fuller dataset than the dev API (case 21 GI/arrhythmia has no Human records on
-dev). Re-baseline gold against the same API the eval hits before trusting a "miss".
+measured on a fuller dataset than the dev API. Re-baseline gold against the same API the eval
+hits before trusting a "miss".
+- **Case 21 (GI disorder + arrhythmia + Human + IV + single) is UNWINNABLE on dev:** there are
+  1628 GI+Human rows, 32 are IV, 78 are single-dose, but ZERO are both IV AND single-dose. The
+  SME-shaped query (full arrhythmia family + Human + Single + Intravenous) also returns 0 live.
+  Pure data gap; the route value is already correctly grounded to 'intravenous'. Don't chase it.
+- **Case 20 (CDk4 inhibitors / NOEL / mice) needs a TARGETS canonical spelling we can't reach:**
+  'CDk4 inhibitors' is routed as drugsFuzzy (no such drug -> 0). SME-correct query routes via
+  DrugsTargets with the EXACT label 'Cyclin-dependent kinase 4 (CDK4)' (any other spelling -> 0)
+  AND toxicityParameter=NOEL + Mouse -> 2 live. Blockers: TERMite tags NO target for CDk4 (so
+  `_reconcile_target_mechanism`, which is TERMite-TARGET-gated, never fires), and `targets` is an
+  open field with no taxonomy CSV, so we can't normalise the spelling to the parenthesised canonical.
+  Fixable only by (i) rerouting unmatched-drug-class '<X> inhibitor(s)' to targets WITHOUT requiring
+  a TERMite tag, plus (ii) a targets vocab/LLM-map for the canonical label. Deferred.

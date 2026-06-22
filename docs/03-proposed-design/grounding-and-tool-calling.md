@@ -89,9 +89,15 @@ lookup_<field>(
    attempts** — a single empty response must not silently drop the constraint to
    confidence 0. Runs only on the production (LLM-enabled) lookup path; the offline
    deterministic double skips it.
-5. **No match** → return empty; Stage 2 flags the constraint (confidence 0) rather
-   than inventing a value. Reached only when even the LLM's proposal fails to ground
-   across attempts (or offline, when no LLM is available).
+5. **No match** → the constraint is **dropped** (marked `dropped`, confidence 0)
+   rather than inventing a value. Reached only when even the LLM's proposal fails to
+   ground across attempts (or offline, when no LLM is available). Emitting the raw
+   out-of-vocabulary phrase as a hard `MATCH` would silently **zero the whole query**
+   (an `AND` with a value that exists in no record), so Stage 3 excludes a dropped
+   constraint from the boolean tree, entity routing, and the budget alike, recording
+   a warning so the gap is visible. The query then returns the valid superset, not 0.
+   This is **ground, don't generate** taken to its conclusion: a closed-vocab field
+   never carries a value the vocabulary doesn't contain — not even as a last resort.
 
 ### Entity-routed open fields (e.g. `targets`)
 
@@ -103,6 +109,15 @@ for an entity-routed open field, when a TERMite annotation of the matching type 
 present, Stage 2 emits its label — the same "use the enhancer's preferred label"
 principle as step 1 above, applied where there is no CSV to verify against. With no
 annotation, the fragment passes through unchanged.
+
+For a **plain free-text field** (e.g. `parameterComment`) there is no vocabulary at
+all — the value is searched as a substring of the record's comment text. The
+decomposer copies the user's surface words, so the fragment can carry the query's
+relational glue (`...NOAEL related to maternal toxicity` → fragment `related to
+maternal toxicity`). The API matches the *substantive* phrase, so Stage 2 strips a
+leading relational connective (`related to`, `associated with`, `due to`, `for`,
+`of`, `in`, …) before emitting (`related to maternal toxicity` → `maternal
+toxicity`). This is general over open free-text fields, not tied to any one comment.
 
 ## Hierarchy expansion (the rollup engine)
 

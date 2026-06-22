@@ -499,18 +499,18 @@ def test_aggregator_deterministic_builds_or_group():
     assert "OR" in str(mq.query)
 
 
-def test_translate_preclinical_species_curated_expansion():
-    # "preclinical species" is a curated concept (no single taxonomy node): it must
-    # expand to grounded member species, never pass through as the raw, invented
-    # value (CONST-1). Substring-matched, so LLM phrasings resolve too. Regression
-    # for the case-7 eval bug.
-    for frag in ("preclinical species", "at least one preclinical species", "non-clinical species"):
+def test_translate_preclinical_phrase_on_species_is_dropped_not_invented():
+    # "non clinical species" is NOT a real species value. The decomposer routes the
+    # preclinical concept to the boolean isPreclinical field (see the boolean test
+    # below); should the phrase ever reach the *species* field, Stage 2 must NOT emit
+    # the raw out-of-vocabulary string as a hard MATCH (that silently zeroes the whole
+    # query). CONST-1: ground or drop — never invent. The constraint is flagged dropped
+    # so Stage 3 excludes it, leaving the valid superset rather than 0.
+    for frag in ("preclinical species", "non-clinical species", "non clinical species"):
         comp = Component(field="species", nl_fragment=frag, type=ComponentType.FILTER, reason="x")
         sq = translate_one(comp, "safety", "noop", llm_select=False)
-        values = sq.value if isinstance(sq.value, list) else [sq.value]
-        assert sq.grounding is not None and sq.grounding.expanded_from == "curated", frag
-        assert frag not in values
-        assert {"Rat", "Mouse", "Dog"}.issubset(set(values)), frag
+        assert sq.dropped is True, frag
+        assert sq.grounding is not None and sq.grounding.confidence == 0.0, frag
 
 
 def test_translate_ispreclinical_boolean_true_on_preclinical_phrasings():
@@ -525,6 +525,42 @@ def test_translate_ispreclinical_boolean_true_on_preclinical_phrasings():
         )
         sq = translate_one(comp, "safety", "noop", llm_select=False)
         assert sq.value is expected, (frag, sq.value)
+
+
+def test_ungroundable_closed_vocab_is_dropped_and_excluded_by_aggregator():
+    # An ungroundable closed-vocab term must not become a hard MATCH (it would zero the
+    # whole AND). Stage 2 flags it dropped; the aggregator excludes it from the tree and
+    # records a warning, so the remaining valid filters still produce a query.
+    oov = Component(
+        field="species", nl_fragment="non clinical species", type=ComponentType.FILTER, reason="x"
+    )
+    good = Component(field="drugs", nl_fragment="Sunitinib", type=ComponentType.FILTER, reason="x")
+    oov_sq = translate_one(oov, "safety", "noop", llm_select=False)
+    good_sq = translate_one(good, "safety", "noop", llm_select=False)
+    assert oov_sq.dropped is True
+
+    decomp = Decomposition(query="q", service="safety", components=[oov, good])
+    mq, issues = get_aggregator("deterministic").aggregate(decomp, [oov_sq, good_sq], SVC)
+    assert not any(i.level == "error" for i in issues)
+    # the dropped species value must not appear anywhere in the emitted query
+    assert "non clinical species" not in str(mq.query)
+    assert "Sunitinib" in str(mq.query)
+    assert any("dropped ungroundable" in i.message for i in issues)
+
+
+def test_free_text_field_strips_leading_connective():
+    # parameterComment is a free-text field; the decomposer copies the query's glue
+    # ('...related to maternal toxicity') into the fragment, but the API matches the
+    # substantive phrase. The leading connective is stripped so 'related to maternal
+    # toxicity' searches 'maternal toxicity'. General over open free-text fields.
+    comp = Component(
+        field="parameterComment",
+        nl_fragment="related to maternal toxicity",
+        type=ComponentType.FILTER,
+        reason="x",
+    )
+    sq = translate_one(comp, "safety", "noop", llm_select=False)
+    assert sq.value == "maternal toxicity"
 
 
 def test_term_selector_routes_through_central_llm_factory(monkeypatch):
