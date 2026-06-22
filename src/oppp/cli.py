@@ -26,6 +26,7 @@ app = typer.Typer(no_args_is_help=True, help="Decomposed NL -> machine-query tra
 def run(
     query: str = typer.Argument(None, help="The NL question (omit when using --case)."),
     service: str = "safety",
+    expander: str = typer.Option("llm", help="Stage -1 query expander: llm | noop."),
     enhancer: str = typer.Option("termite", help="Stage 0 enhancer: noop | termite."),
     decomposer: str = typer.Option("llm", help="Stage 1 decomposer: llm | gazetteer (offline)."),
     translator: str = typer.Option("tool", help="Stage 2 translator."),
@@ -64,6 +65,7 @@ def run(
     result = run_pipeline(
         query,
         service,
+        expander=expander,
         enhancer=enhancer,
         decomposer=decomposer,
         translator=translator,
@@ -80,9 +82,17 @@ def run(
         typer.echo(f"  case      : {case}  ({gold_row.get('query_type', '').strip()})")
     typer.echo(f"  query     : {query!r}")
     typer.echo(
-        f"  config    : service={service} enhancer={enhancer} decomposer={decomposer} "
-        f"translator={translator} aggregator={aggregator} normalizer={normalizer} execute={execute}"
+        f"  config    : service={service} expander={expander} enhancer={enhancer} "
+        f"decomposer={decomposer} translator={translator} aggregator={aggregator} "
+        f"normalizer={normalizer} execute={execute}"
     )
+    typer.echo()
+    typer.echo("# Stage -1 — query expansion")
+    if result.expanded and result.expanded.text != result.expanded.original:
+        typer.echo(f"  ({result.expanded.source}) {result.expanded.text!r}")
+    else:
+        src = result.expanded.source if result.expanded else expander
+        typer.echo(f"  (expander={src}: unchanged)")
     typer.echo()
     typer.echo("# Stage 0 — enhancement")
     if result.enhanced and result.enhanced.annotations:
@@ -251,6 +261,7 @@ def dag(
 @app.command(name="eval")
 def eval_cmd(
     service: str = "safety",
+    expander: str = typer.Option("llm", help="Stage -1 query expander (default: llm)."),
     enhancer: str = typer.Option("termite", help="Stage 0 enhancer (default: termite)."),
     decomposer: str = typer.Option("llm", help="Stage 1 decomposer (default: llm)."),
     translator: str = typer.Option("tool", help="Stage 2 translator (default: tool)."),
@@ -271,6 +282,7 @@ def eval_cmd(
     """Evaluate against the per-step gold set (docs/sme_stage_cases.csv) by `counts`."""
     report = evaluate(
         service=service,
+        expander=expander,
         enhancer=enhancer,
         decomposer=decomposer,
         translator=translator,

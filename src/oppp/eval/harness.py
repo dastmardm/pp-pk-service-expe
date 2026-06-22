@@ -111,6 +111,7 @@ def load_gold_cases() -> list[dict]:
 def evaluate(
     *,
     service: str = "safety",
+    expander: str = "noop",
     enhancer: str = "noop",
     decomposer: str = "gazetteer",
     translator: str = "deterministic",
@@ -145,6 +146,7 @@ def evaluate(
         result = run_pipeline(
             q,
             service,
+            expander=expander,
             enhancer=enhancer,
             decomposer=decomposer,
             translator=translator,

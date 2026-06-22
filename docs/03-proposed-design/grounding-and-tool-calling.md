@@ -119,6 +119,23 @@ leading relational connective (`related to`, `associated with`, `due to`, `for`,
 `of`, `in`, …) before emitting (`related to maternal toxicity` → `maternal
 toxicity`). This is general over open free-text fields, not tied to any one comment.
 
+#### Server-side zero-count probe (open-set safety net)
+
+A closed-vocab field is validated against its CSV *before* it is ever emitted, so a
+bad value is caught locally. An open-set field has no such check — a mis-routed or
+glue-laden phrase can carry a value that exists in **no record** and silently zeroes
+the whole `AND`, and we cannot know that offline. So at Stage 3 (live paths only) we
+**ask the API**: each open-set filter is probed **in isolation** with one cheap
+server-side `countTotal` (`drop_empty_open_filters`, never fetching rows), and a
+filter whose count is confirmed **0** is dropped — it matches nothing in the corpus,
+so it cannot legitimately constrain anything. Design choices: probe the filter
+**alone** (not ANDed with the rest), so only a genuinely-invalid value is dropped,
+never a valid value that is merely empty in combination; on any probe error/timeout
+**keep** the filter (fail open). Entity-routed fields (`targets`/`indications` via
+`entityFilters`) are skipped — the API rejects an `entityFilters`-only query, so they
+can't be probed alone and fall through to keep. This is the open-field analogue of the
+CSV check: ground or drop, never let an in-no-record value zero the query.
+
 ## Hierarchy expansion (the rollup engine)
 
 The hierarchical CSVs (`name,id,parent_id,parent_name`) let us answer the gold

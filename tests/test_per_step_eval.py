@@ -28,6 +28,7 @@ def _offline(query, service="safety"):
     return run_pipeline(
         query,
         service,
+        expander="noop",
         decomposer="gazetteer",
         translator="deterministic",
         aggregator="deterministic",

@@ -643,8 +643,13 @@ def _translate_boolean(component, spec) -> MachineSubquery:
 
 def _translate_enum(component, spec) -> MachineSubquery:
     frag = component.nl_fragment.strip().lower()
-    for allowed in spec.enum_values:
-        if allowed.lower() == frag:
+    # Exact match first; then accept an enum value appearing as a standalone word in
+    # the fragment ('male subjects' / 'in males' -> 'Male'). The decomposer copies the
+    # user's surface words, so a small qualifier ('subjects', plural) must not drop the
+    # match. Longest enum value first so a more specific option wins over a substring.
+    for allowed in sorted(spec.enum_values, key=len, reverse=True):
+        low = allowed.lower()
+        if low == frag or re.search(rf"\b{re.escape(low)}s?\b", frag):
             return MachineSubquery(field=spec.emit_field, operator=Operator.MATCH, value=allowed)
     return MachineSubquery(
         field=spec.emit_field,

@@ -43,6 +43,52 @@ def test_enhance_noop_passes_through():
     assert e.source == "noop"
 
 
+def test_expand_noop_passes_through():
+    from oppp.stages.expand import get_expander
+
+    x = get_expander("noop").expand("ADRs of ADC in male", SVC)
+    assert x.text == "ADRs of ADC in male"
+    assert x.original == "ADRs of ADC in male"
+    assert x.source == "noop"
+
+
+def test_expand_llm_rewrites_and_preserves_original():
+    # Inject a fake structured model so the test is hermetic (no creds/network).
+    from oppp.models import QueryExpansion
+    from oppp.stages.expand import LLMExpander
+
+    expander = LLMExpander()
+
+    class _Fake:
+        def invoke(self, _prompt):
+            return QueryExpansion(
+                expanded="What adverse drug reactions (ADRs) of the antibody-drug "
+                "conjugate (ADC) occur in male subjects?",
+                reason="expanded ADR/ADC",
+            )
+
+    expander._structured = _Fake()
+    x = expander.expand("ADRs of ADC in male", SVC)
+    assert "antibody-drug conjugate (ADC)" in x.text
+    assert x.original == "ADRs of ADC in male"  # original preserved for the record
+    assert x.source == "llm"
+
+
+def test_expand_llm_falls_back_to_passthrough_when_unavailable(monkeypatch):
+    # No creds / LLM build fails -> the stage is present but never fatal: pass through.
+    import oppp.llm as llm_mod
+    from oppp.stages.expand import LLMExpander
+
+    def boom(*a, **k):
+        raise llm_mod.LLMUnavailable("no creds")
+
+    monkeypatch.setattr(llm_mod, "structured", boom)
+    x = LLMExpander().expand("ADRs of ADC in male", SVC)
+    assert x.text == "ADRs of ADC in male"  # unchanged
+    assert x.original == "ADRs of ADC in male"
+    assert x.source.startswith("noop")
+
+
 def test_decompose_gazetteer_isolated():
     d = get_decomposer("gazetteer").decompose("ADRs of Sunitinib in human", SVC)
     fields = {c.field for c in d.filters}
@@ -588,6 +634,21 @@ def test_open_set_zero_count_filter_is_probed_and_dropped(monkeypatch):
     assert ("drugsFuzzy", "Sunitinib*") in kept_vals  # closed field -> not probed
     assert ("targets", "Kinases") in kept_vals  # entity-routed -> not probed
     assert any("dropped open-set parameterComment" in i.message for i in issues)
+
+
+def test_enum_matches_value_as_word_in_fragment():
+    # The expander/decomposer may carry a qualifier ('male subjects', 'female patients').
+    # The enum match accepts the enum value as a standalone word, and must not confuse
+    # 'female' with 'male' (word boundaries).
+    for frag, want in [
+        ("male subjects", "Male"),
+        ("in males", "Male"),
+        ("female patients", "Female"),
+        ("both sexes", "Both"),
+    ]:
+        comp = Component(field="sex", nl_fragment=frag, type=ComponentType.FILTER, reason="x")
+        sq = translate_one(comp, "safety", "noop", llm_select=False)
+        assert sq.value == want, (frag, sq.value)
 
 
 def test_free_text_field_strips_leading_connective():

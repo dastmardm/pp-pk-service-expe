@@ -57,6 +57,15 @@ returns 0 / nonsense / HTTP 400:
   phrase ('maternal toxicity', and it's CASE-SENSITIVE lowercase here). `_strip_leading_connective`
   (translate.py) drops a leading connective (related to|associated with|due to|for|of|in|...) for
   plain (non-entity, non-regex) open fields. Case 11 -> 1 (SME gold; docs gold 2 is stale).
+- **G. Open-set field has no CSV to validate -> server-side zero-count probe.** Open fields can't
+  be checked locally; a mis-routed/glue-laden value matching no record zeroes the whole AND.
+  `drop_empty_open_filters` in aggregate.py (live paths only, gated on `execute`) probes each
+  open-set filter ALONE via `execute_count` and drops it iff countTotal==0. Decisions (user
+  2026-06-22): probe filter ALONE not ANDed (drop only genuinely-invalid, not empty-in-combo);
+  fail OPEN on probe error (keep). Entity-routed targets/indications are SKIPPED — API 400s on an
+  entityFilters-only query, so they can't be probed alone. Wired via `run_pipeline(probe_open_filters=)`
+  from CLI run + eval harness. Proven: 'related to maternal toxicity'->0 dropped, studyGroup REGEX
+  'single administration'->0 dropped, 'maternal toxicity'->1029 & ages 'adult'->123343 kept.
 - **Field-routing prompt rules (decompose.py `_build_prompt`):** added a "route by MEANING not
   keyword" block: (a) an adverse event the drug CAUSES is `effects`; a phrase QUALIFYING the
   study/parameter context ('related to maternal toxicity') is free-text `parameterComment`. (b)

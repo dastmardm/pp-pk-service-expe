@@ -10,6 +10,7 @@ def run_offline(query, **kw):
     The production defaults are llm-based; tests pin the gazetteer decomposer and
     deterministic aggregator so the suite exercises Stage 2/3 logic without creds.
     """
+    kw.setdefault("expander", "noop")
     kw.setdefault("decomposer", "gazetteer")
     kw.setdefault("translator", "deterministic")
     kw.setdefault("aggregator", "deterministic")

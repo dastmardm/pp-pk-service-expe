@@ -15,12 +15,19 @@ no-op enhancer). Hermetic runs pin the offline doubles:
 
 from __future__ import annotations
 
-from oppp.models import Decomposition, EnhancedQuery, MachineSubquery, PipelineResult
+from oppp.models import (
+    Decomposition,
+    EnhancedQuery,
+    ExpandedQuery,
+    MachineSubquery,
+    PipelineResult,
+)
 from oppp.normalize.base import get_normalizer
 from oppp.services.base import get_service
 from oppp.stages.aggregate import drop_empty_open_filters, get_aggregator
 from oppp.stages.decompose import get_decomposer, reconcile_with_annotations
 from oppp.stages.enhance import get_enhancer
+from oppp.stages.expand import get_expander
 from oppp.stages.translate import get_translator
 
 
@@ -28,6 +35,7 @@ def run_pipeline(
     query: str,
     service: str = "safety",
     *,
+    expander: str = "llm",
     enhancer: str = "noop",
     decomposer: str = "llm",
     translator: str = "tool",
@@ -36,6 +44,10 @@ def run_pipeline(
     probe_open_filters: bool = False,
 ) -> PipelineResult:
     """Full end-to-end run, returning every intermediate artifact.
+
+    ``expander`` (Stage -1) rewrites the query into a clearer, abbreviation-expanded
+    form before enhancement; the original is preserved on the result. Defaults to the
+    'llm' backend, which degrades to pass-through when no LLM is configured.
 
     ``probe_open_filters`` (live paths only) asks the API to drop any open-set
     filter whose isolated server-side count is 0 — a value that matches no record
@@ -46,7 +58,8 @@ def run_pipeline(
     svc = get_service(service)
     norm = get_normalizer(normalizer)
 
-    enhanced: EnhancedQuery = get_enhancer(enhancer).enhance(query, svc)
+    expanded: ExpandedQuery = get_expander(expander).expand(query, svc)
+    enhanced: EnhancedQuery = get_enhancer(enhancer).enhance(expanded.text, svc)
     decomp: Decomposition = get_decomposer(decomposer).decompose(enhanced.text, svc)
     decomp.query = query  # keep the original user query as the canonical record
     reconcile_with_annotations(decomp, svc, enhanced.annotations)
@@ -68,6 +81,7 @@ def run_pipeline(
     return PipelineResult(
         query=query,
         service=service,
+        expanded=expanded,
         enhanced=enhanced,
         decomposition=decomp,
         subqueries=subqueries,
@@ -79,6 +93,7 @@ def run_pipeline(
 def build_langgraph(
     service: str = "safety",
     *,
+    expander: str = "llm",
     enhancer: str = "noop",
     decomposer: str = "llm",
     translator: str = "tool",
@@ -95,6 +110,7 @@ def build_langgraph(
 
     svc = get_service(service)
     norm = get_normalizer(normalizer)
+    exp = get_expander(expander)
     enh = get_enhancer(enhancer)
     dec = get_decomposer(decomposer)
     tr = get_translator(translator)
@@ -102,13 +118,18 @@ def build_langgraph(
 
     class State(TypedDict, total=False):
         query: str
+        expanded: ExpandedQuery
         enhanced: EnhancedQuery
         decomposition: Decomposition
         subqueries: list[MachineSubquery]
         result: PipelineResult
 
+    def n_expand(state: State) -> State:
+        state["expanded"] = exp.expand(state["query"], svc)
+        return state
+
     def n_enhance(state: State) -> State:
-        state["enhanced"] = enh.enhance(state["query"], svc)
+        state["enhanced"] = enh.enhance(state["expanded"].text, svc)
         return state
 
     def n_decompose(state: State) -> State:
@@ -129,6 +150,7 @@ def build_langgraph(
         state["result"] = PipelineResult(
             query=state["query"],
             service=service,
+            expanded=state["expanded"],
             enhanced=state["enhanced"],
             decomposition=state["decomposition"],
             subqueries=state["subqueries"],
@@ -138,11 +160,13 @@ def build_langgraph(
         return state
 
     g = StateGraph(State)
+    g.add_node("expand", n_expand)
     g.add_node("enhance", n_enhance)
     g.add_node("decompose", n_decompose)
     g.add_node("translate", n_translate)
     g.add_node("aggregate", n_aggregate)
-    g.add_edge(START, "enhance")
+    g.add_edge(START, "expand")
+    g.add_edge("expand", "enhance")
     g.add_edge("enhance", "decompose")
     g.add_edge("decompose", "translate")
     g.add_edge("translate", "aggregate")

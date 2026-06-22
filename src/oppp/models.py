@@ -106,6 +106,33 @@ class TermSelection(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Stage -1 — query expansion (pre-enhancement)
+# ---------------------------------------------------------------------------
+class QueryExpansion(BaseModel):
+    """LLM structured output for the expansion stage.
+
+    The model rewrites the user's question into a clearer, fully-spelled-out form
+    (abbreviations expanded, phrasing clarified) WITHOUT adding, dropping, or
+    changing any entity, value, or filter. ``expanded`` is the rewritten text.
+    """
+
+    expanded: str = Field(description="The clarified, abbreviation-expanded question.")
+    reason: str = Field(default="", description="One-sentence note on what was expanded.")
+
+
+class ExpandedQuery(BaseModel):
+    """Output of the optional Stage -1 expander.
+
+    ``text`` is the (possibly rewritten) query that Stage 0 should read;
+    ``original`` preserves the user's exact words for the audit record.
+    """
+
+    text: str
+    original: str
+    source: str = "noop"
+
+
+# ---------------------------------------------------------------------------
 # Stage 0 — enhancement (optional, pre-decomposition)
 # ---------------------------------------------------------------------------
 class EntityAnnotation(BaseModel):
@@ -238,6 +265,7 @@ class PipelineResult(BaseModel):
 
     query: str
     service: str
+    expanded: ExpandedQuery | None = None
     enhanced: EnhancedQuery | None = None
     decomposition: Decomposition
     subqueries: list[MachineSubquery] = Field(default_factory=list)

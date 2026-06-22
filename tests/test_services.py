@@ -13,6 +13,7 @@ def _offline(query, service):
     return run_pipeline(
         query,
         service,
+        expander="noop",
         decomposer="gazetteer",
         translator="deterministic",
         aggregator="deterministic",
