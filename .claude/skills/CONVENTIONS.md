@@ -26,8 +26,9 @@ Current uses:
 | Emitting skill | Directive | Effect |
 |----------------|-----------|--------|
 | `fix` | `EXECUTE_COMMAND: evaluation` | re-audits after repairs (the only built-in loop) |
+| `fix` | `EXECUTE_COMMAND: docs <change>` | reflects the applied repairs into the docs — emitted as the **last line** only when re-evaluation is *not* warranted (no competing directive); when re-evaluation runs, the docs hand-off happens after that loop converges so the docs describe the final fixed state |
 | `critique` | `EXECUTE_COMMAND: fix specs/critique/report{NN}.md` | hands code-level findings to `/fix` |
-| `issue` | `EXECUTE_COMMAND: docs <change>` | reflects a fixed defect into the docs — emitted **only after** the user confirms the fix (the confirmation is a human checkpoint; the directive fires on the turn after it passes) |
+| `modify` | `EXECUTE_COMMAND: docs <change>` | reflects an applied code change into the docs — emitted **only after** the user confirms the change (the confirmation is a human checkpoint; the directive fires on the turn after it passes) |
 
 Skills that hand off to a **human checkpoint** (e.g. `/technical` after a docs
 clarification, `/evaluation` before `/fix`) use prose (`Next step: …`) instead,

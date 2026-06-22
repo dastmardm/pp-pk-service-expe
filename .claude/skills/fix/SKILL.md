@@ -1,6 +1,6 @@
 ---
 name: "fix"
-description: "Repair the FAIL/PARTIAL findings in an evaluation report (or the code-divergence findings in a critique report), then re-evaluate. Use after /evaluation, or when /critique dispatches code-level findings."
+description: "Repair the FAIL/PARTIAL findings in an evaluation report (or the code-divergence findings in a critique report), then re-evaluate and propagate the change into the docs via /docs. Use after /evaluation, or when /critique dispatches code-level findings."
 argument-hint: "Path to an evaluation or critique report (default: most recent specs/evaluation/report*.md)"
 user-invocable: true
 disable-model-invocation: false
@@ -77,6 +77,51 @@ You accept **two kinds of report** (the shared verdict/severity vocabularies are
    EXECUTE_COMMAND: evaluation
    ```
 
-8. Report: findings fixed (by finding ID — F01/P01 for an evaluation report,
-   B01/M01/MI01 for a critique report), findings not fixed (with reason), any
-   `BLOCKED` criteria-defects surfaced for `/technical`, and files modified.
+8. Report (**always emit this, even when nothing was re-evaluated**): produce a
+   structured summary of what changed. This summary is consumed later to update the
+   project documents, so make it self-contained and specific — do not assume the
+   reader has the report or the diff in front of them. Include:
+   - **Findings fixed** — by finding ID (F01/P01 for an evaluation report,
+     B01/M01/MI01 for a critique report), each with a one-line description of the
+     gap and how it was resolved.
+   - **Findings not fixed** — with the reason (design constraint, external
+     dependency, etc.).
+   - **`BLOCKED` criteria-defects** surfaced for `/technical`, if any.
+   - **Change summary** — a concise, behaviour-level account of what the code now
+     does differently: new/changed functions or symbols, new migrations, new env
+     vars, altered interfaces or contracts, and any other change that the project
+     documentation would need to reflect. Group it so it can be mapped onto the
+     affected docs/specs.
+   - **Files modified** — the list of files touched.
+
+9. **Propagate the change into the documentation.** Every fix this skill applies
+   changes behaviour that the human-facing docs must end up reflecting — so hand the
+   **Change summary** from step 8 to `/docs`. Build a self-contained, docs-focused
+   prompt from that summary (not the raw report or diff): describe what the code now
+   does differently in behaviour-level terms, so `/docs` can locate the right
+   `docs/**` files and update them. Then emit, as the **last line of output** (see
+   `../CONVENTIONS.md` → EXECUTE_COMMAND):
+
+   ```
+   EXECUTE_COMMAND: docs <one-paragraph, self-contained description of the behaviour change to document>
+   ```
+
+   **Ordering — only the last line of output fires.** The harness intercepts a single
+   `EXECUTE_COMMAND` directive (the last line). To run both the re-evaluation (step 7)
+   and the docs propagation, **chain them**: emit the step-7 `EXECUTE_COMMAND: evaluation`
+   directive *only* when re-evaluation is warranted, and make the docs hand-off happen
+   **after the chain settles** rather than competing for the same final line —
+   - When re-evaluation IS warranted: do **not** emit the docs directive on this turn.
+     Instead, end this turn with `EXECUTE_COMMAND: evaluation`, and state in the report
+     that once evaluation confirms the fixes hold, the change must be documented via
+     `/docs` using the Change summary above. (The re-evaluation chain reaches `/docs`
+     once it converges; documentation should describe the *final* fixed state, not an
+     interim one.)
+   - When re-evaluation is **skipped** (no fixable code findings re-ran, per step 7):
+     there is no competing directive, so emit `EXECUTE_COMMAND: docs <summary>` as the
+     last line directly — but only if at least one fix actually changed behaviour. If
+     nothing changed (e.g. only `BLOCKED` criteria-defects or `QUESTION`/spec-level
+     findings), there is nothing to document — skip the docs directive and say why.
+
+   Skip the docs hand-off entirely when no code fix was applied — there is no behaviour
+   change to reflect.

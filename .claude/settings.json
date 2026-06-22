@@ -17,6 +17,8 @@
       "Bash(oppp:*)",
       "Bash(python:*)",
       "Bash(python3:*)",
+      "Bash(make:*)",
+      "Bash(uvicorn:*)",
       "Bash(git status:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",

@@ -149,27 +149,17 @@ translator_registry.add("deterministic", lambda **kw: ToolTranslator(**{"llm_sel
 def _get_term_selector():
     """Lazily build the structured-output LLM used to pick final vocabulary terms.
 
-    Mirrors the LangChain/Portkey wiring of the 'llm' decomposer backend. Returns
-    None when creds or the optional 'llm' deps are missing, so the deterministic
-    core keeps working offline.
+    Routes through the central :mod:`oppp.llm` factory so temperature (0) and the
+    LangChain/Portkey wiring live in one place — the same client the 'llm'
+    decomposer and aggregator use. Returns None when creds or the optional 'llm'
+    deps are missing, so the deterministic core keeps working offline.
     """
-    from oppp.config import get_settings, load_dotenv_if_present
+    from oppp.llm import LLMUnavailable, structured
 
-    load_dotenv_if_present()
-    s = get_settings()
-    if not (s.portkey_api_key and s.portkey_endpoint):
-        return None
     try:
-        from langchain_openai import ChatOpenAI
-    except ImportError:  # pragma: no cover - optional extra
+        return structured(TermSelection)
+    except LLMUnavailable:
         return None
-    llm = ChatOpenAI(
-        api_key=s.portkey_api_key,
-        base_url=s.portkey_endpoint,
-        model=f"{s.portkey_provider}/{s.tool_model}",
-        temperature=0,
-    )
-    return llm.with_structured_output(TermSelection)
 
 
 def _llm_select(fragment: str, field: str, candidates: list[str]) -> list[str] | None:

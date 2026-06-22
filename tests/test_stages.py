@@ -122,3 +122,70 @@ def test_translate_ispreclinical_boolean_true_on_preclinical_phrasings():
         )
         sq = translate_one(comp, "safety", "noop", llm_select=False)
         assert sq.value is expected, (frag, sq.value)
+
+
+def test_term_selector_routes_through_central_llm_factory(monkeypatch):
+    """Stage-2 term selector builds its model via oppp.llm, not its own client.
+
+    The single-factory routing is what guarantees every LLM call shares one
+    temperature=0 setting. On the old (duplicated-client) code this returned None
+    offline; now it must go through oppp.llm.structured. Hermetic: no creds.
+    """
+    import oppp.llm as llm_mod
+    import oppp.stages.translate as translate_mod
+    from oppp.models import TermSelection
+
+    sentinel = object()
+    seen = {}
+
+    def fake_structured(schema, **kwargs):
+        seen["schema"] = schema
+        return sentinel
+
+    monkeypatch.setattr(llm_mod, "structured", fake_structured)
+    translate_mod._get_term_selector.cache_clear()
+
+    assert translate_mod._get_term_selector() is sentinel
+    assert seen["schema"] is TermSelection
+
+
+def test_every_llm_call_is_built_with_temperature_zero(monkeypatch):
+    """Every LLM client (central factory + Stage-2 selector) is temperature=0.
+
+    Stubs langchain_openai with a recorder so the test stays hermetic whether or
+    not the optional 'llm' extra is installed (CONST-8/9), then exercises both
+    construction routes and asserts the recorded temperature is 0.
+    """
+    import sys
+    import types
+
+    import oppp.config as config
+    import oppp.llm as llm_mod
+    import oppp.stages.translate as translate_mod
+
+    recorded = []
+
+    class _FakeChat:
+        def __init__(self, **kwargs):
+            recorded.append(kwargs)
+
+        def with_structured_output(self, schema):
+            return self
+
+    fake_mod = types.ModuleType("langchain_openai")
+    fake_mod.ChatOpenAI = _FakeChat
+    monkeypatch.setitem(sys.modules, "langchain_openai", fake_mod)
+
+    monkeypatch.setenv("PORTKEY_ENDPOINT", "https://fake.endpoint")
+    monkeypatch.setenv("PORTKEY_API_KEY", "fake-key")
+    monkeypatch.setenv("PORTKEY_PROVIDER", "openai")
+    monkeypatch.setenv("TOOL_MODEL", "fake-model")
+    config.get_settings.cache_clear()
+    llm_mod.get_chat_model.cache_clear()
+    translate_mod._get_term_selector.cache_clear()
+
+    llm_mod.get_chat_model()  # used by decompose / aggregate / judge via structured()
+    translate_mod._get_term_selector()  # Stage-2 term selector
+
+    assert recorded, "no LLM client was constructed"
+    assert all(kw.get("temperature") == 0 for kw in recorded), recorded
