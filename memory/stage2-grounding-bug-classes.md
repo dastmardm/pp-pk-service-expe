@@ -31,6 +31,12 @@ returns 0 / nonsense / HTTP 400:
   busts the API's ~49-value-per-MATCH-list cap. Fix: emit the class LABEL; the API resolves
   it server-side (verified species='Rodent' == 14 members == 344917; drugsFuzzy='Kinase
   inhibitors' resolves the class). Added index.class_label()/class_hit().
+- **C2. Colloquial species plural not a taxonomy class.** 'Monkeys' has no own node (parent is
+  'Primate'), so it fuzzy-matched only 'Monkey (unspecified)' (case 22: 14 vs 27). Fix:
+  index.class_label() falls back to the common parent when the singularised term is a
+  standalone word in >=2 entries sharing ONE parent (Monkeys->Primate->27). Guards: skip if the
+  term is itself an exact leaf (Mouse/Rat must NOT widen), require a single shared parent (rats
+  spans Rodent/Mollusc/Marsupial -> skip).
 - **D. MedDRA family rollup replaced the term & weak anchors hijacked it.** 'Mutagenicity'
   -> narrow NEC family (32 vs 445); 'positive Ames Test' -> foetal family (shared 'positive'/
   'test' @86). Fixes: rollup is ADDITIVE (keep canonical + original fragment); gate non-exact

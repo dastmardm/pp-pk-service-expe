@@ -298,6 +298,31 @@ def test_drug_class_emits_label_not_member_explosion():
         assert sq.grounding.expanded_from == "class"
 
 
+def test_colloquial_species_plural_resolves_to_common_parent_class():
+    """'Monkeys' resolves to the 'Primate' class; specific species stay leaves.
+
+    'Monkeys' has no own taxonomy node (the parent is 'Primate'), so it fuzzy-matched
+    only 'Monkey (unspecified)' (14 records vs the intended 27). When a colloquial
+    plural's singular is a standalone word in several entries that ALL share one
+    parent, resolve to that parent (the API expands it server-side). A specific
+    species ('Mouse'/'mice', 'Rat') is an exact leaf and must NOT widen to its class.
+    Regression for case 22 (monoclonal antibodies in Monkeys).
+    """
+    from oppp.models import Component, ComponentType
+
+    monkeys = Component(
+        field="species", nl_fragment="Monkeys", type=ComponentType.FILTER, reason="x"
+    )
+    sq = translate_one(monkeys, "safety", "noop", llm_select=False)
+    assert sq.value == "Primate"
+    assert sq.grounding.expanded_from == "class"
+
+    for frag, leaf in [("mice", "Mouse"), ("Rat", "Rat")]:
+        comp = Component(field="species", nl_fragment=frag, type=ComponentType.FILTER, reason="x")
+        sq = translate_one(comp, "safety", "noop", llm_select=False)
+        assert sq.value == leaf  # specific species stays a leaf, not its parent class
+
+
 def test_effects_rollup_is_additive_and_score_gated():
     """Family rollup keeps the canonical term (additive) and skips weak anchors.
 

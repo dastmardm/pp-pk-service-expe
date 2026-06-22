@@ -116,7 +116,13 @@ set's class/rollup questions correctly:
   We do **not** inline every child: a large class (monoclonal antibodies has 100+
   members) busts the API's ~49-value-per-`MATCH`-list cap (HTTP 400), and inlining
   is redundant since the parent already matches its subtree. The expanded children
-  are kept in the `grounding` record for provenance only.
+  are kept in the `grounding` record for provenance only. A class is recognised by
+  being a `parent_name` (incl. via singular forms, `Monkeys`→`Monkey`), **or** — for
+  a colloquial group with no own node — by its (singularised) word appearing as a
+  standalone term in ≥2 entries that **all share one parent**, which is then the
+  class (`Monkeys` → `Primate`, the gold answer for Q23 monkeys; 14→27 records). A
+  specific leaf (`Mouse`, `Rat`) is never widened — the single-parent guard and an
+  exact-leaf check keep ambiguous/specific terms out.
 - **Up (term → category), additive + score-gated:** a leaf rolls up to its MedDRA
   family, but **(a)** the rollup is *additive* — the canonical/grounded term stays
   in the value set so the broad term is never lost (`Mutagenicity` survives rather

@@ -11,6 +11,7 @@ Supported CSV schemas (auto-detected from the header):
 from __future__ import annotations
 
 import csv
+import re
 from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
@@ -182,6 +183,36 @@ class TaxonomyIndex:
                     return pn
                 own = self._by_name.get(cand.strip().lower())
                 return own.name if own else cand
+        # Colloquial group with no own node ('Monkeys' — the taxonomy parent is
+        # 'Primate'): if the (singularised) term is a word inside several entries that
+        # ALL share one parent, that parent is the intended class. The single-parent
+        # guard avoids ambiguous words ('rat' spans Rodent/Mollusc/Marsupial -> skip).
+        return self._common_parent_for_substring(name)
+
+    def _common_parent_for_substring(self, name: str) -> str | None:
+        # If the term (or a singular form) is itself an exact taxonomy entry, it is a
+        # specific value ('Mouse', 'Rat'), not a colloquial group — never widen it to a
+        # parent class. Only genuinely unmatched plurals ('Monkeys') reach the parent rule.
+        if self.get_exact(name) is not None or any(
+            self.get_exact(s) is not None for s in singular_candidates(name)
+        ):
+            return None
+        sings = [name.strip().lower(), *[s.lower() for s in singular_candidates(name)]]
+        sings = [s for s in dict.fromkeys(sings) if len(s) >= 4]  # skip tiny tokens
+        if not sings:
+            return None
+        parents: set[str] = set()
+        matched = 0
+        for e in self.entries:
+            nm = e.name.lower()
+            # word-boundary-ish: the singular term appears as a standalone word
+            if any(re.search(rf"\b{re.escape(s)}\b", nm) for s in sings):
+                if not e.parent_name:
+                    return None  # a matched entry with no parent -> not a clean class
+                parents.add(e.parent_name)
+                matched += 1
+        if matched >= 2 and len(parents) == 1:
+            return next(iter(parents))
         return None
 
     def class_hit(self, class_label: str) -> GroundingHit:
