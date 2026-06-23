@@ -517,6 +517,7 @@ def _annotation_hit(component, spec, service, index, annotations) -> GroundingHi
         return None
     # entity_type (e.g. 'TOXICITY_PARAMETER') -> field name (e.g. 'toxicityParameter')
     type_map = service.termite_type_map
+    hits = []
     for ann in annotations:
         if not ann.entity_type:
             continue
@@ -524,11 +525,12 @@ def _annotation_hit(component, spec, service, index, annotations) -> GroundingHi
             continue
         if not _annotation_corresponds(ann, component.nl_fragment, index):
             continue
-        hits = index.lookup(ann.label, match="exact", limit=1)
-        if hits:
-            hit = hits[0]
-            hit.match = "termite"  # provenance: reached via the enhancer's label
-            return hit
+        hits_ = index.lookup(ann.label, match="exact", limit=1)
+        hits.extend(hits_)
+    if hits:
+        hit = hits[0]
+        hit.match = "termite"  # provenance: reached via the enhancer's label
+        return hits
     return None
 
 
