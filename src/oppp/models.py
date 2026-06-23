@@ -136,11 +136,18 @@ class ExpandedQuery(BaseModel):
 # Stage 0 — enhancement (optional, pre-decomposition)
 # ---------------------------------------------------------------------------
 class EntityAnnotation(BaseModel):
-    """One entity the enhancer (e.g. TERMite) recognized in the raw query."""
+    """One entity the enhancer (e.g. TERMite) recognized in the raw query.
+
+    ``synonyms`` is the enhancer's full equivalent-term set for the entity (TERMite's
+    ``publicSynonyms``: brand names, scientific names, abbreviations, spelling/word-order
+    variants). Grounding treats ``[label, *synonyms]`` as one search pool so a synonym
+    that *is* a controlled-vocab term still resolves even when the preferred label is not.
+    """
 
     surface: str  # span as it appears in the query
     label: str  # preferred/normalized label
     entity_type: str | None = None  # e.g. DRUG | SPECIES | ADVERSE_EVENT
+    synonyms: list[str] = Field(default_factory=list)  # enhancer's equivalent-term set
 
 
 class EnhancedQuery(BaseModel):

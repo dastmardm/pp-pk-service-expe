@@ -307,6 +307,152 @@ def test_annotation_binds_abbreviation_when_fragment_has_no_self_grounding():
         assert sq.value == label, frag  # grounds to the verified abbreviation
 
 
+def test_translate_unions_all_termite_synonyms_for_one_fragment():
+    """TERMite may offer several synonyms for one span; the WHOLE verified set is used.
+
+    The search pool for a closed field is [normalized term] + [TERMite synonym labels].
+    Every annotation whose label verifies against the CSV contributes a hit, all OR'd
+    together — not just the first. Here one fragment carries two SPECIES synonyms; both
+    must land in the value, each marked 'termite'.
+    """
+    from oppp.models import Component, ComponentType, EntityAnnotation
+
+    comp = Component(
+        field="species", nl_fragment="rat and mouse models", type=ComponentType.FILTER, reason="x"
+    )
+    anns = [
+        EntityAnnotation(surface="rat", label="Rat", entity_type="SPECIES"),
+        EntityAnnotation(surface="mouse", label="Mouse", entity_type="SPECIES"),
+    ]
+    sq = translate_one(comp, "safety", "noop", llm_select=False, annotations=anns)
+    values = sq.value if isinstance(sq.value, list) else [sq.value]
+    assert set(values) == {"Rat", "Mouse"}  # the entire synonym set, unioned
+    assert all(h.match == "termite" for h in sq.grounding.matched)
+    assert sq.grounding.confidence == 1.0
+
+
+def test_translate_grounds_synonym_when_preferred_label_not_in_vocab():
+    """The whole TERMite set is searched: a synonym grounds when the label does not.
+
+    TERMite packs the equivalent-term set into one annotation (``synonyms``). When the
+    preferred label is not a controlled-vocab term but a synonym is, the synonym must
+    still resolve — and ungroundable members (label + bogus synonym) are dropped, so the
+    value stays a subset of the closed set (CONST-1).
+    """
+    from oppp.models import Component, ComponentType, EntityAnnotation
+
+    comp = Component(
+        field="species", nl_fragment="homo sapiens", type=ComponentType.FILTER, reason="x"
+    )
+    anns = [
+        EntityAnnotation(
+            surface="homo sapiens",
+            label="homo sapiens",  # not a CSV species term
+            synonyms=["Human", "people"],  # 'Human' IS a CSV term; 'people' is not
+            entity_type="SPECIES",
+        )
+    ]
+    sq = translate_one(comp, "safety", "noop", llm_select=False, annotations=anns)
+    assert sq.value == "Human"  # grounded via the synonym, label/bogus syn dropped
+    assert sq.grounding.matched[0].match == "termite"
+    assert "homo sapiens" not in str(sq.value) and "people" not in str(sq.value)
+
+
+def test_translate_grounds_annotation_class_label_to_class_not_leaf():
+    """A group annotation whose label is a class node resolves to the CLASS, not a leaf.
+
+    TERMite tags 'rodent' as SPECIES label 'Rodent' — a parent node with no own CSV row.
+    The exact lookup of 'Rodent' returns nothing, so the high-precision annotation must
+    fall back to class resolution and emit the single class label 'Rodent' (the API
+    expands it server-side to Mouse/Rat/Vole/…), NOT mis-ground to the 'Rodent
+    (unspecified)' leaf. Regression for the 0-results 'liver disorders in rodent' query.
+    """
+    from oppp.models import Component, ComponentType, EntityAnnotation
+
+    comp = Component(
+        field="species", nl_fragment="rodent species", type=ComponentType.FILTER, reason="x"
+    )
+    anns = [EntityAnnotation(surface="Rodent", label="Rodent", entity_type="SPECIES")]
+    sq = translate_one(comp, "safety", "noop", llm_select=False, annotations=anns)
+    assert sq.value == "Rodent"  # the class label, expanded server-side
+    assert sq.grounding.expanded_from == "class"
+    assert sq.grounding.matched[0].match == "class"
+    assert "unspecified" not in str(sq.value)  # not the leaf mis-grounding
+
+
+def test_termite_enhancer_captures_public_synonyms(monkeypatch):
+    """The TERMite enhancer records publicSynonyms (deduped, label excluded).
+
+    Real TERMite returns the equivalent-term set inside each entity as publicSynonyms;
+    the enhancer must surface them on the annotation so Stage 2 can ground the whole set.
+    """
+    from oppp.models import EntityAnnotation
+    from oppp.stages.enhance import TermiteEnhancer
+
+    raw = {
+        "included": [
+            {
+                "entities": [
+                    {
+                        "vocabularyId": "PP_TOX",
+                        "name": "NOAEL",
+                        "originalText": "No Observed Adverse Effect Level",
+                        "publicSynonyms": [
+                            "NOAEL",  # == label -> excluded
+                            "No Observed Adverse Effect Level",
+                            "no adverse effect level",
+                            "no adverse effect level",  # dup -> collapsed
+                        ],
+                    }
+                ]
+            }
+        ]
+    }
+    enh = TermiteEnhancer.__new__(TermiteEnhancer)  # bypass creds/SDK __init__
+    monkeypatch.setattr(enh, "_annotate", lambda *a, **k: raw, raising=False)
+    out = enh.enhance("...", SVC)
+    assert len(out.annotations) == 1
+    ann: EntityAnnotation = out.annotations[0]
+    assert ann.label == "NOAEL"
+    assert ann.synonyms == ["No Observed Adverse Effect Level", "no adverse effect level"]
+
+
+def test_translate_term_contributes_exact_only_when_annotations_exist():
+    """With TERMite synonyms present, the raw term adds only its EXACT self-grounding.
+
+    A noisy multi-word fragment must not drag unrelated fuzzy rows into the union once
+    TERMite has authoritatively resolved the concept: 'rat and mouse models' fuzzy-
+    matches 'Deer mouse'/'Grass rat', but those must NOT appear alongside the clean
+    'Rat'/'Mouse' synonym labels. (Fuzzy/LLM still apply when no annotation exists.)
+    """
+    from oppp.models import Component, ComponentType, EntityAnnotation
+
+    comp = Component(
+        field="species", nl_fragment="rat and mouse models", type=ComponentType.FILTER, reason="x"
+    )
+    anns = [
+        EntityAnnotation(surface="rat", label="Rat", entity_type="SPECIES"),
+        EntityAnnotation(surface="mouse", label="Mouse", entity_type="SPECIES"),
+    ]
+    sq = translate_one(comp, "safety", "noop", llm_select=False, annotations=anns)
+    names = {h.name for h in sq.grounding.matched}
+    assert not (names - {"Rat", "Mouse"})  # no fuzzy noise leaked into the union
+
+
+def test_translate_normalized_term_is_always_a_candidate():
+    """The normalized term is in the pool whether or not annotations exist.
+
+    A drug annotation of the SPECIES type does not correspond to a SPECIES fragment, so
+    ann_hits is empty here — and the normalized term ('Rat') must still ground on its
+    own. The term is never gated behind an annotation existing.
+    """
+    from oppp.models import Component, ComponentType
+
+    comp = Component(field="species", nl_fragment="Rat", type=ComponentType.FILTER, reason="x")
+    sq = translate_one(comp, "safety", "noop", llm_select=False, annotations=[])
+    assert sq.value == "Rat"
+
+
 def test_no_trailing_wildcard_on_multiword_drug_value():
     """A bare trailing '*' on a multi-word drugsFuzzy value is rejected (HTTP 400).
 
@@ -432,6 +578,32 @@ def test_llm_map_unions_over_attempts_for_flaky_mapping(monkeypatch):
     hits = _llm_map_to_vocab("IV administration", "route", get_index("route"), attempts=3)
     assert [h.name for h in hits] == ["intravenous"]
     assert calls["n"] >= 2  # it did not give up after the first empty response
+
+
+def test_llm_fallback_sees_whole_pool_via_aliases(monkeypatch):
+    """When the whole pool fails to ground, the LLM fallback sees every pool phrasing.
+
+    The pool is the fragment + the TERMite synonym labels. If none ground by
+    exact/fuzzy, both LLM stages must be shown the *entire* pool (not just the bare
+    fragment) so a synonym the model recognises can still resolve the term.
+    """
+    from oppp.models import TermSelection
+    from oppp.stages.translate import _llm_map_to_vocab
+    from oppp.taxonomy.index import get_index
+
+    seen_prompts = []
+
+    class CapturingSelector:
+        def invoke(self, prompt):
+            seen_prompts.append(prompt)
+            return TermSelection(selected=["Human"])  # a real species row
+
+    monkeypatch.setattr("oppp.stages.translate._get_term_selector", lambda: CapturingSelector())
+    hits = _llm_map_to_vocab(
+        "homo sapiens", "species", get_index("species"), aliases=["Human being", "people"]
+    )
+    assert [h.name for h in hits] == ["Human"]  # re-grounded to the real row
+    assert any("Human being" in p and "people" in p for p in seen_prompts)  # whole pool shown
 
 
 def test_llm_map_grounds_class_members_as_subset_of_closed_set(monkeypatch):

@@ -292,6 +292,15 @@ def _reground_proposals(
     return False
 
 
+def _alias_block(aliases: list[str] | None) -> str:
+    """Render the extra pool phrasings (e.g. TERMite synonyms) for an LLM prompt."""
+    extra = [a for a in (aliases or []) if a]
+    if not extra:
+        return ""
+    listed = ", ".join(repr(a) for a in extra)
+    return f"Also known as (equivalent phrasings for the same concept): {listed}\n"
+
+
 def _llm_map_synonym(
     fragment: str,
     field: str,
@@ -300,6 +309,7 @@ def _llm_map_synonym(
     limit: int,
     accept_score: float,
     attempts: int,
+    aliases: list[str] | None = None,
 ) -> list[GroundingHit]:
     """Stage-A fallback: the LLM names canonical term(s); we re-ground them.
 
@@ -310,6 +320,10 @@ def _llm_map_synonym(
     knowledge; each proposal is re-grounded against the CSV so the result is always a
     subset of the closed set. This is the original mapping design — cheap (no vocab
     rows in the prompt) and right for the synonym/abbreviation/class-member shapes.
+
+    ``aliases`` are the other members of the search pool (e.g. the TERMite synonym
+    labels) — shown to the model as equivalent phrasings so the whole pool, not just
+    the bare fragment, drives the mapping.
     """
     selector = _get_term_selector()
     if selector is None:
@@ -319,6 +333,7 @@ def _llm_map_synonym(
         f"field {field!r}. The phrase did NOT match the vocabulary by exact or fuzzy "
         "string match.\n"
         f"User phrase: {fragment!r}\n"
+        f"{_alias_block(aliases)}"
         "Two cases:\n"
         "1. The phrase is a synonym / scientific name / brand / abbreviation of ONE "
         "standard term -> return that canonical term (e.g. 'homo sapiens' -> 'Human'; "
@@ -357,6 +372,7 @@ def _llm_search_closed_set(
     *,
     limit: int,
     accept_score: float,
+    aliases: list[str] | None = None,
 ) -> list[GroundingHit]:
     """Stage-B fallback: show the LLM the closed-set rows and let it pick the matches.
 
@@ -370,11 +386,23 @@ def _llm_search_closed_set(
     typed instead of copying still binds, and anything off-list is dropped) — the value
     stays a subset of the closed set. This is the user's "pass the rows to the LLM and
     let it find the match" path, realised as a candidate window for large vocabularies.
+
+    ``aliases`` (the other pool phrasings, e.g. TERMite synonyms) both widen the
+    candidate window — each alias contributes its own related rows — and are shown to
+    the model as equivalent phrasings, so the whole pool drives the search.
     """
     selector = _get_term_selector()
     if selector is None:
         return []
-    window = index.candidate_window(fragment)
+    window: list[str] = []
+    seen_win: set[str] = set()
+    for phrase in (fragment, *(aliases or [])):
+        if not phrase:
+            continue
+        for row in index.candidate_window(phrase):
+            if row.lower() not in seen_win:
+                seen_win.add(row.lower())
+                window.append(row)
     if not window:
         return []
     options = "\n".join(f"- {c}" for c in window)
@@ -384,6 +412,7 @@ def _llm_search_closed_set(
         "vocabulary rows that look related — choose the ones that genuinely match the "
         "phrase's meaning.\n"
         f"User phrase: {fragment!r}\n"
+        f"{_alias_block(aliases)}"
         "Vocabulary rows (choose only from these, using their exact spelling):\n"
         f"{options}\n\n"
         "Return every row that matches the user's phrase (there may be several — e.g. an "
@@ -410,6 +439,7 @@ def _llm_map_to_vocab(
     limit: int = 40,
     accept_score: float = 90.0,
     attempts: int = 3,
+    aliases: list[str] | None = None,
 ) -> list[GroundingHit]:
     """Closed-vocab LLM fallback when exact/fuzzy lookup finds nothing.
 
@@ -429,14 +459,25 @@ def _llm_map_to_vocab(
     **always a subset of the closed set** (CONST-1); ungroundable picks are dropped and
     an all-empty result drops the filter rather than inventing a value. ``limit`` caps
     the kept rows below the API's ~49-value-per-MATCH-list ceiling.
+
+    ``aliases`` are the other members of the search pool (the TERMite synonym labels):
+    when the whole pool failed exact/fuzzy grounding, both LLM stages see every pool
+    phrasing, not just the bare fragment, so a synonym the model recognises can still
+    resolve the term.
     """
     hits = _llm_map_synonym(
-        fragment, field, index, limit=limit, accept_score=accept_score, attempts=attempts
+        fragment,
+        field,
+        index,
+        limit=limit,
+        accept_score=accept_score,
+        attempts=attempts,
+        aliases=aliases,
     )
     if hits:
         return hits
     return _llm_search_closed_set(
-        fragment, field, index, limit=limit, accept_score=accept_score
+        fragment, field, index, limit=limit, accept_score=accept_score, aliases=aliases
     )
 
 
@@ -493,31 +534,38 @@ def _annotation_corresponds(ann, fragment: str, index) -> bool:
     return not (own and own[0].name.strip().lower() != label)
 
 
-def _annotation_hit(component, spec, service, index, annotations) -> GroundingHit | None:
-    """Resolution-order step 1: ground the Stage-0 enhancer's preferred label.
+def _annotation_hits(component, spec, service, index, annotations) -> list[GroundingHit]:
+    """Resolution-order step 1: ground the Stage-0 enhancer's preferred label + synonyms.
 
-    If an enhancer (e.g. TERMite) recognized an entity whose type maps to this
-    component's field, its preferred label is usually already a controlled-vocab
-    term ('No Observed Adverse Effect Level' -> 'NOAEL'). We *verify* that label
-    exists in the field's CSV (exact, incl. singular forms) and use that hit —
-    the highest-precision path, ahead of fuzzy/LLM on the raw user fragment.
+    If an enhancer (e.g. TERMite) recognized one or more entities whose type maps to
+    this component's field, its preferred label is usually already a controlled-vocab
+    term ('No Observed Adverse Effect Level' -> 'NOAEL'). TERMite also returns the
+    entity's full equivalent-term set (``publicSynonyms``: brand/scientific/abbrev/
+    spelling variants) inside the *same* annotation, so we take the **entire set** into
+    account, not just the label: ``[label, *synonyms]`` is one search pool, each member
+    *verified* against the field's CSV (exact, incl. singular forms), and every verified
+    hit is unioned. A synonym that *is* a vocab term still lands even when the preferred
+    label is not. This is the highest-precision path, ahead of fuzzy/LLM on the raw
+    fragment; the preferred label ranks first so it leads the value list.
 
-    The annotation must *correspond to this component's fragment*, not merely share
+    Each annotation must *correspond to this component's fragment*, not merely share
     its field — otherwise a multi-value field ('rats or mice') would bind every
     value to the first same-typed annotation, silently duplicating one and dropping
     the others. We therefore match on surface/label correspondence
     (:func:`_annotation_corresponds`).
 
-    Returns the verified GroundingHit, or None when no corresponding annotation,
-    the type map has no entry for the field, or the label is not in the vocabulary
-    (so we never emit the enhancer's raw string — CONST-1) — in which case the
-    caller falls through to fragment-based fuzzy/LLM grounding.
+    Returns the deduped list of verified GroundingHits (empty when no corresponding
+    annotation, the type map has no entry for the field, or nothing in the set is in the
+    vocabulary — so we never emit the enhancer's raw string, CONST-1). The caller folds
+    these into a single candidate pool together with the normalized term and falls
+    through to fragment-based fuzzy/LLM grounding when the pool is otherwise empty.
     """
     if not annotations:
-        return None
+        return []
     # entity_type (e.g. 'TOXICITY_PARAMETER') -> field name (e.g. 'toxicityParameter')
     type_map = service.termite_type_map
-    hits = []
+    hits: list[GroundingHit] = []
+    seen: set[str] = set()
     for ann in annotations:
         if not ann.entity_type:
             continue
@@ -525,13 +573,62 @@ def _annotation_hit(component, spec, service, index, annotations) -> GroundingHi
             continue
         if not _annotation_corresponds(ann, component.nl_fragment, index):
             continue
-        hits_ = index.lookup(ann.label, match="exact", limit=1)
-        hits.extend(hits_)
-    if hits:
-        hit = hits[0]
-        hit.match = "termite"  # provenance: reached via the enhancer's label
-        return hits
-    return None
+        # Ground the whole equivalent-term set: preferred label first (so it leads the
+        # value list), then each synonym. Every member is verified against the taxonomy;
+        # verified hits are unioned and deduped across all corresponding annotations.
+        #
+        # A member resolves one of two ways:
+        #   * exact CSV leaf — the row itself ('NOAEL', 'Mouse').
+        #   * class label — a parent node with no own row ('Rodent', 'Kinase
+        #     inhibitors'). TERMite hands back the *group* preferred label, which the API
+        #     resolves server-side to the whole member set; emitting the single class
+        #     label (not its inlined children) is both correct and stays under the API's
+        #     ~49-value cap. Without this, a group annotation whose label is parent-only
+        #     fails the exact lookup and the high-precision path is silently lost
+        #     ('Rodent' -> mis-grounds to the 'Rodent (unspecified)' leaf).
+        for term in (ann.label, *ann.synonyms):
+            if not term:
+                continue
+            exact = index.lookup(term, match="exact", limit=1)
+            if exact:
+                hit = exact[0]
+                hit.match = "termite"  # provenance: reached via the enhancer's set
+            else:
+                class_label = index.class_label(term)
+                if class_label is None:
+                    continue
+                hit = index.class_hit(class_label)  # match="class"; API expands it
+            if hit.name.lower() in seen:
+                continue
+            seen.add(hit.name.lower())
+            hits.append(hit)
+    return hits
+
+
+def _annotation_aliases(component, service, index, annotations) -> list[str]:
+    """Raw equivalent-term surfaces (label + synonyms) from corresponding annotations.
+
+    Unlike :func:`_annotation_hits` these are *not* CSV-verified — they are the
+    enhancer's phrasings (brand/scientific/abbrev) to feed the LLM fallback when nothing
+    in the pool grounds by string match, so the model sees every way the entity was named
+    rather than the bare fragment. Field/correspondence gated exactly like the hits.
+    """
+    if not annotations:
+        return []
+    type_map = service.termite_type_map
+    out: list[str] = []
+    seen: set[str] = set()
+    for ann in annotations:
+        if not ann.entity_type or type_map.get(ann.entity_type) != component.field:
+            continue
+        if not _annotation_corresponds(ann, component.nl_fragment, index):
+            continue
+        for term in (ann.label, *ann.synonyms):
+            term = (term or "").strip()
+            if term and term.lower() not in seen:
+                seen.add(term.lower())
+                out.append(term)
+    return out
 
 
 def _translate_closed(
@@ -576,15 +673,18 @@ def _translate_closed(
     norm = normalizer.normalize(frag, field=component.field, bucket="closed")
     term = norm.normalized
 
-    # Resolution-order step 1: the Stage-0 enhancer's preferred label, verified
+    # Resolution-order step 1: the Stage-0 enhancer's preferred label(s), verified
     # against the CSV. Highest precision — used when the field is not a class and
     # not a MedDRA-rollup field, so class expansion / family rollup still win when
-    # the user named one of those (those branches key off the raw term).
-    ann_hit = _annotation_hit(component, spec, service, index, annotations)
+    # the user named one of those (those branches key off the raw term). TERMite may
+    # offer several synonyms for one span, so this is the *whole verified set*, not a
+    # single hit; the normalized term itself is always also a candidate in the pool
+    # below, whether or not annotations exist.
+    ann_hits = _annotation_hits(component, spec, service, index, annotations)
 
     expanded_from = None
     canonical = term
-    class_label = index.class_label(term) if not ann_hit else None
+    class_label = index.class_label(term) if not ann_hits else None
     if class_label is not None:
         # The term names a taxonomy class (drug class 'Kinase inhibitors', a species
         # class, an indication that is also a parent node). The API resolves a class
@@ -606,8 +706,9 @@ def _translate_closed(
         # unmatched rather than inventing a family.
         anchor_is_exact = False
         llm_direct: list[GroundingHit] = []
-        if ann_hit:
-            base = [ann_hit]
+        if ann_hits:
+            # Every verified annotation label (TERMite synonym set) anchors a rollup.
+            base = ann_hits
             anchor_is_exact = True
         else:
             base = index.lookup(term, match="exact", limit=1)
@@ -644,18 +745,29 @@ def _translate_closed(
         if expanded_from == "llm":
             pass  # hits already the LLM-selected rows; skip family rollup
         elif base:
+            # Additive rollup over the *whole* anchor set: each base hit (the term and
+            # any TERMite synonyms) keeps itself alongside its MedDRA family, all unioned
+            # so we never lose a grounded term, only add recall. The canonical/collapse
+            # term is the first anchor.
             canonical = base[0].name
-            family = index.expand_family(canonical)
-            if family:
-                # Additive rollup: keep the canonical term itself alongside its family
-                # so we never lose the broad/grounded term, only add recall.
-                names = {canonical: base[0]}
-                for h in family:
-                    names.setdefault(h.name, h)
-                hits = list(names.values())
-                expanded_from = "family"
-            else:
-                hits = base
+            names: dict[str, GroundingHit] = {}
+            any_family = False
+            any_class = False
+            for anchor in base:
+                names.setdefault(anchor.name, anchor)
+                if anchor.match == "class":
+                    # A class anchor (e.g. a group annotation label) is expanded
+                    # server-side from the single label — never inline its children
+                    # (that busts the API's ~49-value cap) and never family-roll it.
+                    any_class = True
+                    continue
+                family = index.expand_family(anchor.name)
+                if family:
+                    any_family = True
+                    for h in family:
+                        names.setdefault(h.name, h)
+            hits = list(names.values())
+            expanded_from = "family" if any_family else ("class" if any_class else None)
         else:
             hits = []
         # When the anchor was *guessed* (fuzzy/LLM, not an exact CSV hit), the user's
@@ -667,7 +779,7 @@ def _translate_closed(
         # field is case-sensitive at the API ('Mutagenicity' matches, 'mutagenicity'
         # does not). Values are OR'd, so a fragment the API doesn't recognise is a
         # harmless no-op; one it does recognise restores the broad reading.
-        if hits and not anchor_is_exact and not ann_hit:
+        if hits and not anchor_is_exact and not ann_hits:
             have = {h.name.lower() for h in hits}
             # The effects field is case-sensitive at the API ('Mutagenicity' matches,
             # 'mutagenicity' does not), and upstream stages may have lowercased the
@@ -678,31 +790,60 @@ def _translate_closed(
                 if cand.lower() not in have:
                     have.add(cand.lower())
                     hits = [*hits, GroundingHit(name=cand, match="llm", score=100.0)]
-    elif ann_hit:
-        hits = [ann_hit]
     else:
-        # Resolution order: exact -> close (fuzzy) -> LLM. Exact/fuzzy build the
-        # candidate pool and, when enabled, the LLM picks the final term(s) from it.
-        # When exact+fuzzy find nothing, fall back to the LLM mapping the phrase to
-        # canonical vocabulary term(s) (e.g. 'homo sapiens' -> 'Human'), re-grounded
-        # so the value is always drawn from the vocabulary. Offline (llm_select=False)
-        # this yields no hits and the gap is flagged below rather than invented.
-        candidates = index.lookup(term, match="fuzzy", limit=8)
-        if candidates:
-            chosen = (
-                _llm_select(frag, component.field, [h.name for h in candidates])
-                if llm_select
-                else None
-            )
-            if chosen:
-                chosen_set = {c.lower() for c in chosen}
-                hits = [h for h in candidates if h.name.lower() in chosen_set]
-            else:
-                hits = candidates[:5]
-        elif llm_select:
-            hits = _llm_map_to_vocab(frag, component.field, index)
+        # Search a POOL of terms and UNION every grounded hit. The pool is always the
+        # normalized term plus any verified TERMite synonyms (ann_hits) — the normalized
+        # term is a candidate whether or not annotations exist. Each pool member is
+        # grounded exact -> close (fuzzy); the annotation labels are already CSV-verified
+        # (they ground exact and rank first), and the term resolves on its own.
+        #
+        # Only when the ENTIRE pool grounds to nothing do the LLM fallbacks run, and they
+        # see the whole pool (fragment + synonym aliases) so any phrasing the model
+        # recognises can resolve the term: the synonym map ('homo sapiens' -> 'Human'),
+        # then the closed-set search over a candidate window unioned across the pool.
+        # Each LLM pick is re-grounded so the value stays in-vocabulary (CONST-1).
+        # Offline (llm_select=False) the LLM path yields nothing and the gap is flagged
+        # below rather than invented.
+        # Raw equivalent-term phrasings (label + synonyms, NOT CSV-verified) for the LLM
+        # fallback: when nothing in the pool grounds by string match, the model still
+        # sees every way the entity was named (brand/scientific/abbrev), not just the
+        # bare fragment. Includes phrasings even when no synonym was a vocab term.
+        aliases = _annotation_aliases(component, service, index, annotations)
+        pool: list[GroundingHit] = list(ann_hits)
+        if ann_hits:
+            # TERMite already resolved the concept; the term contributes only its EXACT
+            # self-grounding so a raw multi-word fragment ('rat and mouse models') can't
+            # drag unrelated fuzzy rows ('Deer mouse', 'Grass rat') into the union, while
+            # an in-vocab term the enhancer missed is still never lost.
+            pool.extend(index.lookup(term, match="exact", limit=1))
         else:
-            hits = []
+            candidates = index.lookup(term, match="fuzzy", limit=8)
+            if candidates:
+                chosen = (
+                    _llm_select(frag, component.field, [h.name for h in candidates])
+                    if llm_select
+                    else None
+                )
+                if chosen:
+                    chosen_set = {c.lower() for c in chosen}
+                    pool.extend(h for h in candidates if h.name.lower() in chosen_set)
+                else:
+                    pool.extend(candidates[:5])
+        # Dedup the unioned pool, keeping first occurrence (annotation hits rank first).
+        seen_pool: set[str] = set()
+        hits = []
+        for h in pool:
+            if h.name.lower() in seen_pool:
+                continue
+            seen_pool.add(h.name.lower())
+            hits.append(h)
+        # A class-label annotation hit ('Rodent', 'Kinase inhibitors') is expanded by the
+        # API from the single label; record the provenance so the grounding reflects it.
+        if any(h.match == "class" for h in hits):
+            expanded_from = "class"
+        # Whole pool grounded to nothing -> LLM fallbacks over the entire pool.
+        if not hits and llm_select:
+            hits = _llm_map_to_vocab(frag, component.field, index, aliases=aliases)
 
     if hits:
         values = [h.name for h in hits]
@@ -835,20 +976,26 @@ def _translate_open(component, spec, service=None, annotations=None) -> MachineS
             note = f"{frag!r} -> {value!r} (stripped leading connective)"
     if spec.entity_name and service is not None and annotations:
         type_map = service.termite_type_map
+        # TERMite may offer several synonyms for one span; take the entire matching set
+        # (deduped), OR'd, rather than only the first. There is no vocabulary to ground
+        # against for an open field, so textual overlap selects the relevant labels.
+        labels: list[str] = []
+        seen: set[str] = set()
         for ann in annotations:
             if (
                 ann.entity_type
                 and type_map.get(ann.entity_type) == component.field
                 and ann.label
-                # open field: no vocabulary to ground against, so use textual overlap
                 and _surfaces_overlap(ann, frag)
             ):
-                value = ann.label.strip()
-                if value.lower() != frag.lower():
-                    note = (
-                        f"{frag!r} -> {value!r} (enhancer preferred label for {spec.entity_name})"
-                    )
-                break
+                lab = ann.label.strip()
+                if lab and lab.lower() not in seen:
+                    seen.add(lab.lower())
+                    labels.append(lab)
+        if labels:
+            value = labels[0] if len(labels) == 1 else labels
+            if seen != {frag.lower()}:
+                note = f"{frag!r} -> {value!r} (enhancer preferred label for {spec.entity_name})"
 
     return MachineSubquery(
         field=spec.emit_field,

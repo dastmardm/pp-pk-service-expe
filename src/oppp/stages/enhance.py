@@ -120,8 +120,23 @@ class TermiteEnhancer:
                 if key in seen:
                     continue
                 seen.add(key)
+                # TERMite's full equivalent-term set (brand/scientific/abbrev/variants);
+                # deduped and excluding the preferred label so Stage 2 can ground the
+                # whole [label, *synonyms] pool against the controlled vocabulary.
+                synonyms: list[str] = []
+                syn_seen = {name.lower()}
+                for syn in ent.get("publicSynonyms") or []:
+                    syn = (syn or "").strip()
+                    if syn and syn.lower() not in syn_seen:
+                        syn_seen.add(syn.lower())
+                        synonyms.append(syn)
                 annotations.append(
-                    EntityAnnotation(surface=surface or name, label=name, entity_type=etype)
+                    EntityAnnotation(
+                        surface=surface or name,
+                        label=name,
+                        entity_type=etype,
+                        synonyms=synonyms,
+                    )
                 )
 
         text = query
