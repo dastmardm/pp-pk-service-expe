@@ -35,6 +35,16 @@ _IRREGULAR_PLURALS = {
 }
 
 
+# High-frequency, low-information tokens that would pull unrelated rows into an
+# LLM candidate window (every '…test', '…positive', '…assay' entry). Dropped when
+# picking the *distinctive* tokens of a phrase so the window stays on-topic.
+_WINDOW_STOPWORDS = {
+    "test", "tests", "positive", "negative", "assay", "assays", "effect", "effects",
+    "level", "levels", "result", "results", "abnormal", "normal", "increased",
+    "decreased", "disorder", "disorders", "disease", "diseases", "syndrome",
+}
+
+
 def singular_candidates(term: str) -> list[str]:
     """Singular forms to try for a (possibly plural) term, most-specific first.
 
@@ -127,6 +137,40 @@ class TaxonomyIndex:
             entry = self._by_name[matched_name.lower()]
             hits.append(self._hit(entry, score=float(score), match="fuzzy"))
         return hits
+
+    def candidate_window(self, term: str, *, cap: int = 80) -> list[str]:
+        """A focused slice of the closed set for an LLM to search when fuzzy is empty.
+
+        We cannot hand a 12k-row vocabulary to the model, so this builds the rows it
+        should *look at*: every entry containing a distinctive token-prefix of the
+        phrase (so 'Mutagenicity' surfaces the 'Mutagenic…' rows, 'Ames Test' the
+        bacterial-reverse-mutation rows — matches a plain substring search can't reach
+        from the inflected/abbreviated phrase), unioned with the fuzzy top-N for
+        spelling drift. High-frequency, non-distinctive tokens are dropped so the
+        window stays on-topic rather than pulling every row that merely says 'test'.
+        For a small vocabulary the prefix scan naturally returns most/all of it.
+
+        The window is only a *retrieval aid*: whatever the LLM picks from it is still
+        re-grounded against the CSV, so correctness never depends on the window being
+        complete — only on it containing the right rows.
+        """
+        toks = [t for t in re.findall(r"[a-z0-9]+", term.lower()) if len(t) >= 4]
+        toks = [t for t in toks if t not in _WINDOW_STOPWORDS]
+        toks.sort(key=len, reverse=True)
+        out: list[str] = []
+        seen: set[str] = set()
+        for t in toks[:2]:  # the two most distinctive tokens
+            stem = t[:6]
+            for e in self.entries:
+                low = e.name.lower()
+                if stem in low and low not in seen:
+                    seen.add(low)
+                    out.append(e.name)
+        for h in self.lookup(term, match="fuzzy", limit=20):
+            if h.name.lower() not in seen:
+                seen.add(h.name.lower())
+                out.append(h.name)
+        return out[:cap]
 
     def best_fuzzy(self, term: str, *, cutoff: float = 80.0) -> GroundingHit | None:
         """Single best fuzzy match using fuzz.ratio (tuned for misspelling detection).

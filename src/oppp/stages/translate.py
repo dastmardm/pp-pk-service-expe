@@ -260,39 +260,56 @@ def _llm_select(fragment: str, field: str, candidates: list[str]) -> list[str] |
     return chosen or None
 
 
-def _llm_map_to_vocab(
+def _reground_proposals(
+    proposals: list[str],
+    index,
+    *,
+    limit: int,
+    accept_score: float,
+    seen: set[str],
+    hits: list[GroundingHit],
+) -> bool:
+    """Re-ground each LLM proposal against the CSV (exact first, then fuzzy).
+
+    Appends accepted hits to ``hits`` (deduped via ``seen``). A named real entity (a
+    member drug, a canonical synonym) must bind to its *own* row, so we try exact
+    before fuzzy; fuzzy then absorbs spelling / word-order drift in the proposal. An
+    ungroundable proposal (a hallucination) is silently skipped — the emitted value
+    therefore stays a subset of the closed set (CONST-1). Returns True once ``limit``
+    is reached so the caller can stop early.
+    """
+    for proposal in proposals:
+        match = index.lookup(proposal, match="exact", limit=1)
+        if not match:
+            match = index.lookup(proposal, match="fuzzy", limit=1)
+        if match and match[0].score >= accept_score and match[0].name.lower() not in seen:
+            hit = match[0]
+            hit.match = "llm"  # provenance: reached via LLM mapping
+            seen.add(hit.name.lower())
+            hits.append(hit)
+        if len(hits) >= limit:
+            return True
+    return False
+
+
+def _llm_map_synonym(
     fragment: str,
     field: str,
     index,
     *,
-    limit: int = 40,
-    accept_score: float = 90.0,
-    attempts: int = 3,
+    limit: int,
+    accept_score: float,
+    attempts: int,
 ) -> list[GroundingHit]:
-    """Closed-vocab fallback when exact/fuzzy lookup finds nothing.
+    """Stage-A fallback: the LLM names canonical term(s); we re-ground them.
 
-    The phrase is a synonym, scientific name, brand, abbreviation, or a *class/group*
-    name the string matcher missed (e.g. ``'homo sapiens' -> 'Human'``,
-    ``'Columvi' -> 'Glofitamab'``, ``'IV administration' -> 'intravenous'``, or
-    ``'ADC' -> the antibody-drug-conjugate member drugs``). The string matcher fails
-    here because the vocabulary names the *members*, not the concept ('ADC' /
-    'antibody-drug conjugate' is no row in drugs.csv, yet Brentuximab Vedotin,
-    Trastuzumab Deruxtecan, … all are).
-
-    So we let the LLM use its pharmacology knowledge to **point at the real rows it
-    thinks match** — the canonical synonym for a simple phrase, OR the member entries
-    for a class/group concept — and then **re-ground every proposal through the
-    taxonomy** (exact first, then fuzzy). The emitted value is therefore *always a
-    subset of the closed set*; we never emit the model's raw string (CONST-1). If
-    nothing the model names grounds, the result is empty and the caller drops the
-    filter rather than inventing a value.
-
-    The call is non-deterministic in practice even at temperature 0, so we make up to
-    ``attempts`` calls and **union** the grounded proposals, stopping once a non-empty
-    result is confirmed by a second pass. ``limit`` caps how many rows we keep (kept
-    below the API's ~49-value-per-MATCH-list ceiling).
-
-    Returns the grounded hits (marked ``match="llm"`` for provenance), or ``[]``.
+    The phrase is a synonym / scientific name / brand / abbreviation, or a class/group
+    whose *members* are vocabulary rows even though the group name is not (``'homo
+    sapiens' -> 'Human'``, ``'Columvi' -> 'Glofitamab'``, ``'ADC' -> the member
+    drugs``). The model points at the real entities from its own pharmacology
+    knowledge; each proposal is re-grounded against the CSV so the result is always a
+    subset of the closed set. This is the original mapping design — cheap (no vocab
+    rows in the prompt) and right for the synonym/abbreviation/class-member shapes.
     """
     selector = _get_term_selector()
     if selector is None:
@@ -322,25 +339,105 @@ def _llm_map_to_vocab(
             result: TermSelection = selector.invoke(prompt)  # type: ignore[assignment]
         except Exception:  # pragma: no cover - network/credential failure -> fallback
             break
-        for proposal in result.selected:
-            # Exact first: a named real entity (a member drug, a canonical synonym)
-            # must bind to its own row, not the nearest fuzzy neighbour. Fall back to
-            # fuzzy for spelling/word-order drift in the model's proposal.
-            match = index.lookup(proposal, match="exact", limit=1)
-            if not match:
-                match = index.lookup(proposal, match="fuzzy", limit=1)
-            if match and match[0].score >= accept_score and match[0].name.lower() not in seen:
-                hit = match[0]
-                hit.match = "llm"  # record that this term was reached via LLM mapping
-                seen.add(hit.name.lower())
-                hits.append(hit)
-            if len(hits) >= limit:
-                return hits
+        if _reground_proposals(
+            result.selected, index, limit=limit, accept_score=accept_score, seen=seen, hits=hits
+        ):
+            return hits
         # One confirming pass once we have something: guards a lucky first hit, and
         # lets a flaky empty first attempt recover on the next.
         if hits and attempt >= 1:
             break
     return hits
+
+
+def _llm_search_closed_set(
+    fragment: str,
+    field: str,
+    index,
+    *,
+    limit: int,
+    accept_score: float,
+) -> list[GroundingHit]:
+    """Stage-B fallback: show the LLM the closed-set rows and let it pick the matches.
+
+    Used only when Stage A (synonym mapping from the model's own knowledge) grounds
+    nothing — the phrase is not a synonym/class the model can name blind, but the right
+    rows *do* exist in the vocabulary under a wording the string matcher can't reach
+    ('Ames Test' -> the four 'Mutagenic: Bacterial reverse mutation assay (Ames test)'
+    rows). We hand the model a focused **window of actual closed-set rows**
+    (:meth:`TaxonomyIndex.candidate_window`) and ask it to pick the entries that match,
+    by exact CSV spelling. Each pick is still re-grounded (so a paraphrase the model
+    typed instead of copying still binds, and anything off-list is dropped) — the value
+    stays a subset of the closed set. This is the user's "pass the rows to the LLM and
+    let it find the match" path, realised as a candidate window for large vocabularies.
+    """
+    selector = _get_term_selector()
+    if selector is None:
+        return []
+    window = index.candidate_window(fragment)
+    if not window:
+        return []
+    options = "\n".join(f"- {c}" for c in window)
+    prompt = (
+        "You ground a user's phrase to a controlled pharmacology vocabulary for the "
+        f"field {field!r}. Exact and fuzzy string match failed, so here are the actual "
+        "vocabulary rows that look related — choose the ones that genuinely match the "
+        "phrase's meaning.\n"
+        f"User phrase: {fragment!r}\n"
+        "Vocabulary rows (choose only from these, using their exact spelling):\n"
+        f"{options}\n\n"
+        "Return every row that matches the user's phrase (there may be several — e.g. an "
+        "assay with 'with S9' / 'without S9' variants — or just one). Return nothing if "
+        "none genuinely match. Use the exact row spellings above."
+    )
+    hits: list[GroundingHit] = []
+    seen: set[str] = set()
+    try:
+        result: TermSelection = selector.invoke(prompt)  # type: ignore[assignment]
+    except Exception:  # pragma: no cover - network/credential failure -> fallback
+        return []
+    _reground_proposals(
+        result.selected, index, limit=limit, accept_score=accept_score, seen=seen, hits=hits
+    )
+    return hits
+
+
+def _llm_map_to_vocab(
+    fragment: str,
+    field: str,
+    index,
+    *,
+    limit: int = 40,
+    accept_score: float = 90.0,
+    attempts: int = 3,
+) -> list[GroundingHit]:
+    """Closed-vocab LLM fallback when exact/fuzzy lookup finds nothing.
+
+    Two stages, in order (per the user's design):
+
+    1. **Synonym map** (:func:`_llm_map_synonym`) — the model names the canonical
+       term(s) or class members from its own knowledge; cheap, no vocab in the prompt.
+       Right for synonyms/abbreviations/brands and class-member groups
+       ('ADC' -> the member drugs, 'homo sapiens' -> 'Human').
+    2. **Closed-set search** (:func:`_llm_search_closed_set`) — *only if* Stage 1
+       grounds nothing: hand the model a window of the actual closed-set rows and let
+       it pick the matches ('Ames Test' -> the four bacterial-reverse-mutation rows,
+       which exist in-vocab under a wording neither fuzzy nor a blind synonym guess
+       reaches).
+
+    Both stages re-ground every proposal against the CSV, so the emitted value is
+    **always a subset of the closed set** (CONST-1); ungroundable picks are dropped and
+    an all-empty result drops the filter rather than inventing a value. ``limit`` caps
+    the kept rows below the API's ~49-value-per-MATCH-list ceiling.
+    """
+    hits = _llm_map_synonym(
+        fragment, field, index, limit=limit, accept_score=accept_score, attempts=attempts
+    )
+    if hits:
+        return hits
+    return _llm_search_closed_set(
+        fragment, field, index, limit=limit, accept_score=accept_score
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -506,6 +603,7 @@ def _translate_closed(
         # real term instead (which re-grounds exactly), and if that fails we leave it
         # unmatched rather than inventing a family.
         anchor_is_exact = False
+        llm_direct: list[GroundingHit] = []
         if ann_hit:
             base = [ann_hit]
             anchor_is_exact = True
@@ -527,8 +625,23 @@ def _translate_closed(
                         if sfuzzy and sfuzzy[0].score >= _ROLLUP_QUALIFIER_MIN_SCORE:
                             base = sfuzzy
                     if not base and llm_select:
-                        base = _llm_map_to_vocab(frag, component.field, index, limit=1)
-        if base:
+                        # Let the LLM resolve it (synonym map, then closed-set search).
+                        # When it returns *several specific rows* (e.g. 'Ames Test' ->
+                        # the four bacterial-reverse-mutation entries it picked from the
+                        # vocabulary window), those ARE the answer — use them directly
+                        # rather than collapsing onto the first and re-expanding a
+                        # family, which would either lose the others or pull in unrelated
+                        # siblings. A single LLM hit still feeds the normal rollup below.
+                        llm_direct = _llm_map_to_vocab(frag, component.field, index)
+                        if len(llm_direct) > 1:
+                            hits = llm_direct
+                            canonical = llm_direct[0].name
+                            expanded_from = "llm"
+                        elif llm_direct:
+                            base = llm_direct[:1]
+        if expanded_from == "llm":
+            pass  # hits already set to the LLM-selected rows; skip family rollup
+        elif base:
             canonical = base[0].name
             family = index.expand_family(canonical)
             if family:
