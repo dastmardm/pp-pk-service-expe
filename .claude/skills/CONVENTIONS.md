@@ -25,21 +25,21 @@ Current uses:
 
 | Emitting skill | Directive | Effect |
 |----------------|-----------|--------|
-| `fix` | `EXECUTE_COMMAND: evaluation` | re-audits after repairs (the only built-in loop) |
-| `fix` | `EXECUTE_COMMAND: docs <change>` | reflects the applied repairs into the docs — emitted as the **last line** only when re-evaluation is *not* warranted (no competing directive); when re-evaluation runs, the docs hand-off happens after that loop converges so the docs describe the final fixed state |
-| `critique` | `EXECUTE_COMMAND: fix specs/critique/report{NN}.md` | hands code-level findings to `/fix` |
-| `modify` | `EXECUTE_COMMAND: docs <change>` | reflects an applied code change into the docs — emitted **only after** the user confirms the change (the confirmation is a human checkpoint; the directive fires on the turn after it passes) |
+| `mdfix` | `EXECUTE_COMMAND: mdevaluation` | re-audits after repairs (the only built-in loop) |
+| `mdfix` | `EXECUTE_COMMAND: mddocs <change>` | reflects the applied repairs into the docs — emitted as the **last line** only when re-evaluation is *not* warranted (no competing directive); when re-evaluation runs, the docs hand-off happens after that loop converges so the docs describe the final fixed state |
+| `mdcritique` | `EXECUTE_COMMAND: mdfix specs/critique/report{NN}.md` | hands code-level findings to `/mdfix` |
+| `modify` | `EXECUTE_COMMAND: mddocs <change>` | reflects an applied code change into the docs — emitted **only after** the user confirms the change (the confirmation is a human checkpoint; the directive fires on the turn after it passes) |
 
-Skills that hand off to a **human checkpoint** (e.g. `/technical` after a docs
-clarification, `/evaluation` before `/fix`) use prose (`Next step: …`) instead,
+Skills that hand off to a **human checkpoint** (e.g. `/mdtechnical` after a docs
+clarification, `/mdevaluation` before `/mdfix`) use prose (`Next step: …`) instead,
 deliberately, so the chain pauses for review.
 
 ---
 
 ## Report numbering
 
-Skills that emit numbered reports (`evaluation` → `specs/evaluation/report{NN}.md`,
-`critique` → `specs/critique/report{NN}.md`) number them identically:
+Skills that emit numbered reports (`mdevaluation` → `specs/evaluation/report{NN}.md`,
+`mdcritique` → `specs/critique/report{NN}.md`) number them identically:
 
 - List existing files matching `report*.md` in the target directory.
 - **Next number = highest existing index + 1** (not a count — so deleting an
@@ -51,7 +51,7 @@ Skills that emit numbered reports (`evaluation` → `specs/evaluation/report{NN}
 
 ## Verdict & severity vocabularies
 
-**Evaluation verdicts** (one per `EVAL-NNN` criterion, assigned by `/evaluation`):
+**Evaluation verdicts** (one per `EVAL-NNN` criterion, assigned by `/mdevaluation`):
 
 | Verdict | Meaning |
 |---------|---------|
@@ -61,8 +61,8 @@ Skills that emit numbered reports (`evaluation` → `specs/evaluation/report{NN}
 | `N/A` | the criterion's Out-of-Scope condition applies |
 | `BLOCKED` | the **criterion itself** is defective (ambiguous/unverifiable/contradictory) — the fix is in `specs/evaluation.md`, not the code. This is an evaluation-side escape hatch, not a verdict the criteria schema declares. |
 
-**Finding severities** (`evaluation` and `critique` both order fixes by these):
-`BLOCKER` → `MAJOR` → `MINOR`. `critique` adds `QUESTION` for findings that
+**Finding severities** (`mdevaluation` and `mdcritique` both order fixes by these):
+`BLOCKER` → `MAJOR` → `MINOR`. `mdcritique` adds `QUESTION` for findings that
 cannot be resolved without information from the user.
 
 ---
@@ -94,15 +94,15 @@ earlier skill to run first. The canonical order:
 
 | Skill | Required input | Run first |
 |-------|----------------|-----------|
-| `technical` | `./docs/` (the doc tree) | — (human edits `docs/`) |
-| `implement` | `specs/technical.md` (+ planning files) | `/technical` |
-| `evaluation` | `specs/evaluation.md` | `/technical` |
-| `fix` | an evaluation or critique report | `/evaluation` (or `/critique`) |
-| `critique` | `specs/` artefacts | — (audits whatever exists) |
-| `git` | `specs/git.md` | `/technical` |
-| `docs` | `./docs/` | — |
-| `research` | data source(s) + the project | — (writes its insight under `./docs/`) |
-| `flow` | a DAG-of-skills markdown file | — |
+| `mdtechnical` | `./docs/` (the doc tree) | — (human edits `docs/`) |
+| `mdimplement` | `specs/technical.md` (+ planning files) | `/mdtechnical` |
+| `mdevaluation` | `specs/evaluation.md` | `/mdtechnical` |
+| `mdfix` | an evaluation or critique report | `/mdevaluation` (or `/mdcritique`) |
+| `mdcritique` | `specs/` artefacts | — (audits whatever exists) |
+| `mdgit` | `specs/git.md` | `/mdtechnical` |
+| `mddocs` | `./docs/` | — |
+| `mdresearch` | data source(s) + the project | — (writes its insight under `./docs/`) |
+| `mdflow` | a DAG-of-skills markdown file | — |
 
 ---
 
@@ -110,13 +110,13 @@ earlier skill to run first. The canonical order:
 
 `docs/` holds two kinds of content, and consumers must not treat them as equal:
 
-- **Ratified intent** — human-authored documentation (via `/docs`), anywhere under
+- **Ratified intent** — human-authored documentation (via `/mddocs`), anywhere under
   `docs/`. This is the source of truth the whole chain projects from.
-- **Derived evidence** — machine-produced analysis written by `/research`, confined to
+- **Derived evidence** — machine-produced analysis written by `/mdresearch`, confined to
   **`docs/research/**`** and marked as derived. It *informs* design but does not by itself
   *ratify* intent.
 
-When the two conflict, **human-authored intent wins.** `/technical` and `/critique` treat
+When the two conflict, **human-authored intent wins.** `/mdtechnical` and `/mdcritique` treat
 `docs/research/**` as evidence, not as settled product decisions: a contradiction between
 derived evidence and human-authored docs is surfaced (an `## Open Questions` entry /
 `QUESTION` finding) for a human to reconcile in `docs/`, never silently resolved in the
@@ -127,25 +127,25 @@ derived file's favour.
 ## Interactive vs autonomous skills
 
 Some skills are designed to **converse with the human** mid-run; others run to
-completion **unattended**. The distinction matters because `/flow` — and any unattended
+completion **unattended**. The distinction matters because `/mdflow` — and any unattended
 or parallel invocation — cannot relay a question to the user from inside a running skill.
 
-- **Autonomous** (never need the human to proceed once started): `implement`,
-  `evaluation`, `fix`, `git`, `flow`, `docs`, and `research`. They may ask **once, up
+- **Autonomous** (never need the human to proceed once started): `mdimplement`,
+  `mdevaluation`, `mdfix`, `mdgit`, `mdflow`, `mddocs`, and `mdresearch`. They may ask **once, up
   front** if a required input is genuinely missing, but they do not block mid-run.
-- **Interactive** (designed to clarify with the human as they work): `technical` (the
-  clarify-in-docs loop) and `critique` (its `QUESTION` findings).
+- **Interactive** (designed to clarify with the human as they work): `mdtechnical` (the
+  clarify-in-docs loop) and `mdcritique` (its `QUESTION` findings).
 
 **Autonomous-mode contract.** When an interactive skill is run unattended — under
-`/flow`, inside a dispatched subagent, or when the user says "don't stop to ask" — it
+`/mdflow`, inside a dispatched subagent, or when the user says "don't stop to ask" — it
 must **not block**. It records each unresolved ambiguity as a structured deferral
-(`technical` → `specs/product.md` `## Open Questions`; `critique` → `QUESTION` findings),
+(`mdtechnical` → `specs/product.md` `## Open Questions`; `mdcritique` → `QUESTION` findings),
 continues with everything that *is* unambiguous, and surfaces the full deferral list in
-its final report. It never invents an answer and bakes it into an artefact. (`technical`
+its final report. It never invents an answer and bakes it into an artefact. (`mdtechnical`
 already does this when the human declines to record a clarification; the contract
 generalises that behaviour to every unattended run.)
 
-**Write scopes (for `/flow` parallel-eligibility).** Two branches are write-disjoint —
+**Write scopes (for `/mdflow` parallel-eligibility).** Two branches are write-disjoint —
 hence safe to run concurrently — only if their write scopes below do not overlap. A
 shared **index/registry file** (e.g. the `docs/` index) is a *convergent* file (see Work
 Breakdown Structure → Convergent files): when parallel branches each need to register an
@@ -153,22 +153,22 @@ entry, that single write is **serialised** as a join step, not raced.
 
 | Skill | Writes |
 |-------|--------|
-| `technical` | `specs/**` and `.claude/settings.json` (and `./docs/` during its interactive clarify loop) |
-| `research` | `docs/research/**` only (plus its one entry in the `docs/` index) |
-| `docs` | `docs/**` |
-| `evaluation` | `specs/evaluation/report*.md` |
-| `critique` | `specs/critique/report*.md` (and may edit `specs/**` during its resolution phase) |
-| `implement` / `fix` | source code, the env template, migrations (never git) |
-| `git` | git refs / index only — no working-tree file writes |
-| `flow` | nothing of its own (it dispatches other skills) |
+| `mdtechnical` | `specs/**` and `.claude/settings.json` (and `./docs/` during its interactive clarify loop) |
+| `mdresearch` | `docs/research/**` only (plus its one entry in the `docs/` index) |
+| `mddocs` | `docs/**` |
+| `mdevaluation` | `specs/evaluation/report*.md` |
+| `mdcritique` | `specs/critique/report*.md` (and may edit `specs/**` during its resolution phase) |
+| `mdimplement` / `mdfix` | source code, the env template, migrations (never git) |
+| `mdgit` | git refs / index only — no working-tree file writes |
+| `mdflow` | nothing of its own (it dispatches other skills) |
 
 ---
 
 ## Work Breakdown Structure (WBS) — decomposition & parallel-execution model
 
 The project's work is decomposed into a **hierarchical tree** (a Work Breakdown
-Structure). `/technical` *produces* the tree (in `specs/tasks.md`, with the file-owner
-map in `specs/skeleton.md`); `/implement` *executes* it. This section is the single
+Structure). `/mdtechnical` *produces* the tree (in `specs/tasks.md`, with the file-owner
+map in `specs/skeleton.md`); `/mdimplement` *executes* it. This section is the single
 source of truth for the model; both skills cite it.
 
 **The tree is an authoritative decomposition + ordering contract, not a promise about
@@ -176,7 +176,7 @@ runtime concurrency.** Its preferred realization is parallel — one subagent pe
 leaves running concurrently, summary nodes joining their children — but the same tree
 walked **sequentially in bottom-up (post-order) order produces an identical result**.
 Correctness never depends on concurrency, and no part of the model assumes a worker can
-spawn further workers (nested spawning is not guaranteed). `/implement` chooses the
+spawn further workers (nested spawning is not guaranteed). `/mdimplement` chooses the
 realization; the contract below holds either way.
 
 ### Node kinds
@@ -276,9 +276,9 @@ indefinitely.
 ### Worker discipline
 
 Workers **only write the files they own**; they **never run git**. The working-tree index
-is shared single-writer state, so all staging/committing is left to the separate `/git`
+is shared single-writer state, so all staging/committing is left to the separate `/mdgit`
 stage after the tree resolves. Only the **root** node's final report emits the prose
-chain handoff (`Next step: /evaluation`); child and summary reports return structured
+chain handoff (`Next step: /mdevaluation`); child and summary reports return structured
 status upward and emit no chain directive.
 
 ### WHAT / HOW boundary
@@ -287,9 +287,9 @@ A summary node's `Review` is a **self-contained, objectively-checkable integrati
 assertion phrased in `tasks.md`'s own terms** (e.g. "every child-reported interface
 resolves; the convergent file lists every contribution; the subtree imports/builds/tests
 clean"). It **must not reference `EVAL-NNN`**: `specs/evaluation.md` remains the sole
-owner of *what* gets checked, asserted only by `/evaluation`, and lineage stays
+owner of *what* gets checked, asserted only by `/mdevaluation`, and lineage stays
 one-directional (`evaluation.md` may cite `tasks.md`, never the reverse). A green subtree
-is an early-warning signal, not a substitute for the final `/evaluation` pass.
+is an early-warning signal, not a substitute for the final `/mdevaluation` pass.
 
 ### Quality invariants (machine-checkable over the parsed tree)
 

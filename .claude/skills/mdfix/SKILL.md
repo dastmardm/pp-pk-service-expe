@@ -1,6 +1,6 @@
 ---
-name: "fix"
-description: "Repair the FAIL/PARTIAL findings in an evaluation report (or the code-divergence findings in a critique report), then re-evaluate and propagate the change into the docs via /docs. Use after /evaluation, or when /critique dispatches code-level findings."
+name: "mdfix"
+description: "Repair the FAIL/PARTIAL findings in an evaluation report (or the code-divergence findings in a critique report), then re-evaluate and propagate the change into the docs via /mddocs. Use after /mdevaluation, or when /mdcritique dispatches code-level findings."
 argument-hint: "Path to an evaluation or critique report (default: most recent specs/evaluation/report*.md)"
 user-invocable: true
 disable-model-invocation: false
@@ -16,7 +16,7 @@ $ARGUMENTS is the path to the report to fix. If omitted, use the most recently c
 
 ## Outline
 
-You are the **`fix`** step:
+You are the **`mdfix`** step:
 
 ```
 technical → implement → evaluation → fix
@@ -28,18 +28,18 @@ You accept **two kinds of report** (the shared verdict/severity vocabularies are
 
 - **Evaluation report** (`specs/evaluation/report*.md`, the default) — fix every
   `FAIL` and `PARTIAL` finding, in the order given under its `## Recommended Fix Order`.
-- **Critique report** (`specs/critique/report*.md`, handed over when `/critique` emits
-  `EXECUTE_COMMAND: fix specs/critique/report{NN}.md`) — fix only the **code-level**
+- **Critique report** (`specs/critique/report*.md`, handed over when `/mdcritique` emits
+  `EXECUTE_COMMAND: mdfix specs/critique/report{NN}.md`) — fix only the **code-level**
   findings, i.e. those with **Type: code divergence** or **constitution violation**
   (severities `BLOCKER`/`MAJOR`/`MINOR`), in the order given under its
   `## Recommended Resolution Order`. **Skip `QUESTION` findings and any purely
-  spec-level finding** — those are not `/fix`'s job; `/critique` routes them elsewhere.
+  spec-level finding** — those are not `/mdfix`'s job; `/mdcritique` routes them elsewhere.
 
 ### Steps
 
 1. Locate the report: use $ARGUMENTS if given, otherwise pick the highest-numbered
    `specs/evaluation/report*.md`.
-   Stop with an error if no report exists — run `/evaluation` (or `/critique`) first.
+   Stop with an error if no report exists — run `/mdevaluation` (or `/mdcritique`) first.
 
 2. Determine the report type from its path/heading (Evaluation Report vs Critique
    Report) and read it, plus the spec files it evaluated or audited against.
@@ -61,7 +61,7 @@ You accept **two kinds of report** (the shared verdict/severity vocabularies are
    fixed normally). A
    `BLOCKED` finding means the *criterion itself* is defective — the fix belongs in
    `specs/evaluation.md`, not the code. Surface it: state that `specs/evaluation.md`
-   must be corrected via `/technical` before re-evaluation is meaningful, and do not
+   must be corrected via `/mdtechnical` before re-evaluation is meaningful, and do not
    guess the criterion's intent.
 
 6. For any other finding that cannot be fixed (blocked by a design constraint or
@@ -74,7 +74,7 @@ You accept **two kinds of report** (the shared verdict/severity vocabularies are
    → EXECUTE_COMMAND):
 
    ```
-   EXECUTE_COMMAND: evaluation
+   EXECUTE_COMMAND: mdevaluation
    ```
 
 8. Report (**always emit this, even when nothing was re-evaluated**): produce a
@@ -86,7 +86,7 @@ You accept **two kinds of report** (the shared verdict/severity vocabularies are
      gap and how it was resolved.
    - **Findings not fixed** — with the reason (design constraint, external
      dependency, etc.).
-   - **`BLOCKED` criteria-defects** surfaced for `/technical`, if any.
+   - **`BLOCKED` criteria-defects** surfaced for `/mdtechnical`, if any.
    - **Change summary** — a concise, behaviour-level account of what the code now
      does differently: new/changed functions or symbols, new migrations, new env
      vars, altered interfaces or contracts, and any other change that the project
@@ -96,29 +96,29 @@ You accept **two kinds of report** (the shared verdict/severity vocabularies are
 
 9. **Propagate the change into the documentation.** Every fix this skill applies
    changes behaviour that the human-facing docs must end up reflecting — so hand the
-   **Change summary** from step 8 to `/docs`. Build a self-contained, docs-focused
+   **Change summary** from step 8 to `/mddocs`. Build a self-contained, docs-focused
    prompt from that summary (not the raw report or diff): describe what the code now
-   does differently in behaviour-level terms, so `/docs` can locate the right
+   does differently in behaviour-level terms, so `/mddocs` can locate the right
    `docs/**` files and update them. Then emit, as the **last line of output** (see
    `../CONVENTIONS.md` → EXECUTE_COMMAND):
 
    ```
-   EXECUTE_COMMAND: docs <one-paragraph, self-contained description of the behaviour change to document>
+   EXECUTE_COMMAND: mddocs <one-paragraph, self-contained description of the behaviour change to document>
    ```
 
    **Ordering — only the last line of output fires.** The harness intercepts a single
    `EXECUTE_COMMAND` directive (the last line). To run both the re-evaluation (step 7)
-   and the docs propagation, **chain them**: emit the step-7 `EXECUTE_COMMAND: evaluation`
+   and the docs propagation, **chain them**: emit the step-7 `EXECUTE_COMMAND: mdevaluation`
    directive *only* when re-evaluation is warranted, and make the docs hand-off happen
    **after the chain settles** rather than competing for the same final line —
    - When re-evaluation IS warranted: do **not** emit the docs directive on this turn.
-     Instead, end this turn with `EXECUTE_COMMAND: evaluation`, and state in the report
+     Instead, end this turn with `EXECUTE_COMMAND: mdevaluation`, and state in the report
      that once evaluation confirms the fixes hold, the change must be documented via
-     `/docs` using the Change summary above. (The re-evaluation chain reaches `/docs`
+     `/mddocs` using the Change summary above. (The re-evaluation chain reaches `/mddocs`
      once it converges; documentation should describe the *final* fixed state, not an
      interim one.)
    - When re-evaluation is **skipped** (no fixable code findings re-ran, per step 7):
-     there is no competing directive, so emit `EXECUTE_COMMAND: docs <summary>` as the
+     there is no competing directive, so emit `EXECUTE_COMMAND: mddocs <summary>` as the
      last line directly — but only if at least one fix actually changed behaviour. If
      nothing changed (e.g. only `BLOCKED` criteria-defects or `QUESTION`/spec-level
      findings), there is nothing to document — skip the docs directive and say why.

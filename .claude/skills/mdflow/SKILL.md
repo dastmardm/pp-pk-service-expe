@@ -1,6 +1,6 @@
 ---
-name: "flow"
-description: "Execute a DAG of skills described in a markdown file. Takes a single argument — a path to a markdown file — and runs the skills it specifies in the order (and with the dependencies) the file lays out. Use when the user types /flow <file.md> to drive a chained, multi-skill workflow declared as a DAG."
+name: "mdflow"
+description: "Execute a DAG of skills described in a markdown file. Takes a single argument — a path to a markdown file — and runs the skills it specifies in the order (and with the dependencies) the file lays out. Use when the user types /mdflow <file.md> to drive a chained, multi-skill workflow declared as a DAG."
 argument-hint: "Path to a markdown file describing the DAG (e.g. dag.md)"
 user-invocable: true
 disable-model-invocation: false
@@ -25,7 +25,7 @@ skills it describes, and invoke each skill in a valid execution order. The file 
 the **WHAT**; you are the **HOW**.
 
 ```
-           /flow dag.md
+           /mdflow dag.md
                  │
                  ▼
         ┌─────────────────┐
@@ -45,8 +45,8 @@ the **WHAT**; you are the **HOW**.
         └─────────────────┘
 ```
 
-> **Naming note.** `flow` is distinct from the built-in `/run` (which launches the
-> app). `/flow <file.md>` means *execute the DAG of skills described in that file*.
+> **Naming note.** `mdflow` is distinct from the built-in `/run` (which launches the
+> app). `/mdflow <file.md>` means *execute the DAG of skills described in that file*.
 
 ---
 
@@ -55,8 +55,8 @@ the **WHAT**; you are the **HOW**.
 1. Read the file named by `$ARGUMENTS` in full. If it is missing/empty/unreadable,
    stop with a clear error naming the expected argument (a path to a markdown file).
 2. Extract from it:
-   - **Nodes** — the skills to run. A node names a skill (e.g. `critique`,
-     `technical`, `implement`) and may carry **arguments** to pass to that skill.
+   - **Nodes** — the skills to run. A node names a skill (e.g. `mdcritique`,
+     `mdtechnical`, `mdimplement`) and may carry **arguments** to pass to that skill.
    - **Edges / dependencies** — which skills must complete before which others.
      Honour whatever the file uses to express order: an explicit dependency list,
      a numbered/ordered sequence, an arrow notation (`a -> b`), a Mermaid graph, a
@@ -74,7 +74,7 @@ the **WHAT**; you are the **HOW**.
   candidates to run **concurrently** — identify these independent sets; Phase 3
   decides which are *safe* to actually parallelise.
 - **Detect cycles.** If the dependencies form a cycle (no valid order exists), stop
-  and report the cycle — do not run a partial, ambiguous order. (The `fix`↔`evaluation`
+  and report the cycle — do not run a partial, ambiguous order. (The `mdfix`↔`mdevaluation`
   loop is a deliberate cycle handled *inside* those skills via `EXECUTE_COMMAND`, not a
   DAG edge — do not encode it as one.)
 - If the file is ambiguous about ordering in a way you cannot resolve from its
@@ -82,9 +82,9 @@ the **WHAT**; you are the **HOW**.
 
 ### Phase 3 — Execute
 
-`/flow` runs **unattended**, so every skill it invokes runs in **autonomous mode**
+`/mdflow` runs **unattended**, so every skill it invokes runs in **autonomous mode**
 (`../CONVENTIONS.md` → Interactive vs autonomous skills): an interactive skill
-(`technical`, `critique`) must not block asking the user — it defers each unresolved
+(`mdtechnical`, `mdcritique`) must not block asking the user — it defers each unresolved
 ambiguity to its structured output (`## Open Questions` / `QUESTION` findings) and
 continues. Collect every deferral and surface it in the Phase 4 report.
 
@@ -96,11 +96,11 @@ run together**:
    **and** their **write scopes are disjoint**. Determine both mechanically from
    `../CONVENTIONS.md` → Interactive vs autonomous skills (the autonomous list and the
    skill→write-scope table); it is the same file-disjointness reasoning as
-   `../CONVENTIONS.md` → Work Breakdown Structure. For example, two `research` runs over
+   `../CONVENTIONS.md` → Work Breakdown Structure. For example, two `mdresearch` runs over
    different sources are eligible — each writes a different `docs/research/` file — but
    their shared touch on the `docs/` **index is a convergent write**, so that one
    registration is **serialised** as a join step, not raced (WBS → Convergent files).
-   Skills with overlapping scopes (e.g. `technical` and `evaluation`/`critique`, which
+   Skills with overlapping scopes (e.g. `mdtechnical` and `mdevaluation`/`mdcritique`, which
    all write under `specs/`) are **not** eligible. Dispatch a parallel-eligible set
    **concurrently** — you own the fan-out (author a Workflow, or dispatch parallel
    subagents; do **not** assume a worker can spawn further workers). If concurrent
@@ -135,8 +135,8 @@ Summarise:
 
 - **The file is authoritative.** Do not add, drop, or reorder skills beyond what the
   DAG and its dependencies require. You execute the graph; you do not redesign it.
-- **One argument only.** `/flow` takes exactly one thing: the path to the markdown
-  file. Per-skill arguments come from *inside* that file, not from the `/flow` call.
+- **One argument only.** `/mdflow` takes exactly one thing: the path to the markdown
+  file. Per-skill arguments come from *inside* that file, not from the `/mdflow` call.
 - **Never invent skills.** Only invoke skills that appear in the available-skills
   list. An unknown node name is an error to report, not a name to guess.
 - **Respect dependencies strictly.** A skill never starts before every skill it
@@ -146,5 +146,5 @@ Summarise:
   or write-overlapping runs sequentially. Concurrency is an optimisation — the sequential
   order always produces the same result.
 - **Run unattended; defer, don't block.** Skills run in autonomous mode; interactive
-  skills defer clarifications to their structured outputs and `/flow` surfaces them in the
+  skills defer clarifications to their structured outputs and `/mdflow` surfaces them in the
   final report (`../CONVENTIONS.md` → Interactive vs autonomous skills).

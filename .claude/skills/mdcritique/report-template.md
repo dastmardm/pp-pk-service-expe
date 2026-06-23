@@ -1,4 +1,4 @@
-# `critique` — Report template
+# `mdcritique` — Report template
 
 The structure for `specs/critique/report{NN}.md`. The numbering and severity
 vocabulary are defined in `../CONVENTIONS.md`.
@@ -59,5 +59,5 @@ vocabulary are defined in `../CONVENTIONS.md`.
 <!-- Ordered list: BLOCKERs first, then MAJORs, then MINORs.
      QUESTIONs are listed separately — they block their dependents.
      The code-level subset (Type: code divergence / constitution violation) is the
-     part /fix consumes when this report is dispatched to it via EXECUTE_COMMAND. -->
+     part /mdfix consumes when this report is dispatched to it via EXECUTE_COMMAND. -->
 ```

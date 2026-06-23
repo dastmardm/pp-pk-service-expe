@@ -640,7 +640,7 @@ def _translate_closed(
                         elif llm_direct:
                             base = llm_direct[:1]
         if expanded_from == "llm":
-            pass  # hits already set to the LLM-selected rows; skip family rollup
+            pass  # hits already the LLM-selected rows; skip family rollup
         elif base:
             canonical = base[0].name
             family = index.expand_family(canonical)
@@ -650,20 +650,32 @@ def _translate_closed(
                 names = {canonical: base[0]}
                 for h in family:
                     names.setdefault(h.name, h)
-                # When the anchor was *guessed* (fuzzy/LLM, not an exact CSV hit), the
-                # user's original phrase may be a broad category the API resolves
-                # server-side even though it isn't a local leaf ('Mutagenicity' -> 445,
-                # while the LLM's nearest leaf 'Mutagenic effect' + its NEC family -> 30).
-                # Additively include the original term so the broad reading is kept;
-                # values are OR'd, so a non-matching extra term is harmless.
-                if not anchor_is_exact and term not in names:
-                    names[term] = GroundingHit(name=term, match="llm", score=100.0)
                 hits = list(names.values())
                 expanded_from = "family"
             else:
                 hits = base
         else:
             hits = []
+        # When the anchor was *guessed* (fuzzy/LLM, not an exact CSV hit), the user's
+        # original phrase may itself be a broad category the API resolves server-side
+        # even though our local CSV has no such leaf ('Mutagenicity' -> 445 at the API,
+        # while the nearest local leaf 'Mutagenic effect' + its NEC family -> 30, and
+        # the LLM-picked assay rows are a different, narrower slice). Additively OR the
+        # original fragment back in — preserving the user's casing, since the effects
+        # field is case-sensitive at the API ('Mutagenicity' matches, 'mutagenicity'
+        # does not). Values are OR'd, so a fragment the API doesn't recognise is a
+        # harmless no-op; one it does recognise restores the broad reading.
+        if hits and not anchor_is_exact and not ann_hit:
+            have = {h.name.lower() for h in hits}
+            # The effects field is case-sensitive at the API ('Mutagenicity' matches,
+            # 'mutagenicity' does not), and upstream stages may have lowercased the
+            # fragment. Offer both the fragment as written and a capitalized variant of a
+            # single-word concept; the API resolves whichever it recognises and ignores
+            # the rest (values are OR'd, so the extras are harmless no-ops).
+            for cand in (frag, frag[:1].upper() + frag[1:] if frag and " " not in frag else frag):
+                if cand.lower() not in have:
+                    have.add(cand.lower())
+                    hits = [*hits, GroundingHit(name=cand, match="llm", score=100.0)]
     elif ann_hit:
         hits = [ann_hit]
     else:

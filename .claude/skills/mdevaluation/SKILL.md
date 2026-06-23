@@ -1,6 +1,6 @@
 ---
-name: "evaluation"
-description: "Audit the code against the EVAL-NNN criteria in specs/evaluation.md and write a numbered gap report. Use as the evaluation step of the spec pipeline, after /implement and before /fix."
+name: "mdevaluation"
+description: "Audit the code against the EVAL-NNN criteria in specs/evaluation.md and write a numbered gap report. Use as the evaluation step of the spec pipeline, after /mdimplement and before /mdfix."
 argument-hint: "Path to the evaluation criteria (default: specs/evaluation.md); optional scope filter"
 user-invocable: true
 disable-model-invocation: false
@@ -16,20 +16,20 @@ $ARGUMENTS may give the path to the evaluation criteria file and/or a scope filt
 
 ## Outline
 
-You are the **`evaluation`** step:
+You are the **`mdevaluation`** step:
 
 ```
 technical → implement → evaluation → fix
 ```
 
-This is the **HOW** half of the evaluation contract. `/technical` produces `specs/evaluation.md` — the **WHAT**: the authoritative, objectively-decidable list of criteria (`EVAL-NNN`) to verify. Your job is to apply each of those criteria to the codebase and produce an objective gap report. Every finding is a concrete, actionable discrepancy tied to a criterion ID — not an opinion, and never a check you invented outside `specs/evaluation.md`.
+This is the **HOW** half of the evaluation contract. `/mdtechnical` produces `specs/evaluation.md` — the **WHAT**: the authoritative, objectively-decidable list of criteria (`EVAL-NNN`) to verify. Your job is to apply each of those criteria to the codebase and produce an objective gap report. Every finding is a concrete, actionable discrepancy tied to a criterion ID — not an opinion, and never a check you invented outside `specs/evaluation.md`.
 
 The criteria are the single source of truth for *what* gets checked: you do **not** re-derive requirements from the other specs. If a criterion is ambiguous or unverifiable, that is a defect in `specs/evaluation.md` — record it as a `BLOCKED` finding (see step 4) rather than guessing intent. `BLOCKED` is an **evaluation-side escape hatch** for defective criteria, not a verdict the criteria schema in `specs/evaluation.md` declares (the verdict/severity vocabularies are defined in `../CONVENTIONS.md`).
 
 ### Steps
 
 1. Read the evaluation criteria file in $ARGUMENTS (default `specs/evaluation.md`).
-   Stop with an error if it does not exist — run `/technical` first to produce it.
+   Stop with an error if it does not exist — run `/mdtechnical` first to produce it.
    Read its `## Sources` lineage only as supporting context to interpret a criterion's evidence column — never to add checks beyond the listed `EVAL-NNN`.
 
 2. Explore the codebase to find the implementation files each criterion's `Evidence to look for` points at.
@@ -104,4 +104,4 @@ The criteria are the single source of truth for *what* gets checked: you do **no
         since they must be resolved in specs/evaluation.md before re-evaluation. -->
    ```
 
-6. Report: path written, PASS/PARTIAL/FAIL/N/A/BLOCKED counts, coverage ({evaluated}/{total}), and top BLOCKER findings. If any criteria are BLOCKED, flag that `specs/evaluation.md` needs fixing (re-run `/technical`) before the report is fully actionable. Next step: `/fix specs/evaluation/report{NN}.md`.
+6. Report: path written, PASS/PARTIAL/FAIL/N/A/BLOCKED counts, coverage ({evaluated}/{total}), and top BLOCKER findings. If any criteria are BLOCKED, flag that `specs/evaluation.md` needs fixing (re-run `/mdtechnical`) before the report is fully actionable. Next step: `/mdfix specs/evaluation/report{NN}.md`.

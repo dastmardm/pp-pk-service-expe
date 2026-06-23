@@ -1,6 +1,6 @@
 ---
-name: "technical"
-description: "Ingest the human-facing docs under ./docs/, synthesise the product specification, then translate it into the full technical blueprint, all downstream planning artefacts, and the .claude/settings.json permission allowlist. The chain's entry point — use after a human edits ./docs/, before /implement."
+name: "mdtechnical"
+description: "Ingest the human-facing docs under ./docs/, synthesise the product specification, then translate it into the full technical blueprint, all downstream planning artefacts, and the .claude/settings.json permission allowlist. The chain's entry point — use after a human edits ./docs/, before /mdimplement."
 argument-hint: "(no arguments — the sole product-design input is the ./docs/ directory)"
 user-invocable: true
 disable-model-invocation: false
@@ -16,12 +16,12 @@ repository root — the human-facing documentation of the project.
   only, `./docs/`. (You still read existing code/architecture/schema artefacts as
   *context* to avoid contradicting prior decisions — but never as the product source.)
 - **If `./docs/` does not exist (or is empty), raise an error and stop.** Report:
-  "`./docs/` not found — the `technical` skill requires the human-facing
+  "`./docs/` not found — the `mdtechnical` skill requires the human-facing
   documentation under `./docs/` as its sole product-design input." Then halt.
 
 ## Outline
 
-You are the **`technical`** step — and the chain's **only entry point for human
+You are the **`mdtechnical`** step — and the chain's **only entry point for human
 input**:
 
 ```
@@ -69,8 +69,8 @@ or a decision the docs do not settle**:
 either: leave it as an `## Open Questions` entry in `specs/product.md`. A spec must
 never assert something `./docs/` does not.)
 
-**Running unattended.** This clarify loop is interactive. When `/technical` is run
-without a human to answer — under `/flow`, in a dispatched subagent, or when told not to
+**Running unattended.** This clarify loop is interactive. When `/mdtechnical` is run
+without a human to answer — under `/mdflow`, in a dispatched subagent, or when told not to
 stop — treat every ambiguity as if the human were unavailable: do **not** block, record
 it as an `## Open Questions` entry, proceed from what `./docs/` unambiguously states, and
 list all deferrals in the final report (`../CONVENTIONS.md` → Interactive vs autonomous
@@ -80,8 +80,8 @@ Only when a complete pass of `./docs/` needs no further change do you write
 `specs/product.md` and proceed to the technical artefacts.
 
 **You are also the chain's permission front-loader.** Everything downstream of you
-— `/implement`, `/evaluation`, `/fix`, `/git` — must run **unattended**, never
-pausing to ask the human to approve a tool call. (`/implement` additionally dispatches
+— `/mdimplement`, `/mdevaluation`, `/mdfix`, `/mdgit` — must run **unattended**, never
+pausing to ask the human to approve a tool call. (`/mdimplement` additionally dispatches
 one subagent per WBS node to build the tree in parallel; those subagents **inherit this
 allowlist**, so it must cover every command they run — including the package-manager /
 resolver commands a summary node runs for convergent files.) That is only possible if *you*
@@ -91,7 +91,7 @@ already your job (you choose the stack, the quality gates, the git workflow), so
 you are the only step with the knowledge to set the permissions correctly before
 any of them runs. Treat a downstream permission prompt as a defect in *this* step.
 
-The eighth file, `specs/evaluation.md`, is the bridge to the downstream `/evaluation` skill: it defines **WHAT** must be evaluated (the concrete, checkable criteria derived from every other artefact). `/evaluation` owns **HOW** to evaluate (the audit mechanics and report format). WHAT + HOW must compose into a clean, unambiguous evaluation pass — so every criterion you write in `specs/evaluation.md` must be objectively decidable as PASS / PARTIAL / FAIL / N/A by an auditor who has only the codebase and that file (or BLOCKED — the evaluation-side escape hatch — if a criterion is itself defective; see `../CONVENTIONS.md`).
+The eighth file, `specs/evaluation.md`, is the bridge to the downstream `/mdevaluation` skill: it defines **WHAT** must be evaluated (the concrete, checkable criteria derived from every other artefact). `/mdevaluation` owns **HOW** to evaluate (the audit mechanics and report format). WHAT + HOW must compose into a clean, unambiguous evaluation pass — so every criterion you write in `specs/evaluation.md` must be objectively decidable as PASS / PARTIAL / FAIL / N/A by an auditor who has only the codebase and that file (or BLOCKED — the evaluation-side escape hatch — if a criterion is itself defective; see `../CONVENTIONS.md`).
 
 ### Output templates
 
@@ -171,7 +171,7 @@ technical or not — knows exactly what "done" means.
 
 The implementation roadmap. Presents the **Work Breakdown Structure** decomposition
 (the top levels of the tree and the rationale for the cut) and the **fork-join
-execution model** `/implement` will run, records key decisions with rationale, and
+execution model** `/mdimplement` will run, records key decisions with rationale, and
 includes a Constitution Check confirming no principle is violated.
 → template: `reference/output-formats.md` → File 5; model: `../CONVENTIONS.md` → Work
 Breakdown Structure.
@@ -179,7 +179,7 @@ Breakdown Structure.
 ### File 6 — `specs/tasks.md`
 
 The project's **Work Breakdown Structure** — the hierarchical tree of nodes
-`/implement` executes. Leaf nodes are atomic, file-disjoint units (the unit of parallel
+`/mdimplement` executes. Leaf nodes are atomic, file-disjoint units (the unit of parallel
 execution); summary nodes block on their children, then aggregate, review, and report
 upward; the root resolves last, bottom-up. Every node is self-contained: its kind, owned
 files, dependencies, and a verifiable done-when are explicit on the node.
@@ -195,15 +195,15 @@ shape, written before any code. It is also the **authoritative file→owner map*
 WBS: its File Inventory carries an `Owner (WBS node)` column that each node's `Owns` list
 in `tasks.md` must agree with (one owner per file, every file owned). Its `## Conventions`
 section is where you define the migration-naming and env-template conventions that
-`/implement` and `/fix` consult.
+`/mdimplement` and `/mdfix` consult.
 → template & skeleton-writing rules: `reference/output-formats.md` → File 7; ownership
 invariant: `../CONVENTIONS.md` → Work Breakdown Structure.
 
 ### File 8 — `specs/evaluation.md`
 
 The **evaluation criteria** — the authoritative, machine-checkable list of *what*
-the `/evaluation` skill must verify in the codebase. This is the WHAT half of the
-WHAT+HOW contract: `/evaluation` reads this file and applies its own audit
+the `/mdevaluation` skill must verify in the codebase. This is the WHAT half of the
+WHAT+HOW contract: `/mdevaluation` reads this file and applies its own audit
 mechanics (the HOW) against it. If a property is not written here as a criterion,
 it will not be evaluated — so this file must cover every requirement, contract, and
 constitution principle the implementation is expected to honour.
@@ -220,15 +220,15 @@ Derive criteria **from the other six artefacts**, not from imagination:
 
 The project's **version-control contract** — the authoritative rules for how any
 change (to specs, docs, code, infra, or schema) is committed and proposed. It is
-the bridge to `/git`: `/git` reads this file and *applies* the rules with
-`git`/`gh`. `specs/git.md` defines **WHAT the git workflow is**; `/git` owns
-**executing it**. If a rule is not written here, `/git` will not enforce it.
+the bridge to `/mdgit`: `/mdgit` reads this file and *applies* the rules with
+`git`/`gh`. `specs/git.md` defines **WHAT the git workflow is**; `/mdgit` owns
+**executing it**. If a rule is not written here, `/mdgit` will not enforce it.
 
 You **decide** what these rules should be — derive them from what makes engineering
 sense for *this* project (repository layout, the kinds of artefacts it holds, and
 any conventions already visible: branch names, `CONTRIBUTING`, commit history,
 `CODEOWNERS`, PR templates). The rules must be **deterministic and
-machine-applicable** — `/git` must be able to look at a set of changed paths and
+machine-applicable** — `/mdgit` must be able to look at a set of changed paths and
 unambiguously decide the branch name, commit message, and whether to open a PR.
 Cover at minimum: change-classification → branch; branch base & protection; commit
 message convention (incl. the mandated `Co-Authored-By` trailer); push/PR policy;
@@ -241,8 +241,8 @@ open).
 
 The harness permission file that lets every downstream skill run **without a single
 permission prompt** — the WHAT→HOW bridge for *execution rights*. Enumerate every
-tool call the downstream skills will make and pre-approve it, so `/implement`,
-`/evaluation`, `/fix`, and `/git` are never blocked waiting on the human.
+tool call the downstream skills will make and pre-approve it, so `/mdimplement`,
+`/mdevaluation`, `/mdfix`, and `/mdgit` are never blocked waiting on the human.
 
 Derive the allow list **from the artefacts you just wrote**, not from guesswork:
 - From **`constitution.md` → Quality Gates** and **`git.md` → Pre-Commit Gates**:
@@ -252,7 +252,7 @@ Derive the allow list **from the artefacts you just wrote**, not from guesswork:
   under, and any build/run/migration commands → matching `Bash(...)` and `Edit`/`Write`
   rules. Include the **package-manager / resolver commands summary nodes run for
   convergent manifest/lockfile files** (`../CONVENTIONS.md` → Convergent files). The
-  subagents `/implement` dispatches inherit this allowlist; add **no** rules for
+  subagents `/mdimplement` dispatches inherit this allowlist; add **no** rules for
   orchestration tool names (`Agent`, `Workflow`) and **none** for worktree isolation.
 - From **`technical.md` → Configuration and Secrets**: writing the env template file
   → covered by `Edit`/`Write`.
@@ -274,10 +274,10 @@ Derive the allow list **from the artefacts you just wrote**, not from guesswork:
 - `specs/evaluation.md` exists and its Coverage Map accounts for every MUST requirement, every data contract, every constitution principle, and every promised skeleton file — each covered by ≥1 EVAL-NNN, or listed in Out of Scope with a reason
 - Every criterion in `specs/evaluation.md` is objectively decidable (states the evidence that makes it PASS) and cites its source artefact in the `Source ref` column
 - `specs/git.md` exists; its branch-naming rules are path-keyed and deterministic, and its pre-commit gates and "never commit" rules are consistent with `constitution.md`
-- `.claude/settings.json` exists and pre-authorises **every** command named in the Quality Gates, Pre-Commit Gates, git policy, and tasks — including the package-manager/resolver commands summary nodes run for convergent files — so no downstream skill (`/implement` **and the per-node subagents it dispatches**, `/evaluation`, `/fix`, `/git`) will hit a permission prompt; it adds no orphan orchestration-tool rules and does not enable worktree isolation, while withholding destructive/secret-exposing actions and preserving any pre-existing settings
+- `.claude/settings.json` exists and pre-authorises **every** command named in the Quality Gates, Pre-Commit Gates, git policy, and tasks — including the package-manager/resolver commands summary nodes run for convergent files — so no downstream skill (`/mdimplement` **and the per-node subagents it dispatches**, `/mdevaluation`, `/mdfix`, `/mdgit`) will hit a permission prompt; it adds no orphan orchestration-tool rules and does not enable worktree isolation, while withholding destructive/secret-exposing actions and preserving any pre-existing settings
 
 ---
 
 ### Report
 
-List all nine `specs/` files (`product.md` first, then the eight technical artefacts) plus `.claude/settings.json` written; any `./docs/` edits made during the clarify loop (file + what changed) and how many clean-restart passes the product synthesis took; any open questions captured; confirm `specs/evaluation.md` is complete (Coverage Map has no uncovered MUST items); confirm the `tasks.md` WBS satisfies the `../CONVENTIONS.md` invariants (one owner per file, every file owned, acyclic dependency graph); confirm the permission allowlist covers every downstream command — including those the per-node subagents run — so the rest of the chain runs unattended; and next steps: `/implement` to build, and `/git` to commit changes per `specs/git.md`.
+List all nine `specs/` files (`product.md` first, then the eight technical artefacts) plus `.claude/settings.json` written; any `./docs/` edits made during the clarify loop (file + what changed) and how many clean-restart passes the product synthesis took; any open questions captured; confirm `specs/evaluation.md` is complete (Coverage Map has no uncovered MUST items); confirm the `tasks.md` WBS satisfies the `../CONVENTIONS.md` invariants (one owner per file, every file owned, acyclic dependency graph); confirm the permission allowlist covers every downstream command — including those the per-node subagents run — so the rest of the chain runs unattended; and next steps: `/mdimplement` to build, and `/mdgit` to commit changes per `specs/git.md`.

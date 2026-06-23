@@ -1,5 +1,5 @@
 ---
-name: "git"
+name: "mdgit"
 description: "Apply the project's git/gh workflow from specs/git.md to the current changes. Use after a pipeline step changed files, or when asked to branch, commit, push, or open a PR."
 argument-hint: "Optional: a short name for the change, or a path scope (default: act on the whole working-tree diff)"
 user-invocable: true
@@ -19,13 +19,13 @@ $ARGUMENTS is optional. It may give a short human name for the change (used to f
 You are the **git** step. You do **not** decide the workflow — `specs/git.md` does. Your only job is to read those rules and apply them to the current changes with `git` and `gh` commands. `specs/git.md` is the **WHAT**; you are the **HOW**.
 
 ```
-specs/git.md  (the rules)  ──▶  /git  ──▶  git / gh commands
+specs/git.md  (the rules)  ──▶  /mdgit  ──▶  git / gh commands
 ```
 
 ### Steps
 
 1. **Read the rules.** Read `specs/git.md`.
-   Stop with an error if it does not exist — run `/technical` first to produce it.
+   Stop with an error if it does not exist — run `/mdtechnical` first to produce it.
    Treat every section (Branch Naming, Mixed-Change Rule, Commit Convention, Push & PR Policy, Pre-Commit Gates, Never Commit, Safety & Idempotency) as binding. Do not invent rules it does not state; do not skip rules it does state.
 
 2. **Inspect the changes.** Run `git status --porcelain` and `git rev-parse --abbrev-ref HEAD` to see the changed paths and the current branch. If a path scope was given in $ARGUMENTS, restrict to matching paths. If there is nothing to commit, stop and say so (per the Safety & Idempotency rule).
@@ -46,5 +46,5 @@ specs/git.md  (the rules)  ──▶  /git  ──▶  git / gh commands
 
 - **Obey `specs/git.md` literally.** Every branch name, commit shape, and PR decision comes from that file — you apply, you do not improvise.
 - **Confirm before outward-facing actions.** Pushing a branch or opening a PR publishes work; do it because `specs/git.md` directs it, and surface the result. If the rules are ambiguous for the current diff, ask rather than guess.
-- **Be idempotent.** Re-running `/git` on an unchanged tree, an existing branch, or an open PR must be a safe no-op or an update — never a duplicate or an error.
+- **Be idempotent.** Re-running `/mdgit` on an unchanged tree, an existing branch, or an open PR must be a safe no-op or an update — never a duplicate or an error.
 - **Never bypass a gate.** A failing pre-commit gate or a "Never Commit" hit stops the commit; report it instead of forcing the change through.

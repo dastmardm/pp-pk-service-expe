@@ -1,5 +1,5 @@
 ---
-name: "research"
+name: "mdresearch"
 description: "Analyse one or more data sources against supplementary materials and extract the insight a request asks for, writing the resulting insight into the project's docs/ tree — where it becomes a source the technical→implement chain consumes. Generic: the data source(s), the supplementary inputs, and the question all come from the request; the deliverable always lands under docs/. Use when the user wants to investigate, profile, cross-reference, or derive something from data — e.g. \"read X and Y, find the relationship, and document it\". Trigger phrases: \"analyse this data\", \"extract insight from\", \"research\", \"profile this dataset\", \"figure out the mapping between\", \"investigate this source\"."
 argument-hint: "What to research: the data source(s) to read, any supplementary code/docs/schemas, the question to answer, and optionally the docs/research topic/filename for the write-up (it always lands under docs/research/; default docs/research/<topic>.md — e.g. \"read source A and schema B, find the A→B mapping, write docs/research/a-b-mapping.md\")"
 user-invocable: true
@@ -34,8 +34,8 @@ and synthesise the answer into a **`docs/` insight artefact**. The scratch code
 is a means to an end — only the `docs/` deliverable persists.
 
 ```
-data source(s) + supplementary materials + question  ──▶  /research  ──▶  docs/ insight artefact
-                          (read-only)                  (throwaway scratch code, then cleaned up)   (a source /technical reads)
+data source(s) + supplementary materials + question  ──▶  /mdresearch  ──▶  docs/ insight artefact
+                          (read-only)                  (throwaway scratch code, then cleaned up)   (a source /mdtechnical reads)
 ```
 
 ## The hard rules
@@ -57,7 +57,7 @@ data source(s) + supplementary materials + question  ──▶  /research  ─�
    the reserved `docs/research/**` namespace** (filename = the topic, e.g.
    `docs/research/woo-mapping.md`) — never elsewhere in `docs/` and never outside it.
    This both puts the insight into the `docs/ → technical → implement` lineage (so
-   `/technical` picks it up) and keeps it fenced as **derived evidence**, distinct from
+   `/mdtechnical` picks it up) and keeps it fenced as **derived evidence**, distinct from
    the human-authored intent it must never silently override (`../CONVENTIONS.md` →
    `docs/` authority). Open the write-up with a derived-evidence marker (what was
    analysed, when, sample coverage). Apart from the ephemeral git-ignored scratch of
@@ -99,7 +99,7 @@ data source(s) + supplementary materials + question  ──▶  /research  ─�
    it in the project**, and any caveats or assumptions — clearly marked as derived
    evidence. Match the shape the question implies (a mapping table, a profile, a
    summary). Add a one-line entry for any new file to the appropriate `docs/` index
-   table (as the `docs` skill does), so `/technical` discovers it.
+   table (as the `mddocs` skill does), so `/mdtechnical` discovers it.
 
 6. **Clean up the scratch workspace.** Remove the throwaway code and any
    intermediate samples. Confirm the only new/changed files are the deliverable
@@ -135,7 +135,7 @@ data source(s) + supplementary materials + question  ──▶  /research  ─�
   fixed — the insight always lands under `docs/`.
 - It is a **leaf** skill: it does not emit `EXECUTE_COMMAND` or trigger other skills.
   It feeds the pipeline only **indirectly** — its `docs/` write-up becomes a source the
-  next `/technical` run reads, exactly like human-authored documentation.
+  next `/mdtechnical` run reads, exactly like human-authored documentation.
 - If the analysis reveals follow-up work (a code change, a migration, a spec edit),
   mention it as a suggestion — but this skill only reads data and writes the `docs/`
   artefact; it does not perform that follow-up.

@@ -1,6 +1,6 @@
-# `technical` — Output formats
+# `mdtechnical` — Output formats
 
-The templates and per-file writing rules for the nine artefacts the `technical`
+The templates and per-file writing rules for the nine artefacts the `mdtechnical`
 skill produces. `SKILL.md` describes the role of each file and the derivation
 logic; this file holds the skeletons and checklists, loaded on demand when you
 emit a given file. Each section corresponds to a "File N" in `SKILL.md`.
@@ -165,7 +165,7 @@ principles, only add or amend where the new technical spec introduces changes.
 ## File 6 — `specs/tasks.md`
 
 `specs/tasks.md` is the project's **Work Breakdown Structure** — the hierarchical tree of
-nodes `/implement` executes. The full model (node kinds, the file-ownership invariant,
+nodes `/mdimplement` executes. The full model (node kinds, the file-ownership invariant,
 convergent-file protocols, dependency edges, fork-join semantics, and the machine-checkable
 quality invariants) is defined once in `../../CONVENTIONS.md` → Work Breakdown Structure.
 This template fixes the **on-page encoding** so the tree is recoverable unambiguously.
@@ -239,8 +239,8 @@ Rules for writing the WBS:
 # Project Skeleton
 
 ## Purpose
-<!-- Why this skeleton exists: it is the agreed-upon file map that `/implement` must
-     produce and `/evaluation` will verify, AND the authoritative file→owner map for the
+<!-- Why this skeleton exists: it is the agreed-upon file map that `/mdimplement` must
+     produce and `/mdevaluation` will verify, AND the authoritative file→owner map for the
      WBS (../../CONVENTIONS.md → File-ownership invariant). -->
 
 ## Directory Tree
@@ -255,7 +255,7 @@ Rules for writing the WBS:
 ## Conventions
 <!-- Naming rules, module boundaries, what goes where.
      Define here the migration-file naming convention and the env template file
-     that /implement and /fix will consult. -->
+     that /mdimplement and /mdfix will consult. -->
 ```
 
 Rules for writing the skeleton:
@@ -280,9 +280,9 @@ Rules for writing the skeleton:
 
 ## How to read this file
 <!-- One paragraph: each criterion is a single objectively-decidable check.
-     /evaluation assigns PASS / PARTIAL / FAIL / N/A per criterion and cites
+     /mdevaluation assigns PASS / PARTIAL / FAIL / N/A per criterion and cites
      file:line evidence (BLOCKED if the criterion itself is defective).
-     This file defines WHAT; /evaluation defines HOW. -->
+     This file defines WHAT; /mdevaluation defines HOW. -->
 
 ## Criteria
 <!-- Table, one row per check:
@@ -304,15 +304,15 @@ Rules for writing the skeleton:
 
 ## Out of Scope
 <!-- Items deliberately NOT evaluated, with the reason (e.g. external service,
-     future phase). Prevents /evaluation from flagging intentional gaps. -->
+     future phase). Prevents /mdevaluation from flagging intentional gaps. -->
 ```
 
 Rules for writing the evaluation criteria:
 - **Objectively decidable.** Each criterion must be answerable PASS/PARTIAL/FAIL by inspecting the codebase alone — no judgement calls, no "is this good?". If you cannot state the evidence that would make it PASS, rewrite it.
 - **Traceable.** Every criterion cites its source artefact + item in the `Source ref` column; nothing is invented outside the six artefacts.
 - **Complete.** The Coverage Map must show every MUST requirement, data contract, constitution principle, and promised skeleton file is covered by ≥1 criterion. Gaps go in Out of Scope with a reason, never silently dropped.
-- **Self-contained.** `/evaluation` must be able to run using only `specs/evaluation.md` + the codebase; a criterion that requires reading another spec to interpret it is underspecified — inline what is needed.
-- **WBS-agnostic.** Criteria trace to requirements, data contracts, constitution principles, and skeleton files — **never to WBS node ids**. The WBS (`tasks.md`) is an implementation-process structure that `/evaluation` does not consume, and `evaluation.md` is the sole owner of *what* gets checked; keep the lineage one-directional (`evaluation.md` may cite `tasks.md`, never the reverse). Do not add an owning-node column.
+- **Self-contained.** `/mdevaluation` must be able to run using only `specs/evaluation.md` + the codebase; a criterion that requires reading another spec to interpret it is underspecified — inline what is needed.
+- **WBS-agnostic.** Criteria trace to requirements, data contracts, constitution principles, and skeleton files — **never to WBS node ids**. The WBS (`tasks.md`) is an implementation-process structure that `/mdevaluation` does not consume, and `evaluation.md` is the sole owner of *what* gets checked; keep the lineage one-directional (`evaluation.md` may cite `tasks.md`, never the reverse). Do not add an owning-node column.
 
 ---
 
@@ -351,7 +351,7 @@ Rules for writing `specs/git.md`:
 - **Deterministic.** Given a set of changed paths, the branch name, commit message shape, and PR decision must be derivable with no judgement call.
 - **Path-keyed.** Every branch class is triggered by concrete path globs an automated reader can match.
 - **Consistent with the constitution.** Pre-commit gates and "never commit" rules must not contradict `constitution.md`; reuse its Quality Gates and constraints.
-- **Self-contained.** `/git` must be able to run using only `specs/git.md` + the working-tree diff.
+- **Self-contained.** `/mdgit` must be able to run using only `specs/git.md` + the working-tree diff.
 
 ---
 
@@ -379,7 +379,7 @@ Rules for writing `.claude/settings.json`:
 - **Complete.** Every command named in any Quality Gate, Pre-Commit Gate, task, or
   the git policy has a matching allow rule. If a downstream skill would have to ask,
   the rule is missing.
-- **Covers parallel execution.** `/implement` runs the WBS by dispatching subagents from
+- **Covers parallel execution.** `/mdimplement` runs the WBS by dispatching subagents from
   the main session, and **subagents inherit this project allowlist** — so the unattended
   guarantee holds transitively only if every `Bash`/`Edit`/`Write` command any **leaf or
   summary** node runs is allowed here. That includes the package-manager / resolver
@@ -387,7 +387,7 @@ Rules for writing `.claude/settings.json`:
   (`../../CONVENTIONS.md` → Convergent files). Do **not** add allow rules for orchestration
   tool *names* (e.g. `Agent`, `Workflow`) — they are not `Bash`-gated and would be orphan
   rules; and do **not** rely on this file to enable worktree isolation — the file-ownership
-  invariant removes the need for it (workers also never run `git`; staging is `/git`'s job).
+  invariant removes the need for it (workers also never run `git`; staging is `/mdgit`'s job).
 - **Least-privilege.** Scope `Bash` rules to specific commands/prefixes (e.g.
   `Bash(ruff:*)`), not a blanket `Bash(*)`. Pre-authorise what the chain needs and
   no more.

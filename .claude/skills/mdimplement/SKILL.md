@@ -1,6 +1,6 @@
 ---
-name: "implement"
-description: "Build or update the codebase to satisfy a technical specification and its planning artefacts. Use as the third pipeline step, after /technical and before /evaluation."
+name: "mdimplement"
+description: "Build or update the codebase to satisfy a technical specification and its planning artefacts. Use as the third pipeline step, after /mdtechnical and before /mdevaluation."
 argument-hint: "Path to technical specification (default: specs/technical.md); optional scope filter"
 user-invocable: true
 disable-model-invocation: false
@@ -18,7 +18,7 @@ or free text (e.g. "bronze only"). Default spec path: `specs/technical.md`.
 
 ## Outline
 
-You are the **`implement`** step:
+You are the **`mdimplement`** step:
 
 ```
 technical → implement → evaluation → fix
@@ -37,10 +37,10 @@ protocols, dependency edges, fork-join and failure semantics — is defined in
 1. Read the technical specification from the path in $ARGUMENTS, or the default
    `specs/technical.md` (if the repo uses a different name for that artefact, e.g.
    `specs/technical_specification.md`, read that instead — see `../CONVENTIONS.md` → Artefact path resolution).
-   Also read the other planning artefacts `/technical` produced for context:
+   Also read the other planning artefacts `/mdtechnical` produced for context:
    `constitution.md`, `requirements.md`, `plan.md`, `tasks.md`, `skeleton.md`,
-   `evaluation.md`. (You do not need `git.md` — that is `/git`'s input.)
-   Stop with an error if the technical spec does not exist — run `/technical` first.
+   `evaluation.md`. (You do not need `git.md` — that is `/mdgit`'s input.)
+   Stop with an error if the technical spec does not exist — run `/mdtechnical` first.
 
 2. Explore the existing codebase to understand current structure before making any changes.
 
@@ -52,7 +52,7 @@ protocols, dependency edges, fork-join and failure semantics — is defined in
    pairwise-disjoint and their union equals the skeleton file set; the `After` ∪ cross-tree
    graph is acyclic). If the tree violates an invariant — a file with two owners, a cycle,
    a `Type`/structure mismatch, an unowned skeleton file — **stop and surface it as a spec
-   defect for `/technical`**; do not race, lock, guess an owner, or reach for a worktree.
+   defect for `/mdtechnical`**; do not race, lock, guess an owner, or reach for a worktree.
 
 4. Build the execution order: the topological sort of (parent-after-children) ∪ (`After`)
    ∪ (cross-tree edges). If a scope filter named a WBS node id, restrict execution to that
@@ -82,7 +82,7 @@ protocols, dependency edges, fork-join and failure semantics — is defined in
      worker can spawn sub-workers** — you (the main loop) own the fan-out. If no parallel
      substrate is usable, walk the tree **sequentially in bottom-up (post-order) order**;
      the result is identical. Workers **only write the files they own and never run git** —
-     the index is shared single-writer state; staging is `/git`'s job.
+     the index is shared single-writer state; staging is `/mdgit`'s job.
 
 6. Within each node's work — leaf or summary:
    - After each change, verify it satisfies the node's `Done-when`/`Review` and does not break callers.
@@ -106,5 +106,5 @@ protocols, dependency edges, fork-join and failure semantics — is defined in
 10. Report: node-by-node resolution (which nodes resolved, which failed or were skipped and
     why), files created or modified, requirements satisfied, any requirements left
     unimplemented and why. The terminal handoff is the **root** node's responsibility — emit
-    the single prose line `Next step: /evaluation` once (child/summary reports return status
+    the single prose line `Next step: /mdevaluation` once (child/summary reports return status
     upward and emit no chain directive).

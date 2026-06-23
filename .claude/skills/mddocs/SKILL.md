@@ -1,6 +1,6 @@
 ---
-name: "docs"
-description: "Author or edit a requested change to the human-facing documentation under docs/ only; touches nothing outside docs/. Use when the user wants to change or add documentation directly — not to propagate it into specs or code (use /technical → /implement for that)."
+name: "mddocs"
+description: "Author or edit a requested change to the human-facing documentation under docs/ only; touches nothing outside docs/. Use when the user wants to change or add documentation directly — not to propagate it into specs or code (use /mdtechnical → /mdimplement for that)."
 argument-hint: "A description of the documentation change to make (e.g. \"add the ability to clear data and start fresh\")"
 user-invocable: true
 disable-model-invocation: false
@@ -30,20 +30,20 @@ This skill exists to edit the human-facing documentation and **nothing else**.
 - **No code changes. No spec changes. No config changes.** If the requested
   documentation describes a feature that does not yet exist in the code, you still
   only write the docs that describe it — you do **not** implement it. (The
-  `docs/` → `technical` → `implement` chain is how documented intent
+  `docs/` → `mdtechnical` → `mdimplement` chain is how documented intent
   becomes code; this skill is strictly the first, docs-only step.)
 - **You MAY read anything** (code, specs, config) to understand the system well
   enough to document it accurately. Reading is unrestricted; **writing is
   `docs/`-only**.
 - If the request cannot be satisfied without touching a non-`docs/` file, **stop
   and say so** rather than touching it. Report what the user would need to run
-  instead (e.g. `/technical` then `/implement` to actually build
+  instead (e.g. `/mdtechnical` then `/mdimplement` to actually build
   the feature).
 
 ## Steps
 
 1. **Verify `docs/` exists.** If it does not, raise an error and stop —
-   "`docs/` not found; the `docs` skill only edits the documentation tree." Do
+   "`docs/` not found; the `mddocs` skill only edits the documentation tree." Do
    not create documentation anywhere else.
 
 2. **Understand the request.** Read `$ARGUMENTS`. Determine what the documentation
@@ -68,12 +68,12 @@ This skill exists to edit the human-facing documentation and **nothing else**.
 
 6. **Report.** List the `docs/` files created/edited and what changed in each.
    If the documented change implies follow-up work in code/specs, say so as a
-   suggestion (e.g. "to actually implement this, run `/technical` →
-   `/implement`") — but do **not** perform that work here.
+   suggestion (e.g. "to actually implement this, run `/mdtechnical` →
+   `/mdimplement`") — but do **not** perform that work here.
 
 ## Notes
 
 - This skill never runs migrations, never edits the `Makefile`, never adds
   permissions, never commits. It only changes prose under `docs/`.
-- Committing the docs change (if wanted) is a separate step: `/git` will branch it
+- Committing the docs change (if wanted) is a separate step: `/mdgit` will branch it
   as `docs/<name>` per `specs/git.md`.
