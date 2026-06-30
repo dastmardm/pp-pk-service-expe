@@ -20,7 +20,7 @@ Stage-1 filter components
         │
         ├─ Pass A: input closed-set fields
         │     closed_set = CSV / enum / boolean values
-        │     pool = NL fragment + enhancer labels + synonyms
+        │     pool = NL fragment + TERMite labels + synonyms
         │     translate_closed_set(pool, closed_set)
         │     valid subset -> machine subquery
         │     [] / None    -> invalid, excluded downstream
@@ -87,12 +87,12 @@ For fields backed by [inputs/](../../inputs/) taxonomies, the closed set is the
 CSV's preferred-label list. The generic algorithm handles typos, synonyms, and
 hierarchy:
 
-1. **Normalize.** Run the pluggable normalizer for this field over the NL
+1. **Normalize.** Run the field normalizer over the NL
    fragment first (see [misspelling-strategy.md](misspelling-strategy.md)).
    Closed-set fields can safely normalize toward the nearest known entity because
    every correction is later validated against the closed set.
 2. **Build the pool.** Start with the normalized fragment. Add matching Stage-0
-   enhancer preferred labels and synonyms when available. Add LLM-generated
+   TERMite preferred labels and synonyms. Add LLM-generated
    synonyms only if exact and fuzzy search over the initial pool fail.
 3. **Translate over the closed set.** Run the closed-set translator above.
 4. **Expand hierarchy when the selected entity is a class or rollup.**
@@ -137,8 +137,9 @@ by `_translate_open` before aggregation:
   built-in synonym set for hepatic and renal impairment.
 - Plain free-text fields such as `parameterComment` strip leading relational
   connective text before emitting `MATCH`.
-- Entity-routed open fields such as `targets` emit the enhancer's preferred label
-  when a corresponding TERMite annotation exists, otherwise the raw fragment.
+- Entity-routed open fields such as `targets` emit the corresponding TERMite
+  preferred label when TERMite recognized that surface, otherwise the user
+  fragment remains in the pool until runtime grounding can validate it.
 - Live runs can call `drop_empty_open_filters` before aggregation to remove an
   open-set filter whose isolated API count is confirmed as `0`.
 

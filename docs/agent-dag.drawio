@@ -1,0 +1,116 @@
+<mxfile host="65bd71144e">
+    <diagram id="agent-dag" name="Agent DAG">
+        <mxGraphModel dx="2071" dy="1195" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1900" pageHeight="1250" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title" value="&lt;b&gt;PharmaPendium NL -&gt; Machine-Query Agent&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=28;fontColor=#17202A;" parent="1" vertex="1">
+                    <mxGeometry x="55" y="30" width="900" height="42" as="geometry"/>
+                </mxCell>
+                <mxCell id="subtitle" value="Ground known values first, fetch datapoints, then turn deferred open-set fields into runtime closed-set post-filters." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=15;fontColor=#52616B;" parent="1" vertex="1">
+                    <mxGeometry x="57" y="72" width="1120" height="34" as="geometry"/>
+                </mxCell>
+                <mxCell id="input" value="&lt;b&gt;Natural-language query&lt;/b&gt;&lt;br&gt;User question, filters, entities, and output intent." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#36454F;fontColor=#17202A;align=left;verticalAlign=top;spacing=12;fontSize=14;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="130" width="300" height="105" as="geometry"/>
+                </mxCell>
+                <mxCell id="expand" value="&lt;b&gt;Stage -1 - Expand&lt;/b&gt;&lt;br&gt;Clarify abbreviations; preserve meaning." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E9F2FF;strokeColor=#2F6FDB;fontColor=#17324D;align=left;verticalAlign=top;spacing=12;fontSize=14;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="270" width="300" height="105" as="geometry"/>
+                </mxCell>
+        <mxCell id="enhance" value="&lt;b&gt;Stage 0 - Enhance&lt;/b&gt;&lt;br&gt;Required TERMite labels, types, and synonyms." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EAF7F7;strokeColor=#168B8B;fontColor=#123A3A;align=left;verticalAlign=top;spacing=12;fontSize=14;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="410" width="300" height="105" as="geometry"/>
+                </mxCell>
+                <mxCell id="decompose" value="&lt;b&gt;Stage 1 - Decompose&lt;/b&gt;&lt;br&gt;One field per component. No value selection." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F2EEFF;strokeColor=#6B4FD3;fontColor=#2E245F;align=left;verticalAlign=top;spacing=12;fontSize=14;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="550" width="300" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="deferred" value="&lt;b&gt;Deferred open-set filters&lt;/b&gt;&lt;br&gt;studyGroup, comments, dose, ages, target-like values without a local taxonomy.&lt;br&gt;&lt;br&gt;The user pool waits until fetched datapoints provide legal values." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF4E6;strokeColor=#D27A18;fontColor=#4C2F0F;align=left;verticalAlign=top;spacing=12;fontSize=13;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="760" width="300" height="205" as="geometry"/>
+                </mxCell>
+                <mxCell id="closedsets" value="&lt;b&gt;Input closed sets&lt;/b&gt;&lt;br&gt;inputs/*.csv, inline enums, booleans" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8FBF9;strokeColor=#23856D;fontColor=#214338;align=left;verticalAlign=top;spacing=10;fontSize=13;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="440" y="155" width="450" height="75" as="geometry"/>
+                </mxCell>
+                <mxCell id="config" value="&lt;b&gt;Service config&lt;/b&gt;&lt;br&gt;field buckets, entity routes, facets, invariants" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFDF4;strokeColor=#BE8A00;fontColor=#493808;align=left;verticalAlign=top;spacing=10;fontSize=13;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="950" y="155" width="430" height="75" as="geometry"/>
+                </mxCell>
+                <mxCell id="stage2a" value="&lt;b&gt;Stage 2A - Input closed set&lt;/b&gt;&lt;br&gt;Translate only fields whose legal values are already known.&lt;br&gt;&lt;br&gt;pool + closed_set&lt;br&gt;exact -&gt; fuzzy -&gt; LLM pool enrichment&lt;br&gt;-&gt; exact/fuzzy retry -&gt; closed-set LLM selection&lt;br&gt;&lt;br&gt;Every selected value must be in closed_set. [] / None is invalid and excluded downstream." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F6F1;strokeColor=#23856D;fontColor=#12342D;align=left;verticalAlign=top;spacing=14;fontSize=14;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="440" y="270" width="450" height="280" as="geometry"/>
+                </mxCell>
+                <mxCell id="stage3a" value="&lt;b&gt;Stage 3A - Aggregate&lt;/b&gt;&lt;br&gt;Keep valid input closed-set filters and build the API-layer query.&lt;br&gt;&lt;br&gt;Assemble boolean tree, entityFilters, facets/displayColumns, service invariants, and validation." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF6DB;strokeColor=#BE8A00;fontColor=#493808;align=left;verticalAlign=top;spacing=14;fontSize=14;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="950" y="270" width="430" height="280" as="geometry"/>
+                </mxCell>
+        <mxCell id="api" value="&lt;b&gt;API fetch&lt;/b&gt;&lt;br&gt;Execute the validated closed-filter query.&lt;br&gt;&lt;br&gt;Row-level design paginates until the requested bound, all rows, or an API error.&lt;br&gt;&lt;br&gt;v0.1 executes countTotal and zero-count probes." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EEF2F4;strokeColor=#60717C;fontColor=#25333A;align=left;verticalAlign=top;spacing=14;fontSize=14;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="1440" y="270" width="390" height="280" as="geometry"/>
+                </mxCell>
+                <mxCell id="runtime" value="&lt;b&gt;Runtime closed sets&lt;/b&gt;&lt;br&gt;For each deferred field:&lt;br&gt;&lt;br&gt;sorted(unique(non-empty datapoint[field] values))" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3F0FF;strokeColor=#7456D8;fontColor=#2E245F;align=left;verticalAlign=top;spacing=14;fontSize=14;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="1440" y="660" width="390" height="280" as="geometry"/>
+                </mxCell>
+                <mxCell id="stage2b" value="&lt;b&gt;Stage 2B - Runtime translation&lt;/b&gt;&lt;br&gt;Run the same translator against fetched unique values.&lt;br&gt;&lt;br&gt;The user pool plus generated synonyms may search the runtime list; selected values must come from fetched datapoints.&lt;br&gt;&lt;br&gt;[] / None means no post-filter is applied." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5EDFF;strokeColor=#9256C9;fontColor=#3F2457;align=left;verticalAlign=top;spacing=14;fontSize=14;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="950" y="660" width="430" height="280" as="geometry"/>
+                </mxCell>
+                <mxCell id="stage3b" value="&lt;b&gt;Stage 3B - Post-filter&lt;/b&gt;&lt;br&gt;Apply every valid runtime closed-set translation to the fetched datapoints.&lt;br&gt;&lt;br&gt;Invalid runtime translations do not narrow results.&lt;br&gt;&lt;br&gt;The output keeps two auditable layers: API filters and post-filters." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFEFEA;strokeColor=#C85F42;fontColor=#563025;align=left;verticalAlign=top;spacing=14;fontSize=14;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="440" y="660" width="450" height="280" as="geometry"/>
+                </mxCell>
+                <mxCell id="final" value="&lt;b&gt;Final result surface&lt;/b&gt;&lt;br&gt;Filtered datapoints, machine-query payload, selected facets/display columns, invalid-translation warnings, pagination/execution metadata, and grounding audit trail." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EAF4EE;strokeColor=#4B8B5B;fontColor=#1F3D2A;align=left;verticalAlign=top;spacing=14;fontSize=15;arcSize=8;" parent="1" vertex="1">
+                    <mxGeometry x="440" y="1015" width="1390" height="105" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend" value="Solid arrows: runtime data flow. Dashed arrows: helper inputs or deferred pools. Closed-set translation never emits values outside the active closed set." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=13;fontColor=#52616B;" parent="1" vertex="1">
+                    <mxGeometry x="440" y="1160" width="1390" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_input_expand" value="" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#40515A;" parent="1" source="input" target="expand" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_expand_enhance" value="" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#40515A;" parent="1" source="expand" target="enhance" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_enhance_decompose" value="" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#40515A;" parent="1" source="enhance" target="decompose" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_decompose_stage2a" value="" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#40515A;" parent="1" source="decompose" target="stage2a" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="400" y="610"/>
+                            <mxPoint x="400" y="410"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e_decompose_deferred" value="" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#40515A;" parent="1" source="decompose" target="deferred" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_closedsets_stage2a" value="closed_set" style="endArrow=open;html=1;rounded=0;dashed=1;dashPattern=6 4;strokeWidth=2;strokeColor=#23856D;fontSize=12;fontColor=#23856D;" parent="1" source="closedsets" target="stage2a" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_config_stage3a" value="rules" style="endArrow=open;html=1;rounded=0;dashed=1;dashPattern=6 4;strokeWidth=2;strokeColor=#BE8A00;fontSize=12;fontColor=#8B6500;" parent="1" source="config" target="stage3a" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_stage2a_stage3a" value="" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#40515A;" parent="1" source="stage2a" target="stage3a" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_stage3a_api" value="" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#40515A;" parent="1" source="stage3a" target="api" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_api_runtime" value="" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#40515A;" parent="1" source="api" target="runtime" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_runtime_stage2b" value="" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#40515A;" parent="1" source="runtime" target="stage2b" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_deferred_stage2b" value="open-set pool" style="endArrow=open;html=1;rounded=0;dashed=1;dashPattern=6 4;strokeWidth=2;strokeColor=#D27A18;fontSize=12;fontColor=#8B4C0F;" parent="1" source="deferred" target="stage2b" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="400" y="862"/>
+                            <mxPoint x="400" y="620"/>
+                            <mxPoint x="1165" y="620"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e_stage2b_stage3b" value="" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#40515A;" parent="1" source="stage2b" target="stage3b" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e_stage3b_final" value="" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#40515A;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.161;entryY=0.011;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" source="stage3b" target="final" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="665" y="1010" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

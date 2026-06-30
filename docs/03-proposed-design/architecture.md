@@ -5,15 +5,14 @@
 ```
                           ┌───────────────────────────────────────┐
    NL query  ───────────▶ │  STAGE -1 — EXPAND                    │
- "ADRs of sunitinib       │  default: llm · offline: noop          │
+ "ADRs of sunitinib       │  LLM expansion                         │
   in human?"              │  → clearer query, same entities        │
                           └───────────────────────────────────────┘
                                           │
                                           ▼
                           ┌───────────────────────────────────────┐
-                          │  STAGE 0 — ENHANCE  (optional)         │
-                          │  library default: noop                 │
-                          │  CLI default: TERMite NER              │
+                          │  STAGE 0 — TERMite ENHANCE             │
+                          │  required SciBite NER                  │
                           │  → entities + preferred labels + types │
                           └───────────────────────────────────────┘
                                           │
@@ -63,21 +62,20 @@
 
 ## Why three stages
 
-Stage -1 expansion may clarify abbreviations before entity recognition. An
-**optional Stage 0 enhancer** may annotate entities before Stage 1; the library
-default is `noop`, while `oppp run` defaults to `termite`. The three core stages
-below are the heart of the design.
+Stage -1 expansion may clarify abbreviations before entity recognition. Required
+Stage 0 TERMite enhancement annotates entities before Stage 1. The three core
+stages below are the heart of the design.
 
 | Stage | Responsibility | Why separate |
 |-------|---------------|--------------|
-| **1. Decomposition** | Split the NL query into one NL fragment per field; route each fragment to a field. | Isolates "what is the user asking about?" from "how do I express it?". Small, cheap, testable. |
+| **1. Decomposition** | Split the TERMite-enhanced NL query into one NL fragment per field; route each fragment to a field. | Isolates "what is the user asking about?" from "how do I express it?". Small, cheap, testable. |
 | **2. Per-field translation** | Translate a field fragment against a known closed set. Input closed-set fields use CSV/enum/boolean values; open-set fields wait until fetched datapoints provide a runtime closed set. | This is where grounding and hierarchy live. Each field gets a focused translator that can be tested, evaluated, and improved in isolation. Naturally parallel. |
 | **3. Aggregation + fetch** | Assemble valid input closed-set filters into the first API query; apply boolean intent, entity-filter routing, facets, service invariants, and fetch datapoints for runtime post-filtering. | Cross-field structure, service rules, and API execution are distinct from per-field value selection. |
 
 In the v0.1 implementation, [execute.py](../../src/oppp/execute.py) reads
 `countTotal` only; it does not fetch rows. Open-set filters are currently emitted
-as direct `MATCH`/`REGEX` constraints, with an optional server-side zero-count
-probe (`drop_empty_open_filters`) before aggregation in live runs. The runtime
+as direct `MATCH`/`REGEX` constraints, with a server-side zero-count probe
+(`drop_empty_open_filters`) before aggregation in live runs. The runtime
 closed-set row post-filter path above is the intended data-flow once row fetching
 is available.
 
@@ -97,9 +95,9 @@ This is the inverse of the legacy design, where one prompt does all three at onc
 4. **Hierarchy is a first-class operation.** Class→members, category→terms,
    parent→children expansion is a documented step, not a hope.
 5. **Expansion and enhancement are separate.** Stage -1 rewrites only for
-   readability and abbreviation expansion. Stage 0 contributes entity annotations
-   and preferred labels. Neither stage may emit machine-query values on its own.
-   The production Stage 1 decomposer is vocab-free and works without TERMite.
+   readability and abbreviation expansion. Stage 0 always contributes TERMite
+   entity annotations and preferred labels. Neither stage may emit machine-query
+   values on its own; TERMite labels seed later routing and translation only.
 
 ## Relationship to the three services
 

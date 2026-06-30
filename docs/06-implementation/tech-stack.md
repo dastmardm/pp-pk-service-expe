@@ -2,8 +2,8 @@
 
 The implementation lives in [src/oppp/](../../src/oppp/) as a Python package.
 The core convention is stable across the package: every pipeline step has a
-typed boundary, a registry-backed implementation choice, and an isolated command
-or helper for debugging and evaluation.
+typed boundary, one fixed production implementation, and an isolated command or
+helper for debugging and evaluation.
 
 ## Stack
 
@@ -14,34 +14,33 @@ or helper for debugging and evaluation.
 | **Pydantic** | Typed stage contracts: expansion, enhancement annotations, decomposition components, subqueries, machine query, aggregation plan, and judge verdicts. |
 | **Typer** | CLI entry points for full runs, isolated stages, lookup, DAG rendering, services, and evaluation. |
 | **RapidFuzz** | Exact-adjacent and fuzzy lookup over closed-set taxonomy names. |
-| **python-dotenv** | Lazy `.env` loading when LLM or TERMite-backed paths need credentials. |
+| **python-dotenv** | Lazy `.env` loading when LLM, TERMite, or API execution paths need credentials. |
 | **urllib.request** | Standard-library HTTP execution for `countTotal` calls; no extra HTTP dependency in the core. |
-| **LangChain / langchain-openai** | Optional structured-output LLM client through Portkey/OpenAI-compatible settings. |
-| **LangGraph** | Optional graph wrapper around the same pipeline stages, available through `build_langgraph()`. |
-| **SciBite TERMite toolkit** | Optional Stage 0 NER enhancer that supplies entity labels, types, and public synonyms. |
+| **LangChain / langchain-openai** | Structured-output LLM client through Portkey/OpenAI-compatible settings. |
+| **LangGraph** | Graph wrapper around the same fixed pipeline stages, available through `build_langgraph()`. |
+| **SciBite TERMite toolkit** | Required Stage 0 NER enhancer that supplies entity labels, types, and public synonyms. |
 | **Streamlit** | Optional browser UI for stage-by-stage debugging. |
 | **matplotlib** | Optional DAG PNG rendering for `oppp dag`. |
 | **openpyxl** | Optional XLSX report export from `oppp eval --output`. |
 | **Pytest / Ruff** | Test and lint tooling. |
 
-## Pluggability
+## Fixed Stage Surfaces
 
-Each swappable part uses a small `Protocol` plus the shared
-[Registry](../../src/oppp/registry.py):
+Stage methods are fixed. The CLI, Python runner, and Streamlit UI expose the
+same production path rather than a menu of interchangeable implementations:
 
-| Surface | Registry | Implementations |
-|---------|----------|-----------------|
-| Stage -1 expander | `expander_registry` | `llm`, `noop` |
-| Stage 0 enhancer | `enhancer_registry` | `termite`, `noop` |
-| Stage 1 decomposer | `decomposer_registry` | `llm`, `gazetteer` |
-| Stage 2 translator | `translator_registry` | `tool`, `deterministic` |
-| Stage 2 normalizer | `normalizer_registry` | `fuzzy`, `noop` |
-| Stage 3 aggregator | `aggregator_registry` | `llm`, `deterministic` |
-| Service config | `service_registry` | `safety`, `pk`, `rtb` |
+| Surface | Code surface | Production method |
+|---------|--------------|-------------------|
+| Stage -1 expander | [stages/expand.py](../../src/oppp/stages/expand.py) | LLM query expansion |
+| Stage 0 enhancer | [stages/enhance.py](../../src/oppp/stages/enhance.py) | TERMite NER |
+| Stage 1 decomposer | [stages/decompose.py](../../src/oppp/stages/decompose.py) | LLM decomposition seeded by TERMite annotations |
+| Stage 2 translator | [stages/translate.py](../../src/oppp/stages/translate.py) | grounded closed-set tool translation |
+| Stage 2 normalizer | [normalize/](../../src/oppp/normalize/) | fuzzy closed-set normalization plus conservative open-set cleanup |
+| Stage 3 aggregator | [stages/aggregate.py](../../src/oppp/stages/aggregate.py) | LLM aggregation plan plus deterministic validation |
+| Service config | [services/](../../src/oppp/services/) | Safety, PK, and RTB field maps, facets, invariants, and serializers |
 
-The full pipeline resolves these names in
-[pipeline.py](../../src/oppp/pipeline.py). The CLI exposes the same choices as
-flags, and the Streamlit UI reads names from the registries.
+The full pipeline executes these surfaces in [pipeline.py](../../src/oppp/pipeline.py).
+Stage replacement methods and bypass shortcuts are not accepted.
 
 ## Isolation for Evaluation
 
@@ -100,22 +99,22 @@ work. In particular:
   feature primarily changes runtime filtering;
 - lazy secret loading, `.env.example`, and `.gitignore` secret protection remain
   covered even when no credential behavior is being changed;
-- optional dependency import isolation remains covered so deterministic imports
-  cannot start requiring the `llm`, `ui`, `viz`, or report extras.
+- dependency import isolation remains covered so importing the package does not
+  eagerly load LLM, TERMite, UI, visualization, or report libraries before a
+  surface needs them.
 
 ## Prompt Optimization
 
 The package includes typed boundaries that are suitable for prompt optimization,
 but there are no DSPy modules under `src/oppp/` in v0.1. Prompt optimization can
-reuse the same registries and Pydantic contracts without changing the stage
-interfaces.
+reuse the same Pydantic contracts without changing the fixed stage interfaces.
 
 ## Package Layout
 
 | Path | Purpose |
 |------|---------|
 | [src/oppp/models.py](../../src/oppp/models.py) | Pydantic contracts shared by all stages. |
-| [src/oppp/pipeline.py](../../src/oppp/pipeline.py) | Sequential runner and optional LangGraph builder. |
+| [src/oppp/pipeline.py](../../src/oppp/pipeline.py) | Sequential runner and LangGraph builder around the fixed stages. |
 | [src/oppp/stages/](../../src/oppp/stages/) | Expansion, enhancement, decomposition, translation, and aggregation stages. |
 | [src/oppp/taxonomy/](../../src/oppp/taxonomy/) | CSV-backed closed-set indexes and hierarchy helpers. |
 | [src/oppp/normalize/](../../src/oppp/normalize/) | Misspelling normalizer strategies. |

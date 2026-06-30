@@ -26,5 +26,6 @@ uses, the staged pipeline design, examples, evaluation, and implementation notes
 | Implementation | [06-implementation/operations.md](06-implementation/operations.md) | How to install, run, configure, and execute the package. |
 | Implementation | [06-implementation/streamlit-ui.md](06-implementation/streamlit-ui.md) | Streamlit debug UI behavior. |
 | Implementation | [06-implementation/tech-stack.md](06-implementation/tech-stack.md) | Stack choices and implementation conventions. |
-| Artifact | [agent-dag.png](agent-dag.png) | Rendered component DAG used by the overview README. |
+| Artifact | [agent-dag.drawio](agent-dag.drawio) | Editable Draw.io source for the agent component DAG. |
+| Artifact | [agent-dag.png](agent-dag.png) | Rendered Draw.io component DAG used by the overview README. |
 | Artifact | [sme_stage_cases.csv](sme_stage_cases.csv) | Per-step SME gold cases used by per-step evaluation. |

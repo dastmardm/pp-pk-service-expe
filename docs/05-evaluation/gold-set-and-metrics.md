@@ -1,11 +1,11 @@
 # Evaluation: per-step gold set & metrics
 
 The whole point of this project is to **break one giant prompt into a chain of
-small steps** (optional enhance → decompose → translate → aggregate). That only
-pays off if we can **evaluate each step on its own** — otherwise we have traded
-one opaque box for four. So evaluation here is **per-step first**: every stage
-has a typed contract and an expected output we can score in isolation, and only
-then do we roll the steps up to an end-to-end number.
+small steps** (TERMite enhance -> decompose -> translate -> aggregate). That
+only pays off if we can **evaluate each step on its own** — otherwise we have
+traded one opaque box for four. So evaluation here is **per-step first**: every
+stage has a typed contract and an expected output we can score in isolation, and
+only then do we roll the steps up to an end-to-end number.
 
 Two SME gold datasets support this, at different granularities:
 
@@ -171,7 +171,7 @@ for case in sme_stage_cases.csv:               # one row per question, one colum
     score step 1 vs case.decompose             # routing/type/boolean exact; fragment via judge
     score step 2 vs case.translate             # input/runtime closed-set F1; judge only for semantic free-text ties
     score step 3 vs case.aggregate             # structural; judge tie-break
-    (optional) execute vs case.counts          # count proximity
+    execute when requested vs case.counts     # count proximity
 report: per-step table + per-stage rollup + diff vs legacy baseline
 ```
 
@@ -214,8 +214,8 @@ list so implementers and evaluators do not work from different regression sets.
   TERMite labels, decomposition routing/type pairs, translated field names, and
   final machine-query structure.
 - **The CLI harness is count-based.** `oppp eval` runs
-  [eval/harness.py](../../src/oppp/eval/harness.py): translate → optionally
-  execute → compare `countTotal` to the `counts` column, with CSV/XLSX report
+  [eval/harness.py](../../src/oppp/eval/harness.py): translate → execute when
+  requested → compare `countTotal` to the `counts` column, with CSV/XLSX report
   export.
 - **The typed judge is implemented.** [eval/judge.py](../../src/oppp/eval/judge.py)
   exposes `LLMJudge` and `JudgeVerdict` for fragment, open-pattern, and structure

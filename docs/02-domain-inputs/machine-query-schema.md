@@ -9,7 +9,7 @@ row-level design, this is the input closed-set layer: filters whose values are
 already known from `inputs/` taxonomies, inline enums, or booleans; open-set
 filters are translated after row fetch and applied as post-filters. In v0.1,
 open-set filters can still appear in this payload as direct `MATCH` or `REGEX`
-constraints, guarded in live runs by optional isolated zero-count probes.
+constraints, guarded in live runs by isolated zero-count probes.
 
 ## Top-level envelope
 

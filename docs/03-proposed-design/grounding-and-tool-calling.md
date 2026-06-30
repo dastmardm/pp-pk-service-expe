@@ -62,9 +62,9 @@ The same order applies to an input CSV and to a runtime list of fetched values.
 The only difference is the source of the closed set.
 
 1. **Build the pool.** Start with the normalized Stage-1 fragment. For input
-   closed-set fields, add corresponding Stage-0 enhancer preferred labels and
-   synonyms when available. For runtime closed-set fields, add LLM-generated
-   synonyms only as pool items, not as accepted values.
+   closed-set fields, add corresponding Stage-0 TERMite preferred labels and
+   synonyms. For runtime closed-set fields, add LLM-generated synonyms only as
+   pool items, not as accepted values.
 2. **Exact search.** Compare every pool item to every closed-set entity using
    case-insensitive exact matching. If exact matches are found, return those
    closed-set entities.
@@ -179,6 +179,7 @@ RapidFuzz for fuzzy lookup. For large closed sets, the LLM closed-set fallback i
 given a focused candidate window rather than every row; every LLM proposal is
 re-grounded against the CSV before it can be emitted.
 
-No external service is required for CSV grounding. TERMite and the LLM client are
-optional helpers: TERMite supplies entity annotations, and the LLM supplies
-structured expansion/selection when configured.
+CSV and runtime closed sets remain the authority for emitted values. TERMite is
+required for Stage 0 entity annotations, while the LLM supplies structured
+expansion and closed-set selection. Neither service may emit an unverified value
+directly into the machine query.

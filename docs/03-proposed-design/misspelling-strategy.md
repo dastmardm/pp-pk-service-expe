@@ -1,10 +1,10 @@
-# Misspelling handling (pluggable)
+# Misspelling handling
 
 Users misspell things: "suntinib", "cabozantininb", "Columvi" for Glofitamab,
-"non small lung cancer". The pipeline tolerates this through a **pluggable
-normalizer** with a fixed interface. The default configuration provides a no-op
-baseline and a fuzzy closed-set normalizer; field-specific normalizers can be
-registered without changing Stage 1 or Stage 3.
+"non small lung cancer". The pipeline tolerates this through a fixed
+field-aware normalizer policy. Input closed-set fields use fuzzy closed-set
+normalization; open-set fields use conservative surface cleanup until fetched
+datapoints provide a runtime closed set.
 
 ## Where it plugs in
 
@@ -21,9 +21,11 @@ nl_fragment -> [normalizer for this field] -> cleaned fragment -> closed-set tra
   call; after datapoints are fetched, the runtime closed set anchors exact and
   fuzzy matching.
 
-In v0.1, the implemented `fuzzy` normalizer only corrects CSV-backed closed-set
-fields. Open-set fields pass through conservatively; their current protection is
-surface cleanup in translation plus optional zero-count probing in live runs.
+The production normalizer corrects CSV-backed closed-set fields and treats every
+correction as provisional until the value grounds to the field's closed set.
+Open-set fields pass through conservative cleanup before fetch; their current
+protection is surface cleanup in translation plus zero-count probing in live
+runs.
 
 This keeps misspelling logic out of Stage 1 routing and Stage 3 assembly.
 
@@ -43,7 +45,7 @@ normalize(fragment: str, field: str, bucket: "closed" | "open", context) -> {
 }
 ```
 
-Strategies are registered per bucket and may be overridden per field:
+The normalizer policy is fixed by bucket and field:
 
 ```text
 normalizers = {
@@ -53,24 +55,19 @@ normalizers = {
 }
 ```
 
-A **no-op normalizer** (`changed=false`, `normalized==input`) is always
-available, so a service can disable correction for a field without changing the
-pipeline.
-
 ## Strategy families
 
 | Strategy | Fits | Idea |
 |----------|------|------|
-| No-op | both | Pass through the fragment unchanged. |
+| Conservative cleanup | open sets before fetch | Strip connective text and preserve the user phrase until runtime grounding can validate a value. |
 | Fuzzy match | closed sets | Use edit-distance / token-set ratio against the field's CSV or runtime closed set. |
 | Phonetic | input closed sets | Use Soundex/Metaphone keys over CSV names for sound-alike typos. |
 | TERMite-first | input closed sets | Use TERMite's preferred label when it corresponds to the field fragment. |
 | LLM pool enrichment | both | Ask the model for equivalent pool items, then ground them against the closed set. |
 | Hybrid | both | Use fuzzy/phonetic shortlist, LLM disambiguation, then membership validation. |
 
-For open-set fields before fetch, correction is limited to no-op or conservative
-surface cleanup. After fetch, the runtime closed set supplies the validation
-anchor.
+For open-set fields before fetch, correction is limited to conservative surface
+cleanup. After fetch, the runtime closed set supplies the validation anchor.
 
 ## Confidence handling
 
