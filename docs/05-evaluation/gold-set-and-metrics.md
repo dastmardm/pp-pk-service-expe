@@ -22,6 +22,12 @@ The two are complementary: the per-field set scores *what value did each field
 get*; the per-step set scores *what did each stage output* — entities, components,
 subqueries, the boolean tree, and the final query.
 
+Both datasets must stay covered by the generated technical plan and evaluation
+criteria. The per-step file is not a replacement for the per-field file:
+`inputs/sme_expected_cases.csv` must still be loaded and scored for per-field
+value accuracy, while `docs/sme_stage_cases.csv` scores stage outputs and final
+machine-query structure.
+
 ## The per-step gold dataset (`docs/sme_stage_cases.csv`)
 
 One row per SME question; one column per step of the pipeline. Each column holds
@@ -126,6 +132,10 @@ set:
   fail differently (taxonomy grounding/expansion errors vs too-broad or too-empty
   fetched candidate sets).
 
+This layer is mandatory even when the end-to-end harness is count-based: the
+evaluator must verify that `inputs/sme_expected_cases.csv` is loaded and that
+Stage-2 resolved values can be compared against its per-field cells.
+
 ### 2. Decomposition quality (Stage 1)
 
 - **Field-routing accuracy:** did every gold field get a subquery, and no spurious
@@ -178,6 +188,25 @@ expand "Monkeys" to the full monkey species set (its `translate` cell) and resol
 the `Monoclonal antibodies` class node. Because steps are scored independently, a
 fix to species expansion cannot silently break drug resolution.
 
+The resolved regression set currently includes:
+
+- **Q7** — retrieve both Human and preclinical records as
+  `OR(isPreclinical=true, species=Human)`.
+- **Q12** — route "maternal toxicity" to the runtime/open field
+  `parameterComment`.
+- **Q18** — treat maximum tolerated dose / MTD as `toxicityParameter="MTD"`, not
+  as a dosing-regimen filter.
+- **Q20** — narrow "positive Ames Test" to the Ames Test assay/finding, not to an
+  amniotic or broad mutagenicity over-match.
+- **Q23** — resolve `Monoclonal antibodies`, expand nephritis, and restrict
+  "Monkeys" to monkey species members.
+- **Q24** — resolve ADC to `Antibody-Drug Conjugate (ADC)` and keep the default
+  Human interpretation.
+- **Q25** — resolve Columvi to Glofitamab.
+
+Generated implementation tasks and evaluation criteria must cover the same case
+list so implementers and evaluators do not work from different regression sets.
+
 ## Status
 
 - **The per-step dataset is compact SME intent.** [`docs/sme_stage_cases.csv`](../sme_stage_cases.csv)
@@ -191,6 +220,10 @@ fix to species expansion cannot silently break drug resolution.
 - **The typed judge is implemented.** [eval/judge.py](../../src/oppp/eval/judge.py)
   exposes `LLMJudge` and `JudgeVerdict` for fragment, open-pattern, and structure
   tie-breaks. Tests inject a fake client so the judge contract stays hermetic.
+- **Data-contract shape is evaluated explicitly.** Criteria should check the
+  fields present on typed contracts such as enhanced-query annotations,
+  subqueries, row execution results, runtime closed sets, and post-filter results,
+  not only the broad behavior those contracts enable.
 - **Coverage is Safety-centric.** The current SME sets focus on Safety questions;
   PK and RTB service configs exist, and their broader evaluation coverage is
   represented by targeted service tests.

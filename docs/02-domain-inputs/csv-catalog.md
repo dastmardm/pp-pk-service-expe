@@ -58,6 +58,7 @@ ages, sex, studyGroup, isPreclinical, concomitants`.
 The very existence of this per-field column layout is the strongest evidence for
 the decomposed design: the experts already think of a query as a set of
 independent per-field values. Multi-value cells are `;`-separated; the file even
-encodes booleans inline, e.g. `Human AND (Rat, Mouse, Dog, …)` for "at least one
-preclinical species and Human" (Q7) and a parenthesised `(…) AND (…)` for
-"neutropenia and cytopenia" (Q14).
+encodes booleans inline, e.g. the Safety retrieval rule
+`OR(isPreclinical=true, species=Human)` for questions that ask to compare or
+collect both preclinical and human records (Q7), and a parenthesised `(…) AND
+(…)` for "neutropenia and cytopenia" (Q14).

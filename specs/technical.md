@@ -1,195 +1,155 @@
 # Technical Specification
 
 ## Sources
-
-- `specs/product.md` — the File 1 product spec produced this run (upstream source
-  of *what* and *why*).
-- `./docs/` — the human-facing documentation tree the product spec was synthesised
-  from. Concrete files read: `README.md`; `00-overview/{problem-statement,glossary}.md`;
-  `01-current-system/{legacy-architecture,pain-points}.md`;
-  `02-domain-inputs/{machine-query-schema,field-taxonomy,csv-catalog}.md`;
-  `03-proposed-design/{architecture,stage-1-decomposition,stage-2-subquery-translation,stage-3-aggregation,grounding-and-tool-calling,misspelling-strategy}.md`;
-  `04-examples/worked-examples.md`; `05-evaluation/gold-set-and-metrics.md`;
-  `06-implementation/{tech-stack,build-status,streamlit-ui}.md`; `sme_stage_cases.csv`.
-- Existing code (ground truth of what is implemented; folder `src/oppp/`, concrete
-  files read): `models.py`, `config.py`, `registry.py`, `pipeline.py`, `cli.py`,
-  `execute.py`, `dag.py`, `llm.py`, `stages/{enhance,decompose,translate,aggregate}.py`,
-  `services/{base,safety}.py`, `taxonomy/index.py`, `normalize/{base,strategies}.py`,
-  `eval/{harness,compare}.py`, `ui/app.py`.
-- `pyproject.toml` (file) — packaging, dependencies, optional extras, ruff/pytest config.
-- `tests/` (folder; files read: `test_taxonomy.py`, `test_stages.py`, `test_pipeline.py`, `test_eval.py`).
-- `inputs/` (folder) — the controlled-vocabulary tables and the per-field SME gold set.
-- `utils/` (folder; files read: `ppendium/__init__.py`, `ppendium/prompts.py`, `build_sme_stage_cases.py`) — the legacy monolith (reference) and the per-step gold-set builder.
+- `specs/product.md`
+- `./docs/` concrete files read: `docs/README.md`, `docs/index.md`,
+  `docs/agent-dag.png`, `docs/sme_stage_cases.csv`,
+  `docs/00-overview/glossary.md`, `docs/00-overview/problem-statement.md`,
+  `docs/01-current-system/legacy-architecture.md`,
+  `docs/01-current-system/pain-points.md`,
+  `docs/02-domain-inputs/csv-catalog.md`,
+  `docs/02-domain-inputs/field-taxonomy.md`,
+  `docs/02-domain-inputs/machine-query-schema.md`,
+  `docs/03-proposed-design/architecture.md`,
+  `docs/03-proposed-design/grounding-and-tool-calling.md`,
+  `docs/03-proposed-design/misspelling-strategy.md`,
+  `docs/03-proposed-design/stage-1-decomposition.md`,
+  `docs/03-proposed-design/stage-2-subquery-translation.md`,
+  `docs/03-proposed-design/stage-3-aggregation.md`,
+  `docs/04-examples/worked-examples.md`,
+  `docs/05-evaluation/gold-set-and-metrics.md`,
+  `docs/06-implementation/build-status.md`,
+  `docs/06-implementation/operations.md`,
+  `docs/06-implementation/streamlit-ui.md`,
+  `docs/06-implementation/tech-stack.md`.
+- Existing code files read: `pyproject.toml`, `.env.example`,
+  `.claude/settings.json`, `src/oppp/__init__.py`, `src/oppp/models.py`,
+  `src/oppp/config.py`, `src/oppp/registry.py`, `src/oppp/llm.py`,
+  `src/oppp/pipeline.py`, `src/oppp/execute.py`, `src/oppp/cli.py`,
+  `src/oppp/dag.py`, `src/oppp/stages/expand.py`,
+  `src/oppp/stages/enhance.py`, `src/oppp/stages/decompose.py`,
+  `src/oppp/stages/translate.py`, `src/oppp/stages/aggregate.py`,
+  `src/oppp/taxonomy/index.py`, `src/oppp/normalize/base.py`,
+  `src/oppp/normalize/strategies.py`, `src/oppp/services/base.py`,
+  `src/oppp/services/safety.py`, `src/oppp/services/pk.py`,
+  `src/oppp/services/rtb.py`, `src/oppp/eval/harness.py`,
+  `src/oppp/eval/per_step.py`, `src/oppp/eval/judge.py`,
+  `src/oppp/ui/app.py`, `utils/build_sme_stage_cases.py`,
+  `utils/fill_stage_cases_from_pipeline.py`, `utils/ppendium/__init__.py`,
+  `utils/ppendium/prompts.py`.
+- Existing tests read: `tests/test_pipeline.py`, `tests/test_stages.py`,
+  `tests/test_eval.py`, `tests/test_per_step_eval.py`,
+  `tests/test_normalize.py`, `tests/test_services.py`,
+  `tests/test_taxonomy.py`.
+- Existing planning artefacts read for conventions before regeneration:
+  `specs/constitution.md`, `specs/requirements.md`, `specs/plan.md`,
+  `specs/tasks.md`, `specs/skeleton.md`, `specs/evaluation.md`,
+  `specs/git.md`.
 
 ## Architecture Overview
+The system is a registry-backed local package with a staged data flow:
 
-A linear pipeline of pluggable stages, each resolved by name from a registry and
-each independently invokable. Production defaults are the model-backed design;
-offline doubles keep the core hermetic.
-
+```text
+raw query
+  -> Stage -1 expand
+  -> Stage 0 enhance
+  -> Stage 1 decompose
+  -> Stage 2A translate input closed-set filters
+  -> Stage 3 aggregate first API query
+  -> execute and fetch datapoints
+  -> Stage 2B translate deferred open-set filters over runtime closed sets
+  -> Stage 3 post-filter datapoints and return audit metadata
 ```
-NL query
-  └─▶ Stage 0  enhance     (optional)  [noop* | termite]      → EnhancedQuery
-        └─▶ Stage 1  decompose          [llm* | gazetteer]     → Decomposition (Components)
-              └─▶ Stage 2  translate    [tool* | deterministic] per FILTER component → MachineSubquery
-                    └─▶ Stage 3  aggregate [llm* | deterministic] → MachineQuery (+ validation issues)
-                          └─▶ (optional) execute against the search service → countTotal
-( * = production default )       normalize (misspelling) [noop* | fuzzy] runs inside Stage 2
-```
 
-- **Stages** are plain callables behind typed protocols, registered under string
-  keys in per-stage registries (`enhancer_registry`, `decomposer_registry`,
-  `translator_registry`, `aggregator_registry`, `normalizer_registry`). The
-  pipeline resolves each by name from its arguments (`oppp/pipeline.py:run_pipeline`).
-- **Stage 0 — enhance** (`stages/enhance.py`): `noop` (default; returns the query
-  unchanged) or `termite` (entity recognition; prepends a recognised-entities hint
-  block and attaches `EntityAnnotation`s). Optional.
-- **Stage 1 — decompose** (`stages/decompose.py`): `llm` (default; **vocab-free**
-  structured-output segmentation/routing) or `gazetteer` (**offline double only**;
-  vocab-based exact+fuzzy detection — explicitly not the production behaviour).
-  After any backend, the pipeline runs `reconcile_with_annotations`: a deterministic
-  pass that honours the enhancer's annotations, e.g. rerouting a mechanism phrase to
-  `targets` (DrugsTargets entity filter) when TERMite recognized a `TARGET`.
-- **Stage 2 — translate** (`stages/translate.py`): `tool` (default; closed-vocab
-  grounding + hierarchy expansion + an LLM term-selector refining candidates) or
-  `deterministic` (offline double; same grounding without the LLM selector). Runs
-  the chosen **normalizer** on each fragment first.
-- **Stage 3 — aggregate** (`stages/aggregate.py`): `llm` (default; the model
-  decides only the boolean *structure* via an `AggregationPlan`, which is rendered
-  and validated deterministically) or `deterministic` (offline double; structure
-  derived from per-field boolean groups). Always validates the final query.
-- **Per-service configuration** (`services/base.py`, `services/safety.py`): a
-  `ServiceConfig` carries the field set, the per-field bucket map, taxonomy
-  bindings, facet allow-list, entity-routing, the entity-type→field map, and the
-  always-on invariants. Stage code is shared; only this data differs per service.
-- **Grounding** (`taxonomy/index.py`): in-memory indices over the vocabulary
-  tables, exact + fuzzy (rapidfuzz) look-up, and parent→children hierarchy
-  expansion. Closed-vocab look-up is the enforced mechanism behind CAP-4.
-- **Execution** (`execute.py`) and **evaluation** (`eval/harness.py`,
-  `eval/compare.py`): POST the payload, read `countTotal`, score against the gold
-  `s`.
-- **Surfaces**: a command-line app (`cli.py`, Typer) and an interactive inspector
-  (`ui/app.py`, Streamlit).
+Existing code already implements Stage -1, Stage 0, Stage 1, Stage 2A, Stage 3
+query assembly, count execution, zero-count open-filter probes, per-step
+evaluation scaffolding, Safety/PK/RTB configs, CLI, and Streamlit UI. The
+remaining technical delta is to materialize row-level execution and the runtime
+closed-set post-filter pass while preserving the current count/probe behavior as
+a fallback/compatibility path.
 
 ## Data Contracts
-
-Named contracts the implementation must honour. Each is a typed boundary; the
-final query is always validated regardless of how it was produced.
-
-| Contract ID | What it governs | Definition |
-|-------------|-----------------|------------|
-| `CONTRACT-COMPONENT` | Stage 1 output unit | `Component{field:str, nl_fragment:str, type:"filter"\|"question", reason:str, source:str, boolean_group?:{id,op}}` (`models.py:Component`). |
-| `CONTRACT-DECOMP` | Stage 1 output | `Decomposition{query, service, components:[Component]}` with `.filters` / `.questions` views (`models.py:Decomposition`). |
-| `CONTRACT-SUBQUERY` | Stage 2 output unit | `MachineSubquery{field, operator∈Operator, value, pattern?, boolean_group?, entity_name?, collapse_to?, grounding?, notes?}` with `to_constraint()` → API constraint shape (`models.py:MachineSubquery`). |
-| `CONTRACT-GROUNDING` | Auditable provenance for a grounded value | `Grounding{matched:[GroundingHit{name,id,parent_id,parent_name,score,match,count}], expanded_from:"class"\|"term"\|null, confidence:0..1}` (`models.py:Grounding`). |
-| `CONTRACT-MACHINE-QUERY` | Stage 3 output / API payload | `MachineQuery{query, entityFilters, facets, displayColumns, sortColumns, leafOnly}` with `to_payload()` (`models.py:MachineQuery`). Exactly one top-level constraint in `query`; `OR`/`AND` ≥2 children, `NOT` exactly 1; operators upper-case. |
-| `CONTRACT-OPERATORS` | Allowed constraint types | `MATCH, OR, AND, NOT, REGEX, RANGE, DATE_RANGE, EMPTY` (`models.py:Operator`). (`PROXIMITY` is documented as rarely-used and not modelled.) |
-| `CONTRACT-ENHANCED` | Stage 0 output | `EnhancedQuery{text, annotations:[EntityAnnotation{surface,label,entity_type?}], source}` (`models.py:EnhancedQuery`). |
-| `CONTRACT-PLAN` | Stage 3 LLM structure decision | `AggregationPlan{top_op, fields:[FieldCombine{field,op,negate}], facets, display_columns, reason}` (`models.py:AggregationPlan`). |
-| `CONTRACT-TERMSELECT` | Stage 2 LLM term choice | `TermSelection{selected:[str], reason}` constrained to exact candidate spellings (`models.py:TermSelection`). |
-| `CONTRACT-RESULT` | Full run artefact | `PipelineResult{query, service, enhanced?, decomposition, subqueries, machine_query?, issues}` with `.ok` (`models.py:PipelineResult`). |
-| `CONTRACT-TAXONOMY-CSV` | Vocabulary tables | Hierarchical tables share `name,id,parent_id,parent_name`; flat tables `name,id,count`. Located under `inputs/` (overridable by `OPPP_INPUTS_DIR`). `name`=preferred label sent to the API; `id`=stable key. |
-| `CONTRACT-GOLD-PERFIELD` | Per-field evaluation reference | `inputs/sme_expected_cases.csv`: `query_number,query_type,question,s,comment,mapping_comment` + one column per field. `s`=expected result count. |
-| `CONTRACT-GOLD-PERSTEP` | Per-step evaluation reference | `docs/sme_stage_cases.csv`: `nl query,counts,termite,decompose,translate,aggregate,machine query` — one column per pipeline step. Preliminary. |
-| `CONTRACT-SERVICECONFIG` | Per-service data | `ServiceConfig{name, search_url, fields:{name:FieldSpec}, facet_allow_list, termite_type_map, invariants}`; `FieldSpec{name, bucket∈"closed"\|"open"\|"enum"\|"boolean", taxonomy?, value_field?, fuzzy_wildcard, entity_name?, enum_values, facetable, display_column?, rollup_to_siblings}` (`services/base.py`). |
+| Contract | Definition |
+|----------|------------|
+| `CONTRACT-EXPANDED-QUERY` | `ExpandedQuery{text, original, source}`. `original` is the exact user input; `text` is the faithful rewrite used downstream. |
+| `CONTRACT-ENHANCED-QUERY` | `EnhancedQuery{text, annotations, source}` where each `EntityAnnotation` has `surface`, `label`, optional `entity_type`, and synonyms. |
+| `CONTRACT-COMPONENT` | Stage-1 `Component{field, nl_fragment, type, reason, source, boolean_group?}`. `type` is exactly `filter` or `question`; filter components enter translation. |
+| `CONTRACT-SUBQUERY` | Stage-2A `MachineSubquery{field, operator, value|pattern, boolean_group?, entity_name?, collapse_to?, grounding?, notes?, dropped}`. `dropped=true` excludes invalid closed-set filters from downstream query assembly. |
+| `CONTRACT-MACHINE-QUERY` | Stage-3 request envelope `MachineQuery{query, entityFilters, facets, displayColumns, sortColumns, leafOnly}`. `query` has exactly one top-level operator when valid. |
+| `CONTRACT-CLOSED-SET-TRANSLATION` | `translate_closed_set(field, pool, closed_set, context) -> selected subset`. The result is always a subset of `closed_set`; `[]` or `None` means invalid and has no downstream filtering effect. Resolution order is exact, fuzzy, LLM pool enrichment with exact/fuzzy retry, closed-set LLM selection, membership assertion/retry, then invalid. |
+| `CONTRACT-GROUNDING` | `Grounding{matched:[GroundingHit], expanded_from?, confidence}` records the rows, class/term/runtime source, and confidence behind emitted values. |
+| `CONTRACT-RUNTIME-CLOSED-SET` | For each deferred open-set filter field, collect sorted unique non-empty field values from fetched datapoints. That list is the `closed_set` for Stage 2B. |
+| `CONTRACT-POST-FILTER` | Runtime translation output `{field, pool, runtime_closed_set, selected, valid, reason}`. Valid selections keep only datapoints whose field value is in `selected`; invalid selections leave datapoints unchanged and produce a warning. |
+| `CONTRACT-EXECUTION-COUNT` | Count execution returns `{ok, count_total?, status?, error?}` from `data.countTotal`. |
+| `CONTRACT-EXECUTION-ROWS` | Row execution returns `{ok, count_total?, datapoints:[dict], status?, error?, next_cursor?/page?}`. Pagination continues until all requested rows are collected or an API error occurs. |
+| `CONTRACT-SERVICE-CONFIG` | `ServiceConfig` and `FieldSpec` define field buckets (`closed`, `open`, `enum`, `boolean`), taxonomies, emitted API fields, entity routing, display columns, facets, and service invariants. |
+| `CONTRACT-GOLD-PERSTEP` | `docs/sme_stage_cases.csv` has `nl query, counts, termite, decompose, translate, aggregate, machine query`. |
+| `CONTRACT-GOLD-PERFIELD` | `inputs/sme_expected_cases.csv` has one row per SME case plus per-field expected values and expected count `s`. |
 
 ## Schema
+The durable schema is the Pydantic model set in `src/oppp/models.py`, the
+dataclass service schema in `src/oppp/services/base.py`, the taxonomy CSV headers
+under `inputs/`, and the two gold-set CSV shapes above.
 
-The schema is the set of Pydantic v2 models in `src/oppp/models.py` (enumerated in
-the contracts table above) plus the `ServiceConfig`/`FieldSpec` dataclasses in
-`src/oppp/services/base.py`. There is no database; persistent data is the set of
-controlled-vocabulary tables and gold-set files under `inputs/` and `docs/`.
-Validation is by Pydantic model construction at every stage boundary; the final
-machine query additionally passes Stage 3 structural validation
-(`stages/aggregate.py`), which emits `ValidationIssue` records consumed by
-`PipelineResult.ok`.
+Required model additions:
+- Add row execution and runtime filtering models, or equivalent typed Pydantic
+  contracts, for `CONTRACT-EXECUTION-ROWS`, `CONTRACT-RUNTIME-CLOSED-SET`, and
+  `CONTRACT-POST-FILTER`.
+- Extend `PipelineResult` with row execution and runtime post-filter metadata
+  without breaking existing count-only callers.
+- Keep `MachineSubquery.dropped` semantics for invalid input closed-set filters;
+  add equivalent runtime invalid metadata for open-set filters.
 
 ## Component Interfaces
-
-| Interface | Signature (essential) | Backends |
-|-----------|------------------------|----------|
-| Enhancer | `enhance(query:str, service:ServiceConfig) -> EnhancedQuery` | `noop`, `termite` |
-| Decomposer | `decompose(query:str, service:ServiceConfig) -> Decomposition` | `llm`, `gazetteer` |
-| Translator | `translate(component:Component, service:ServiceConfig, normalizer, annotations?:[EntityAnnotation]) -> MachineSubquery\|None` — closed-vocab fields ground a matching enhancer preferred label first (verified against the CSV) per the grounding resolution order | `tool`, `deterministic` |
-| Aggregator | `aggregate(decomp:Decomposition, subqueries:[MachineSubquery], service:ServiceConfig) -> (MachineQuery, [ValidationIssue])` | `llm`, `deterministic` |
-| Normalizer | `normalize(fragment:str, field:str, bucket:str, context) -> {normalized, candidates?, changed, confidence, note?}` | `noop`, `fuzzy` |
-| TaxonomyIndex | `lookup(term, limit)`, `is_class(term)`, `expand_children(term)` → `[GroundingHit]` | per-taxonomy in-memory index |
-| Registry[T] | `register(name)` / `add(name,factory)` / `create(name,**kw)` / `names()` | generic, one per stage + services |
-| Pipeline | `run_pipeline(query, service, *, enhancer, decomposer, translator, aggregator, normalizer) -> PipelineResult` | sequential runner (+ optional graph) |
-| Execution | `execute_count(machine_query, service, *, timeout) -> ExecutionResult{ok,count_total,status,error}` | stdlib HTTP POST |
-| Evaluation | `evaluate(*, service, enhancer, decomposer, translator, aggregator, normalizer, tolerance, execute, limit) -> EvalReport` | count-based harness |
-
-The CLI (`cli.py`) exposes one subcommand per surface: `run`, `enhance`,
-`decompose`, `field`, `aggregate`, `lookup`, `services`, `dag`, `eval`. Each
-backend selection is a flag that maps one-to-one to a `run_pipeline` argument.
+| Component | Interface |
+|-----------|-----------|
+| Expander | `expand(query, service) -> ExpandedQuery`; backends `llm`, `noop`. |
+| Enhancer | `enhance(query, service) -> EnhancedQuery`; backends `termite`, `noop`. |
+| Decomposer | `decompose(query, service) -> Decomposition`; production `llm` remains vocab-free, `gazetteer` remains an offline double. |
+| Translator Stage 2A | `translate(component, service, normalizer, annotations) -> MachineSubquery | None` for input closed sets, enums, booleans, and current direct open-field fallback. |
+| Translator Stage 2B | `translate_runtime(component, runtime_values, context) -> PostFilterResult` using `CONTRACT-CLOSED-SET-TRANSLATION`. It must not emit values outside the fetched runtime set. |
+| Aggregator | `aggregate(decomp, subqueries, service) -> (MachineQuery, issues)` plus `apply_runtime_post_filters(datapoints, runtime_results) -> filtered_datapoints, issues`. |
+| Execution | `execute_count(machine_query, service, timeout) -> ExecutionResult`; add `execute_rows(machine_query, service, limit/page_size/timeout) -> RowExecutionResult`. |
+| Pipeline | `run_pipeline(...) -> PipelineResult`; when row execution is enabled, it defers open-set filters, fetches rows with valid input closed-set filters, derives runtime closed sets, translates open filters, and post-filters rows. |
+| CLI | Expose current count/payload behavior and a row-fetch/post-filter mode without changing existing defaults unexpectedly. |
+| UI | Show Stage -1 expansion, Stage 0 annotations, Stage 1 components, Stage 2A subqueries, Stage 3 query, row execution, Stage 2B runtime selections, and final filtered counts when available. |
+| Evaluation | Score per-step outputs against `docs/sme_stage_cases.csv`; add coverage for runtime post-filter outcomes and resolved SME cases Q7, Q12, Q23, Q24, Q25. |
 
 ## Infrastructure
-
-- A single installable Python package (`oppp`, `src/` layout), Python ≥ 3.11.
-- **No** database, message broker, container, or cluster. Execution against the
-  search service is a plain HTTP POST from the local process (stdlib only).
-- Optional capability is gated behind extras so the deterministic core installs
-  and runs alone: `llm` (model + orchestration + tool-calling + prompt
-  optimisation), `ui` (interactive inspector), `viz` (diagram export), `dev`
-  (linter + test runner). Heavy dependencies are imported lazily.
+- Python 3.11+ package with `src/` layout and a Typer CLI.
+- Local CSV taxonomies under `inputs/`; `OPPP_INPUTS_DIR` can override location.
+- HTTP execution uses standard-library networking in the core.
+- Optional extras remain lazy: LLM stack, UI, diagram rendering, and report export.
+- No database, queue, container runtime, or migration system is required.
 
 ## Configuration and Secrets
-
-- **Inputs location.** `OPPP_INPUTS_DIR` overrides the default `inputs/` directory
-  (`config.py:get_settings`).
-- **Model provider (Portkey).** `PORTKEY_ENDPOINT`, `PORTKEY_API_KEY`,
-  `PORTKEY_PROVIDER`, `TOOL_MODEL` — read only when a model-backed backend runs.
-  Every model is built for reproducibility in one place (`llm.py:get_chat_model`):
-  `temperature=0`, `top_p=0`, and a fixed `seed` (`LLM_SEED`, default 7). These are
-  best-effort — hosted models still drift run-to-run from batched-GPU float
-  non-associativity / MoE routing — but remove every source of variance we control.
-- **Entity recognition (TERMite).** `config.py` currently reads `TERMITE_HOME`,
-  `TERMITE_AUTH_URL`, `TERMITE_CLIENT_NAME`, `TERMITE_CLIENT_SECRET`.
-- Secrets are loaded best-effort from the project `.env` (`config.py:load_dotenv_if_present`)
-  and **only** when a model/entity backend is selected. The deterministic core
-  never needs them. `.env` is never committed.
-- **Env template.** A committed `\.env.example` (keys only, no values) is the
-  documented template for the variables above; see `specs/skeleton.md` → Conventions.
+- `OPPP_INPUTS_DIR` controls taxonomy/gold-set location.
+- `PORTKEY_ENDPOINT`, `PORTKEY_API_KEY`, `PORTKEY_PROVIDER`, `TOOL_MODEL`, and
+  `LLM_SEED` configure model-backed stages and the judge.
+- `TERMITE_HOME`, `TERMITE_AUTH_URL`, `TERMITE_CLIENT_NAME`, and
+  `TERMITE_CLIENT_SECRET` configure the optional TERMite enhancer.
+- `.env.example` is keys-only; real `.env` files and credentials are never
+  committed.
+- Row fetching must reuse the existing service URLs and timeout pattern; if the
+  API requires pagination parameters, keep them in execution-layer options rather
+  than hard-coding them into stages.
 
 ## Technology Decisions
-
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Language | Python ≥ 3.11 | Matches the legacy system, the data-science workflow, and the available NER/LLM/vocabulary tooling. |
-| Typed boundaries | Pydantic v2 models at every stage edge | Validation replaces the legacy regex/brace JSON scraping; the schema *is* the contract end-to-end (docs/06 → Structured output). |
-| Pluggability | A tiny string-keyed `Registry[T]` per stage | Selecting/ swapping a step is a config change, not a code edit — the precondition for step isolation (docs/06 → Pluggability). |
-| Per-service variation | `ServiceConfig`/`FieldSpec` data objects | The pipeline shape is identical across Safety/PK/RTB; only data differs, so config carries it and stage code stays shared (docs/03 → architecture). |
-| Vocabulary look-up | In-memory indices + rapidfuzz | Tables are small/medium; exact+prefix+fuzzy covers most cases with no external service (docs/03 → grounding). |
-| Closed-vocab grounding | Look-up tool whose output *is* the value | Makes grounding *enforced*, not *encouraged*; yields an auditable provenance block (docs/03 → grounding). |
-| Decomposition | Vocab-free structured-output model step; offline `gazetteer` double | Keeps "what is asked" separate from "how to express it"; the double keeps tests hermetic (docs/03 → stage-1). |
-| Aggregation structure | Model decides structure only; rendered+validated deterministically | The output is always a legal query even though the boolean shape is model-decided (docs/03 → stage-3). |
-| CLI | Typer | One subcommand per stage/surface for isolation from the terminal (docs/06 → tech-stack). |
-| Interactive UI | Streamlit | Run + inspect every stage; the design's debugging surface (docs/06 → streamlit-ui). |
-| HTTP execution | stdlib `urllib` | Keeps the core dependency-free; only a count is needed (`execute.py`). |
-| Env/packaging | `uv` + `pyproject.toml` (hatchling) | Single source of truth for deps; extras gate heavy stacks. |
-| Quality gates | Ruff (lint+format) + pytest | Enforce style and the offline test suite; both already configured in `pyproject.toml`. |
-| Prompt optimisation | DSPy (designed-for) | Authoring model steps as optimisable programs; per-step isolation makes tuning one step tractable (docs/06 → tech-stack). |
-| LLM-as-judge | Constrained typed-verdict judge for free-text steps | Free-text outputs (Stage 1 fragments, Stage 2 open-field patterns, Stage 3 structure tie-breaks) have no canonical form (docs/05). |
+| Language/package | Python 3.11+ with `pyproject.toml` | Matches existing code and documented local workflow. |
+| Typed boundaries | Pydantic models | Replaces legacy free-text JSON scraping and supports per-stage validation. |
+| Stage selection | Existing `Registry[T]` pattern | Keeps every backend selectable and testable by name. |
+| Closed-set grounding | In-memory CSV indexes plus RapidFuzz and LLM fallback | Enforces "subset of closed set" while tolerating synonyms and misspellings. |
+| Runtime open-set handling | Fetch rows, derive unique values, reuse closed-set translator, post-filter | Implements the documented open-set design without introducing a separate translation philosophy. |
+| Service variation | `ServiceConfig`/`FieldSpec` data | Safety/PK/RTB differences remain config, not forked stage code. |
+| HTTP | `urllib.request` in core | Preserves the no-extra core dependency rule. |
+| Quality gates | `python3 -m compileall src/oppp`, `ruff check`, `ruff format --check`, `pytest -q` | Compile, lint, style, and hermetic tests cover the implementation delta. |
+| UI | Streamlit | Existing inspection surface; extend rather than replace. |
 
 ## Open Questions
-
-Product-design open items are listed in `specs/product.md` → Open Questions. The
-following are **technical/implementation** open items observed against the current
-code (not settled by `./docs/`):
-
-- **Per-step gold-set location mismatch.** `./docs/` (the source of truth) places
-  the per-step gold set at `docs/sme_stage_cases.csv`, but `utils/build_sme_stage_cases.py`
-  writes `inputs/sme_stage_cases.csv`. The evaluation design and skeleton follow
-  the docs (`docs/sme_stage_cases.csv`); the builder's output path needs
-  reconciling.
-- **TERMite env-var naming mismatch.** `.env` defines `TERMITE_USERNAME`,
-  `TERMITE_PASSWORD`, `TERMITE_URL`, `TERMITE_SAAS_LOGIN_URL`, but `config.py`
-  reads `TERMITE_HOME`, `TERMITE_AUTH_URL`, `TERMITE_CLIENT_NAME`,
-  `TERMITE_CLIENT_SECRET`. The TERMite backend cannot authenticate until these are
-  reconciled. (TERMite is optional and was never verified live, per docs/06 →
-  build-status.)
-- **Per-step evaluators & LLM-as-judge are designed but not built.** The realised
-  harness scores by result count only; the per-step comparators and the judge are
-  the target (docs/05 → Status & next steps).
-- **PK/RTB service configs and DSPy modules** are designed-for but not realised
-  (Safety only).
+No product ambiguity remains. Two implementation details must be discovered while
+implementing row fetch: the exact API pagination parameters for datapoint rows,
+and the response key that contains row items for each service. If the live API
+does not expose rows through the same endpoint, keep `execute_count` as the
+fallback and report runtime post-filtering as unavailable for that run.

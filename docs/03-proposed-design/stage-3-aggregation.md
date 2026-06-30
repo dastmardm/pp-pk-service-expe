@@ -39,8 +39,9 @@ kept or removed by the zero-count probe before aggregation.
     expanded `effects` `MATCH` filters, then AND-ed with `species=Human`.
   - Q14 effects "neutropenia **and** cytopenia" -> an `AND` of two expanded
     `effects` `MATCH` filters.
-  - Q7 species "Human **AND** at least one preclinical species" -> an `OR` over
-    `species=Human` and `isPreclinical=true`, per the Safety rule.
+  - Q7 asks for both human and preclinical populations. The Safety retrieval
+    rule represents that as an `OR` over `species=Human` and
+    `isPreclinical=true`; downstream answer logic can compare the two cohorts.
 
 ### 3. Route to `entityFilters` where required
 
@@ -96,7 +97,11 @@ closed-filter pass.
 ### 7. Execute and build runtime closed sets
 
 The validated closed-filter query is sent to the service API. The returned
-datapoints are then scanned field-by-field for every deferred open-set filter:
+datapoints are then scanned field-by-field for every deferred open-set filter.
+Row fetching must continue through the API's pagination surface until the
+requested row bound is reached, all available rows are collected, or an API error
+is returned. Pagination state is execution-layer metadata; Stage 2 and Stage 3
+consume the typed datapoints and do not infer pagination themselves.
 
 ```
 runtime_closed_set[field] =

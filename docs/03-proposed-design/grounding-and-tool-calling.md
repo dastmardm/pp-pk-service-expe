@@ -121,20 +121,16 @@ API rejects entity-filter-only requests.
 The hierarchical CSVs (`name,id,parent_id,parent_name`) let us answer the gold
 set's class/rollup questions correctly:
 
-- **Down (class → label, not inlined members):** a class term emits the **class
-  label** as a single value. The API resolves the label server-side to its whole
-  subtree (verified: `species="Rodent"` and `species=[14 members]` both return the
-  same count; `drugsFuzzy="Kinase inhibitors"` resolves the antineoplastic class).
-  We do **not** inline every child: a large class (monoclonal antibodies has 100+
-  members) busts the API's ~49-value-per-`MATCH`-list cap (HTTP 400), and inlining
-  is redundant since the parent already matches its subtree. The expanded children
-  are kept in the `grounding` record for provenance only. A class is recognised by
-  being a `parent_name` (incl. via singular forms, `Monkeys`→`Monkey`), **or** — for
-  a colloquial group with no own node — by its (singularised) word appearing as a
-  standalone term in ≥2 entries that **all share one parent**, which is then the
-  class (`Monkeys` → `Primate`, the gold answer for Q23 monkeys; 14→27 records). A
-  specific leaf (`Mouse`, `Rat`) is never widened — the single-parent guard and an
-  exact-leaf check keep ambiguous/specific terms out.
+- **Down (class → label or controlled members):** an exact class term emits the
+  **class label** as a single value. The API resolves the label server-side to its
+  whole subtree (verified: `species="Rodent"` and `species=[14 members]` both
+  return the same count; `drugsFuzzy="Kinase inhibitors"` resolves the
+  antineoplastic class). We do **not** inline large classes: monoclonal antibodies
+  has 100+ members, which exceeds the API's practical `MATCH`-list cap. For
+  colloquial species groups with no exact class label, such as "Monkeys", lookup
+  emits the matching member species rather than broadening to the full parent
+  class. The expanded children are kept in the `grounding` record for provenance.
+  A specific leaf (`Mouse`, `Rat`) is never widened.
 - **Up (term → category), additive + score-gated:** a leaf rolls up to its MedDRA
   family, but **(a)** the rollup is *additive* — the canonical/grounded term stays
   in the value set so the broad term is never lost (`Mutagenicity` survives rather

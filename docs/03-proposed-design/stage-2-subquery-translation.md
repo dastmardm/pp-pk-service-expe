@@ -97,7 +97,9 @@ hierarchy:
 3. **Translate over the closed set.** Run the closed-set translator above.
 4. **Expand hierarchy when the selected entity is a class or rollup.**
    - drug class -> class label, resolved server-side by the API;
-   - species class -> class label, resolved server-side by the API;
+   - exact species class -> class label, resolved server-side by the API;
+   - colloquial species groups with no exact class label, such as "Monkeys",
+     -> the matching member species;
    - effect category -> preferred terms via the effects hierarchy;
    - preclinical / non-clinical phrasing -> the `isPreclinical` boolean field.
 5. **Choose the operator.** Default to `MATCH`. Use `NOT` for exclusions and

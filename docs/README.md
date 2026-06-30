@@ -22,7 +22,7 @@ runtime by translating against the unique values in fetched datapoints.
 | 2 | [02-domain-inputs/machine-query-schema.md](02-domain-inputs/machine-query-schema.md) | The target machine-query format |
 | 2 | [02-domain-inputs/field-taxonomy.md](02-domain-inputs/field-taxonomy.md) | The two sets of searchable fields |
 | 2 | [02-domain-inputs/csv-catalog.md](02-domain-inputs/csv-catalog.md) | What each CSV in `inputs/` is for |
-| 3 | [03-proposed-design/architecture.md](03-proposed-design/architecture.md) | The pipeline: 3 core stages + optional Stage 0 |
+| 3 | [03-proposed-design/architecture.md](03-proposed-design/architecture.md) | The pipeline: Stage -1, optional Stage 0, and 3 core stages |
 | 3 | [03-proposed-design/stage-1-decomposition.md](03-proposed-design/stage-1-decomposition.md) | NL query → per-field NL subqueries |
 | 3 | [03-proposed-design/stage-2-subquery-translation.md](03-proposed-design/stage-2-subquery-translation.md) | NL subquery → machine subquery |
 | 3 | [03-proposed-design/stage-3-aggregation.md](03-proposed-design/stage-3-aggregation.md) | Subqueries → final machine query |
@@ -74,7 +74,7 @@ backends need the `llm` extra: `pip install -e '.[llm]'` + `.env` creds).
 
 | Command | What it does |
 |---------|--------------|
-| `oppp run "<question>"` | Run the **full pipeline**, printing every stage (enhance → decomposition → subqueries + grounding → final machine query). |
+| `oppp run "<question>"` | Run the **full pipeline**, printing every stage (expansion → enhance → decomposition → subqueries + grounding → final machine query). |
 | `oppp enhance "<question>"` | **Stage 0 only** — show the enhanced query + entity annotations. |
 | `oppp decompose "<question>"` | **Stage 1 only** — show the per-field components as JSON. |
 | `oppp field <field> "<fragment>"` | **Stage 2 only** — translate a single field fragment to a machine subquery. |
@@ -90,7 +90,7 @@ oppp run "adverse effects of sunitinib in humans"
 
 # Fully offline run (no LLM), disabling the enhancer and pinning the doubles
 oppp run "adverse effects of sunitinib in humans" \
-  --enhancer noop --decomposer gazetteer --translator deterministic --aggregator deterministic
+  --expander noop --enhancer noop --decomposer gazetteer --translator deterministic --aggregator deterministic
 
 # Disable the TERMite enhancer (Stage 0 defaults to termite)
 oppp run "<question>" --enhancer noop

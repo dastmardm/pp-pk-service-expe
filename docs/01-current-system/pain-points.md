@@ -58,7 +58,8 @@ The gold set distinguishes:
 
 - **OR within a field** (Q13: neutropenia **or** thrombocytopenia),
 - **AND within a field** (Q14: neutropenia **and** cytopenia),
-- **Boolean across fields** (Q7: Human **AND** at least one preclinical species).
+- **Boolean across fields** (Q7: retrieve both Human and preclinical records,
+  represented in the Safety query layer as Human **OR** `isPreclinical=true`).
 
 A monolithic generator handles these inconsistently. Treating each field's
 boolean shape explicitly in Stage 2, and the cross-field shape explicitly in

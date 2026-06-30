@@ -61,6 +61,9 @@ The per-step comparators in [eval/per_step.py](../../src/oppp/eval/per_step.py)
 score Stage 0 labels, Stage 1 routing/type pairs, Stage 2 emitted field names,
 and Stage 3 machine-query structure. The count harness in
 [eval/harness.py](../../src/oppp/eval/harness.py) scores `countTotal` proximity.
+The per-field gold set remains a separate evaluation input: evaluators must also
+load [inputs/sme_expected_cases.csv](../../inputs/sme_expected_cases.csv) when
+scoring resolved field values.
 
 ## Structured Output
 
@@ -80,6 +83,25 @@ models:
 The final request body is always represented by `MachineQuery` and validated by
 Stage 3. Closed-set values proposed by the LLM are re-grounded against the CSV
 before they can be emitted.
+
+Evaluation criteria for these contracts must assert the contract shape itself —
+for example the required fields on enhanced-query annotations, machine
+subqueries, row execution results, runtime closed sets, and post-filter results —
+not only end-to-end behavior. A missing field on a typed contract is a contract
+regression even if one broad behavioral test still passes.
+
+## Planning Coverage
+
+Generated implementation plans must keep all MUST requirements assigned to WBS
+tasks and evaluation criteria, including requirements that are mostly preservation
+work. In particular:
+
+- service configuration separation for Safety/PK/RTB remains covered even when a
+  feature primarily changes runtime filtering;
+- lazy secret loading, `.env.example`, and `.gitignore` secret protection remain
+  covered even when no credential behavior is being changed;
+- optional dependency import isolation remains covered so deterministic imports
+  cannot start requiring the `llm`, `ui`, `viz`, or report extras.
 
 ## Prompt Optimization
 

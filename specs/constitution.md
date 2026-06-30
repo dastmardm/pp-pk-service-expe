@@ -1,161 +1,132 @@
 # Project Constitution
 
-The binding rules every contributor and AI assistant follows unconditionally when
-working on `oppp` (the decomposed NL→machine-query translator). Each principle
-states the rule, why it exists, and what breaks if it is violated.
-
 ## Core Principles
 
-### CONST-1 — Ground, don't generate
-**Rule.** For a closed-vocabulary field, the emitted value MUST be selected from
-that field's controlled vocabulary (`CONTRACT-TAXONOMY-CSV`). On no match, surface
-the gap (flag / "not found") — never substitute a model-invented value.
-**Why.** The legacy monolith's defining failure was inventing field values absent
-from the vocabulary.
-**Breaks if violated.** Queries silently retrieve wrong/empty record sets and the
-core promise (grounding) is lost.
+### CONST-1 - Closed sets are authoritative
+**Rule.** A closed-set translation MUST emit only values selected from the field's
+provided closed set. `[]` or `None` means invalid, and an invalid translation MUST
+not narrow API queries, post-filters, facets, or display columns.
+**Why.** The redesign exists because generated values created wrong or empty
+queries.
+**Breaks if violated.** The system silently reintroduces the legacy invented-value
+failure mode.
 
-### CONST-2 — Decomposition is vocab-free
-**Rule.** The production Stage-1 decomposer (`llm`) MUST only segment and route
-using the user's words and the field catalogue; it MUST NOT resolve, normalise, or
-consult any vocabulary. The vocab-using `gazetteer` decomposer is an **offline
-test/eval double only** and MUST NOT be presented as production behaviour.
-**Why.** Keeps "what is asked" separate from "how to express it"; grounding belongs
-to Stage 2.
-**Breaks if violated.** Routing and grounding concerns entangle, re-creating the
-monolith's untestability.
+### CONST-2 - Open fields become runtime closed sets
+**Rule.** An open-set filter is deferred until datapoints are fetched, its unique
+fetched values become a runtime closed set, and the same closed-set translation
+contract selects the post-filter values.
+**Why.** Open fields cannot be safely grounded before the data reveals their
+actual value space.
+**Breaks if violated.** Free-text guesses can zero valid results or keep invalid
+matches without an audit trail.
 
-### CONST-3 — Typed contracts everywhere; the final query is always validated
-**Rule.** Every stage boundary MUST exchange a validated Pydantic model
-(`models.py`). Model-backed steps MUST prefer structured/typed output over
-free-text-then-parse. The final `MachineQuery` MUST pass Stage-3 structural
-validation regardless of how it was produced.
-**Why.** Validation replaces the legacy regex/brace JSON scraping; the schema is
-the contract end to end.
-**Breaks if violated.** Malformed queries reach the API; the legacy parse-failure
-class of bug returns.
+### CONST-3 - Stage 1 routes only
+**Rule.** The production decomposer MUST segment and route the user's own words
+into field components. It MUST NOT normalize, ground, expand, or consult
+vocabularies. Gazetteer routing remains an offline double.
+**Why.** Routing and value selection are separate, testable concerns.
+**Breaks if violated.** The pipeline collapses back into a monolithic translator.
 
-### CONST-4 — One field, one translator
-**Rule.** Per-field translation MUST be isolatable and testable for a single field
-without running the rest of the chain.
-**Why.** A regression in one field must be catchable in isolation.
-**Breaks if violated.** Field rules become mutually entangled and un-regression-testable.
+### CONST-4 - Typed contracts at every boundary
+**Rule.** Stage boundaries and execution results MUST be represented by typed
+contracts, and final machine queries MUST be structurally validated before being
+treated as successful.
+**Why.** Typed boundaries remove fragile free-text parsing and support per-step
+evaluation.
+**Breaks if violated.** Malformed payloads and ambiguous traces reach downstream
+stages.
 
-### CONST-5 — Boolean structure is explicit
-**Rule.** Within-field booleans MUST be decided in Stage 2 (boolean groups);
-cross-field booleans MUST be decided in Stage 3. Boolean intent MUST never be
-implicit in prose.
-**Why.** Auditable, correct AND/OR/NOT semantics.
-**Breaks if violated.** Silent logic errors in retrieval breadth.
+### CONST-5 - Boolean intent is explicit
+**Rule.** Within-field boolean groups and cross-field boolean assembly MUST be
+represented in data, not implied by prose.
+**Why.** SME cases distinguish OR, AND, and cross-field retrieval rules.
+**Breaks if violated.** Retrieval breadth changes invisibly, especially Q7, Q13,
+and Q14 style queries.
 
-### CONST-6 — Hierarchy is a first-class operation
-**Rule.** Class→members / category→terms / parent→children expansion MUST be a
-documented, reusable operation over the generic `parent_id`/`parent_name`
-structure — not ad-hoc per field.
-**Why.** The gold set's class/roll-up questions require correct breadth.
-**Breaks if violated.** Over- or under-broad result sets (the legacy "Rodent vs
-rat+mouse" class of error).
+### CONST-6 - Hierarchy is reusable grounding logic
+**Rule.** Class labels, colloquial groups, curated sets, and effect rollups MUST be
+handled by shared taxonomy/runtime grounding helpers, not one-off prompt text.
+**Why.** The same parent/child semantics recur across drugs, effects, species,
+sources, and indications.
+**Breaks if violated.** Fixes for one field do not generalize and class breadth
+regresses.
 
-### CONST-7 — Enhancement is optional
-**Rule.** Stage 0 MUST default to `noop`; the pipeline MUST function end-to-end
-with no enhancer. TERMite is an opt-in booster, never a required pre-step.
-**Why.** The system must run without external NER/creds.
-**Breaks if violated.** The core becomes coupled to an external service.
+### CONST-7 - Services differ by configuration
+**Rule.** Safety, PK, and RTB differences MUST live in service configuration:
+field buckets, taxonomies, entity routing, facets, invariants, and serializers.
+Shared stage code MUST NOT fork per service.
+**Why.** The pipeline shape is common across services.
+**Breaks if violated.** Stage logic becomes duplicated and inconsistent.
 
-### CONST-8 — Pluggable, isolatable, and hermetic by default
-**Rule.** Every stage MUST be selectable by name from a registry and runnable
-alone. Offline doubles (`noop`/`gazetteer`/`deterministic`) MUST keep the test
-suite and per-stage evaluation runnable with **no LLM call and no network**.
-**Why.** Isolation/evaluation and CI depend on a hermetic core.
-**Breaks if violated.** Tests/eval require credentials and network; CI becomes
-flaky and expensive.
+### CONST-8 - Offline paths remain hermetic
+**Rule.** Offline doubles MUST allow tests and offline evaluation to run with no
+network, no LLM credentials, and no TERMite credentials. Heavy optional
+dependencies MUST be imported lazily.
+**Why.** Local development and CI need stable, cheap feedback.
+**Breaks if violated.** The default suite becomes flaky, slow, or credential-bound.
 
-### CONST-9 — Per-step evaluability
-**Rule.** Each step MUST be scorable against a gold reference
-(`CONTRACT-GOLD-PERFIELD`, `CONTRACT-GOLD-PERSTEP`). Steps whose output has no
-canonical form (Stage-1 fragments, Stage-2 open-field patterns, Stage-3 structure
-tie-breaks) MUST be scored by a constrained LLM-as-judge returning a typed verdict,
-not by exact match; deterministic comparators MUST be used wherever the output is
-canonicalisable.
-**Why.** Breaking the monolith into steps only pays off if each step is measurable.
-**Breaks if violated.** We trade one opaque box for four; regressions become
-untraceable.
+### CONST-9 - Evaluation is per-step first
+**Rule.** Each stage's output MUST be independently scorable against its gold
+column where a gold column exists; count accuracy is an end-to-end signal, not the
+only metric.
+**Why.** Decomposition only helps if failures can be assigned to the stage that
+caused them.
+**Breaks if violated.** The project trades one opaque box for several opaque boxes.
 
-### CONST-10 — Secrets are external, lazy, and never committed
-**Rule.** Credentials MUST be read from the project `.env` only when a model/entity
-backend is actually invoked. The deterministic core MUST need none. `.env` and any
-credential file MUST NOT be committed.
-**Why.** The core must run offline; secrets must not leak into VCS.
-**Breaks if violated.** Secret exposure; the offline guarantee is lost.
+### CONST-10 - Secrets are lazy and never committed
+**Rule.** Credentials MUST be read only when the selected backend needs them.
+`.env` and real credential files MUST never be committed.
+**Why.** The deterministic core must run without secrets and VCS must not leak
+credentials.
+**Breaks if violated.** Secret exposure and broken offline imports.
 
-### CONST-11 — Quality gates pass before merge
-**Rule.** No change merges unless the Quality Gates below pass.
-**Why.** Style and the offline behavioural contract stay green continuously.
-**Breaks if violated.** Drift and silent breakage accumulate.
-
-### CONST-12 — Service variation lives in config, not stage code
-**Rule.** Differences between Safety/PK/RTB (fields, buckets, facet allow-list,
-entity routing, invariants, output surface) MUST be carried by `ServiceConfig`
-data; stage code stays shared.
-**Why.** The pipeline shape is identical across services.
-**Breaks if violated.** Per-service forks of stage logic proliferate.
+### CONST-11 - Quality gates pass before merge
+**Rule.** No implementation change merges unless the quality gates below pass or a
+documented docs/spec-only exception applies.
+**Why.** The package must stay importable, lint-clean, formatted, and tested.
+**Breaks if violated.** Regressions accumulate outside the spec pipeline.
 
 ## Technology Stack
-
-| Layer | Technology | Version / Notes | Prohibited alternatives |
-|-------|------------|-----------------|-------------------------|
-| Language | Python | ≥ 3.11 (`requires-python`) | Other languages for pipeline code |
-| Typed contracts | Pydantic | v2 (`>=2.6`) | Hand-rolled dict validation; regex JSON scraping |
-| Pluggability | `Registry[T]` (in-repo) | one per stage + services | Hard-wired `if backend == …` dispatch |
-| Per-service config | `ServiceConfig`/`FieldSpec` dataclasses | `services/base.py` | Per-service forks of stage code |
-| Fuzzy matching | rapidfuzz | `>=3.6` | Bespoke edit-distance in core paths |
-| CLI | Typer | `>=0.12` | argparse hand-rolled command tree |
-| HTTP execution | stdlib `urllib` | core, no extra dep | Adding `requests`/`httpx` to the core |
-| Env loading | python-dotenv | `>=1.0`; lazy | Reading secrets at import time |
-| Model stack *(extra `llm`)* | LangChain, LangChain-OpenAI, LangGraph, DSPy, openai | imported lazily | Importing these in the deterministic core |
-| Interactive UI *(extra `ui`)* | Streamlit | `>=1.36` | UI logic in the core package |
-| Diagram export *(extra `viz`)* | matplotlib | `>=3.7` | System Graphviz dependency |
-| Lint + format | Ruff | `>=0.5`; line-length 100; `E,F,I,UP,B,SIM` | Other linters/formatters |
-| Tests | pytest | `>=8.0`; `testpaths=tests`, `pythonpath=src` | Network/credential-dependent tests in the default suite |
-| Env / packaging | uv + hatchling (`pyproject.toml`) | extras gate heavy stacks | Ad-hoc pip; committing a lockfile-bypassing setup |
-| NER *(external, optional)* | SciBite TERMite | opt-in Stage 0 only | Making TERMite mandatory |
-| Search service *(external)* | PharmaPendium search API | POST JSON payload | — |
+| Layer | Technology | Version/Notes | Prohibited alternatives |
+|-------|------------|---------------|-------------------------|
+| Language | Python | 3.11+ | Rewriting the pipeline in another language |
+| Package/build | `pyproject.toml`, hatchling, uv/pip | Existing package layout | Ad-hoc setup scripts |
+| Typed contracts | Pydantic | v2 models in `src/oppp/models.py` | Untyped stage-boundary dicts |
+| CLI | Typer | Existing `oppp` command | Hand-rolled CLI parser |
+| Matching | RapidFuzz | CSV fuzzy lookup | Bespoke fuzzy matching in core paths |
+| Env loading | python-dotenv | Lazy `.env` loading | Reading secrets at import time |
+| HTTP core | `urllib.request` | Count and row execution | Adding a mandatory HTTP dependency to core |
+| Optional LLM | LangChain/LangChain-OpenAI/LangGraph/DSPy/OpenAI | Lazy `llm` extra | Importing LLM stack in offline paths |
+| Optional UI | Streamlit | Lazy `ui` extra | UI code in core stages |
+| Optional reports | openpyxl | Lazy report extra | Mandatory spreadsheet dependency |
+| Lint/format | Ruff | `ruff check`, `ruff format --check` | Mixed linters/formatters |
+| Tests | pytest | Offline default suite | Networked default tests |
 
 ## Development Workflow
 
 ### Quality Gates
-Ordered checks that MUST pass before any change is merged (mirror these in
-`specs/git.md` → Pre-Commit Gates and in `.claude/settings.json`):
-
-1. `ruff check src tests` — lint clean.
-2. `ruff format --check src tests` — formatting clean.
-3. `pytest -q` — the offline suite passes with **no network and no LLM** (uses the
-   `noop`/`gazetteer`/`deterministic` doubles).
+1. `python3 -m compileall src/oppp`
+2. `ruff check src tests`
+3. `ruff format --check src tests`
+4. `pytest -q`
 
 ### Adding a New Component
-1. Implement the stage's typed protocol (see `specs/technical.md` → Component
-   Interfaces).
-2. `register`/`add` it under a string name in the relevant registry.
-3. If it is model-backed, provide or confirm an **offline double** so the hermetic
-   suite still runs (CONST-8); import heavy deps lazily.
-4. Add unit tests under `tests/` exercising the offline path.
-5. Add/extend the per-step evaluation hook and gold expectation (CONST-9).
-6. For a new service, add a `ServiceConfig` only — do not fork stage code (CONST-12).
+1. Define or reuse the typed contract first.
+2. Register the backend by name in the relevant registry.
+3. Keep any model/network dependency lazy and provide an offline path.
+4. Add focused tests for the component and one integration test if the component
+   changes cross-stage behavior.
+5. Add or update per-step evaluation where the output has a gold reference.
 
 ### Schema / Data Contract Changes
-1. Change the Pydantic model / dataclass in `models.py` / `services/base.py`.
-2. Update the matching `CONTRACT-*` entry in `specs/technical.md`.
-3. Update the affected `EVAL-NNN` criteria in `specs/evaluation.md`.
-4. Run the Quality Gates. A contract change with no evaluation-criterion update is
-   incomplete.
+1. Update the model/dataclass contract.
+2. Update `specs/technical.md` contract text.
+3. Update `specs/requirements.md` and `specs/evaluation.md` coverage.
+4. Run the Quality Gates.
 
 ## Governance
-- **Amendment.** Principles are amended by editing `./docs/` (the human source of
-  truth) and re-running `/technical`, which re-propagates here. Specs are never
-  hand-edited to diverge from `./docs/`.
-- **Versioning.** Semantic: MAJOR = a principle removed/reversed; MINOR = a
-  principle or stack entry added; PATCH = clarification. Record material changes in
-  the commit per `specs/git.md`.
-- **Compliance.** `/evaluation` audits the codebase against `specs/evaluation.md`,
-  which encodes these principles as criteria. A constitution change that is not
-  reflected in the evaluation criteria is not in force.
+- Product intent changes start in `docs/` and flow through `/mdtechnical`.
+- Constitution changes are versioned semantically: MAJOR for reversed principles,
+  MINOR for added principles, PATCH for clarifications.
+- `/mdevaluation` audits these principles through `specs/evaluation.md`; a
+  principle without an evaluation criterion is incomplete.
