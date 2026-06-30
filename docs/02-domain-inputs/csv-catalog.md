@@ -3,7 +3,7 @@
 Every file the redesign depends on, what it contains, and how the pipeline uses
 it. Row counts include the header line.
 
-## Taxonomy CSVs (value vocabularies for closed-vocab fields)
+## Taxonomy CSVs (value vocabularies for closed-set fields)
 
 These are the "unique values already exist as CSV" the redesign is built around.
 The hierarchical ones share the schema `name, id, parent_id, parent_name`.
@@ -20,12 +20,13 @@ The hierarchical ones share the schema `name, id, parent_id, parent_name`.
 | [dose_type.csv](../../inputs/dose_type.csv) | 7 | name,id,count | `doseType` | flat enum (+ `count`) |
 | [document_year.csv](../../inputs/document_year.csv) | 118 | name,id,count | `documentYear` | flat; mixes single years and ranges ("1911 - 1920") |
 
-**How used:** at Stage 2 a closed-vocab field's value is matched/looked up in its
-CSV (exact, fuzzy, or via TERMite preferred label), then optionally expanded
-through `parent_id`/`parent_name` for class/rollup queries. The `id` column is the
-stable taxonomy key; the `name` column is the preferred label sent to the API.
-`count` (where present) is the corpus frequency — useful for ranking ambiguous
-matches and for ordering facet output.
+**How used:** at Stage 2 an input closed-set field's value is translated against
+its CSV using exact search, fuzzy search, LLM pool enrichment, and LLM selection
+from the closed set when needed. Selected values may then expand through
+`parent_id`/`parent_name` for class/rollup queries. The `id` column is the stable
+taxonomy key; the `name` column is the preferred label sent to the API. `count`
+(where present) is the corpus frequency, useful for ranking ambiguous matches
+and for ordering facet output.
 
 ## Schema / catalog CSVs (describe the query surface, not values)
 
@@ -33,7 +34,7 @@ matches and for ordering facet output.
 |------|------|--------|---------|
 | [fields.csv](../../inputs/fields.csv) | 66 | field_key,label | Master list of response/display fields with human labels (e.g. `effect` → "Adverse Effect / Toxicity"). Drives `displayColumns` and the field router. |
 | [query_criteria_fields.csv](../../inputs/query_criteria_fields.csv) | 17 | field,type | Request-side criteria and their types (`array<string>`, `array<integer>`, `boolean`, `SortColumn`, `Limitation`). Defines what the machine query may contain. |
-| [enums.csv](../../inputs/enums.csv) | 24 | schema,field,allowed_value | Two enum sets: `SafetyEntity.trScore` (translational-relevance scores) and `FuzzyLookupFilter.taxonomy` (the taxonomies the back-end fuzzy-lookup can resolve — i.e. which fields are genuinely closed-vocab). |
+| [enums.csv](../../inputs/enums.csv) | 24 | schema,field,allowed_value | Two enum sets: `SafetyEntity.trScore` (translational-relevance scores) and `FuzzyLookupFilter.taxonomy` (the taxonomies the back-end fuzzy-lookup can resolve). |
 
 ## Evaluation CSV
 
@@ -44,7 +45,7 @@ matches and for ordering facet output.
 > A **per-step** companion gold set — one column per pipeline stage
 > (`termite, decompose, translate, aggregate, machine query`) plus expected
 > `counts` — lives at [docs/sme_stage_cases.csv](../sme_stage_cases.csv) *(in
-> `docs/`, not `inputs/`; preliminary)*. It is the reference for **per-step**
+> `docs/`, not `inputs/`)*. It is the reference for **per-step**
 > evaluation; see [../05-evaluation/gold-set-and-metrics.md](../05-evaluation/gold-set-and-metrics.md).
 
 ### Gold-set columns

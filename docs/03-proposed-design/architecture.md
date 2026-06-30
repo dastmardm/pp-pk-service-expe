@@ -4,9 +4,17 @@
 
 ```
                           ┌───────────────────────────────────────┐
-   NL query  ───────────▶ │  STAGE 0 — ENHANCE  (optional)         │
- "ADRs of sunitinib       │  default: noop · opt-in: TERMite NER   │
-  in human?"              │  → entities + preferred labels + types │
+   NL query  ───────────▶ │  STAGE -1 — EXPAND                    │
+ "ADRs of sunitinib       │  default: llm · offline: noop          │
+  in human?"              │  → clearer query, same entities        │
+                          └───────────────────────────────────────┘
+                                          │
+                                          ▼
+                          ┌───────────────────────────────────────┐
+                          │  STAGE 0 — ENHANCE  (optional)         │
+                          │  library default: noop                 │
+                          │  CLI default: TERMite NER              │
+                          │  → entities + preferred labels + types │
                           └───────────────────────────────────────┘
                                           │
                                           ▼
@@ -21,23 +29,22 @@
                        ┌──────────────────┼──────────────────┐
                        ▼                  ▼                  ▼
         ╔═══════════════════════════════════════════════════════════════╗
-        ║ STAGE 2 — PER-FIELD TRANSLATION  (independent, parallel)       ║
-        ║ each NL subquery  →  one machine subquery (a filter)          ║
+        ║ STAGE 2A — INPUT CLOSED-SET TRANSLATION                        ║
+        ║ each closed-set filter  →  valid machine subquery             ║
         ║                                                               ║
-        ║   CLOSED-VOCAB field → tool-call lookup against CSV           ║
+        ║   CSV/enum field → exact → fuzzy → enriched pool → LLM select ║
         ║      "sunitinib" ──lookup drugs.csv──▶                        ║
         ║                    MATCH drugsFuzzy = ["Sunitinib*"]          ║
         ║      "human"     ──lookup species.csv──▶                      ║
         ║                    MATCH species = "Human"                    ║
         ║                                                               ║
-        ║   OPEN field → LLM decides value directly                    ║
-        ║      "hepatic impairment" ──▶ REGEX studyGroup = "(cirrho…"   ║
+        ║   open-set filters are deferred until datapoints are fetched  ║
         ╚═══════════════════════════════════════════════════════════════╝
                        └──────────────────┼──────────────────┘
                                           ▼
         ╔═══════════════════════════════════════════════════════════════╗
-        ║ STAGE 3 — AGGREGATION                                          ║
-        ║ machine subqueries  →  one final machine query               ║
+        ║ STAGE 3 — AGGREGATION + FETCH                                  ║
+        ║ valid closed-set subqueries → API query → datapoints          ║
         ║   • combine into the boolean tree (AND across fields)         ║
         ║   • preserve per-field & cross-field OR/AND/NOT               ║
         ║   • route to entityFilters where required                     ║
@@ -46,39 +53,53 @@
         ╚═══════════════════════════════════════════════════════════════╝
                                           │
                                           ▼
-                                  final machine query  ──▶  PharmaPendium API
+        ╔═══════════════════════════════════════════════════════════════╗
+        ║ STAGE 2B — RUNTIME CLOSED-SET POST-FILTERS                    ║
+        ║ fetched datapoints provide unique values for open-set fields  ║
+        ║   "maternal toxicity" → select from fetched comments          ║
+        ║   valid subset → post-filter datapoints                       ║
+        ╚═══════════════════════════════════════════════════════════════╝
 ```
 
 ## Why three stages
 
-An **optional Stage 0 enhancer** (TERMite, `noop` by default) may normalize
-entities before Stage 1; the three core stages below are the heart of the design.
+Stage -1 expansion may clarify abbreviations before entity recognition. An
+**optional Stage 0 enhancer** may annotate entities before Stage 1; the library
+default is `noop`, while `oppp run` defaults to `termite`. The three core stages
+below are the heart of the design.
 
 | Stage | Responsibility | Why separate |
 |-------|---------------|--------------|
 | **1. Decomposition** | Split the NL query into one NL fragment per field; route each fragment to a field. | Isolates "what is the user asking about?" from "how do I express it?". Small, cheap, testable. |
-| **2. Per-field translation** | Turn one NL fragment into one `(operator, field, value)` filter. Ground closed-vocab values on CSV; let the LLM decide open ones. | This is where grounding and hierarchy live. Each field gets a focused translator that can be tested, evaluated, and improved in isolation. Naturally parallel. |
-| **3. Aggregation** | Assemble filters into the final boolean tree; apply boolean intent, entity-filter routing, facets, and service invariants. | Cross-field structure and service rules are a distinct concern from per-field value selection. |
+| **2. Per-field translation** | Translate a field fragment against a known closed set. Input closed-set fields use CSV/enum/boolean values; open-set fields wait until fetched datapoints provide a runtime closed set. | This is where grounding and hierarchy live. Each field gets a focused translator that can be tested, evaluated, and improved in isolation. Naturally parallel. |
+| **3. Aggregation + fetch** | Assemble valid input closed-set filters into the first API query; apply boolean intent, entity-filter routing, facets, service invariants, and fetch datapoints for runtime post-filtering. | Cross-field structure, service rules, and API execution are distinct from per-field value selection. |
+
+In the v0.1 implementation, [execute.py](../../src/oppp/execute.py) reads
+`countTotal` only; it does not fetch rows. Open-set filters are currently emitted
+as direct `MATCH`/`REGEX` constraints, with an optional server-side zero-count
+probe (`drop_empty_open_filters`) before aggregation in live runs. The runtime
+closed-set row post-filter path above is the intended data-flow once row fetching
+is available.
 
 This is the inverse of the legacy design, where one prompt does all three at once
 (see [../01-current-system/legacy-architecture.md](../01-current-system/legacy-architecture.md)).
 
 ## Design principles
 
-1. **Ground, don't generate.** If a field has a CSV, the value comes from the
-   CSV. The model's job shrinks to *selecting* and *expanding*, not *inventing*.
+1. **Ground, don't generate.** Every filter value comes from a closed set: an
+   input CSV/enum/boolean set before the first API call, or the unique values in
+   fetched datapoints for open-set post-filtering.
 2. **One field, one translator.** Every field has an isolated, testable unit.
-   Closed-vocab fields share a generic CSV-lookup translator; a handful of fields
-   (numeric, free-text-with-synonyms) get bespoke logic.
+   The same closed-set translator handles exact search, fuzzy search, LLM pool
+   enrichment, and LLM selection from a known entity set.
 3. **Make boolean structure explicit.** Per-field booleans in Stage 2; cross-field
    booleans in Stage 3. Never implicit in prose.
 4. **Hierarchy is a first-class operation.** Class→members, category→terms,
    parent→children expansion is a documented step, not a hope.
-5. **Enhancement is optional.** TERMite is an **opt-in Stage 0 enhancer**
-   (default `noop`). When enabled it contributes high-quality preferred labels and
-   IDs that *hint* Stage 1 routing and Stage 2 grounding — a booster, not a
-   required pre-step. The production Stage 1 decomposer is vocab-free and works
-   without it.
+5. **Expansion and enhancement are separate.** Stage -1 rewrites only for
+   readability and abbreviation expansion. Stage 0 contributes entity annotations
+   and preferred labels. Neither stage may emit machine-query values on its own.
+   The production Stage 1 decomposer is vocab-free and works without TERMite.
 
 ## Relationship to the three services
 
@@ -86,28 +107,26 @@ The pipeline shape is identical for Safety, PK, and RTB. What differs is
 configuration, not architecture:
 
 - the **field set** (which fields exist),
-- the **field→bucket map** (which are closed-vocab),
+- the **field→bucket map** (input closed-set, runtime open-set, enum, boolean),
 - the **facet allow-list**,
 - the **service invariants** applied in Stage 3,
 - the **output surface** (Safety/PK emit JSON; RTB emits a `where_clause` string).
 
-A per-service config object should carry these; the stage code stays shared.
+A per-service config object carries these; the stage code stays shared.
 
-## Open questions
+## Settled field behavior
 
-- **`targets` taxonomy.** Used by the gold set (Q21) and listed in
-  [enums.csv](../../inputs/enums.csv), but no `targets.csv` is shipped in
-  `inputs/`. Do we export one, or resolve targets via the back-end fuzzy-lookup
-  endpoint at runtime?
-- **MedDRA effect rollups.** The gold set repeatedly notes "MedDRA rules not yet
-  implemented." Is the parent/child structure in [effects.csv](../../inputs/effects.csv)
-  sufficient, or do we need the full MedDRA SOC→HLGT→HLT→PT hierarchy?
-- **Drug-class detection vs target detection.** Q8/Q21 show "kinase" being
-  mis-typed as a target. Does Stage 1 disambiguate class-vs-target, or does Stage
-  2 try both lookups and let confidence decide?
-- **Where does TERMite stop and CSV lookup start?** Both can resolve preferred
-  labels. Proposed split is in
-  [grounding-and-tool-calling.md](grounding-and-tool-calling.md); needs validation.
-- **Decomposition granularity.** Is it strictly one subquery per field, or per
-  *concept* (e.g. two distinct effects → two subqueries that Stage 3 OR-joins)?
-  See [stage-1-decomposition.md](stage-1-decomposition.md).
+- `targets` is treated as an open-set entity-routed field unless a complete local
+  target taxonomy is available in `inputs/`. The current translator emits a
+  `DrugsTargets` entity filter and uses the TERMite preferred label when a
+  corresponding target annotation exists.
+- Effect rollups use the available [effects.csv](../../inputs/effects.csv)
+  hierarchy. A grounded leaf may expand through its parent family according to
+  the field's rollup rules.
+- Drug-class and target-like phrases prefer a valid drug-class translation when
+  the drug closed set contains that class. Otherwise they stay on the configured
+  target/open-set path.
+- TERMite labels seed the translation pool; CSVs and runtime closed sets remain
+  the authority for what values may be emitted.
+- Decomposition emits one component per concept, tagged with the same field and
+  a shared boolean group when several concepts belong to one field.

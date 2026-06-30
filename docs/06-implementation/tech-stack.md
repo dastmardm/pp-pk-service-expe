@@ -1,135 +1,103 @@
-# Tech stack & implementation conventions
+# Tech Stack & Implementation Conventions
 
-The tools and packages the redesign will be built with, and the two
-non-negotiable conventions every component must follow:
+The implementation lives in [src/oppp/](../../src/oppp/) as a Python package.
+The core convention is stable across the package: every pipeline step has a
+typed boundary, a registry-backed implementation choice, and an isolated command
+or helper for debugging and evaluation.
 
-> **Every step is (1) pluggable and (2) isolatable for evaluation.** You can swap
-> any step's implementation, and you can run any single step on its own against a
-> gold set without standing up the rest of the pipeline.
->
-> **Prefer LLM calls with structured output wherever possible.** Every LLM step
-> should return a typed, schema-validated object — never free text we parse after
-> the fact. See [Structured output](#structured-output-preferred).
-
-## The stack
+## Stack
 
 | Tool | Role in this project |
 |------|----------------------|
-| **Python** | Implementation language. |
-| **uv** | Environment + dependency + packaging manager (`uv venv`, `uv add`, `uv run`, `uv.lock`). Single source of truth for deps; no ad-hoc pip. |
-| **Pydantic** | Typed contracts for every boundary — the decomposition component, the per-field machine subquery, and the final machine query are all Pydantic models. Validation replaces the legacy regex/brace JSON scraping. |
-| **LangChain** | LLM client + tool-calling plumbing for the CSV lookup tools (wraps the existing [utils/client/](../../utils/client/) Portkey setup). |
-| **LangGraph** | Orchestrates the pipeline as an explicit graph — the 3 core stages (decompose → translate → aggregate) behind the optional Stage 0 enhancer — with per-field fan-out/fan-in in Stage 2. Each node is a swappable unit; the graph is what makes step isolation natural. |
-| **DSPy** | The translation steps are authored as **DSPy modules** (signatures + programs) so prompts are **optimizable** rather than hand-tuned strings. The SME gold set drives DSPy optimizers (e.g. few-shot / instruction search). See [Prompt optimization](#prompt-optimization-dspy). |
-| **Typer** | CLI entry points: run the full pipeline, run a single stage/field, and run evaluations from the terminal. |
-| **Streamlit** | Interactive UI for demoing and debugging — pick a gold-set question or type one, select each stage's backend (enhancer / decomposer / translator / aggregator / normalizer), and inspect every stage's intermediate output through to the final machine query. See [streamlit-ui.md](streamlit-ui.md). |
-| **Ruff** | Linting + formatting. Enforced in CI / pre-commit. |
-| **(existing) SciBite TERMite** | Kept as-is for NER ([utils/termite/](../../utils/termite/)). |
+| **Python 3.11+** | Implementation language. |
+| **pyproject.toml / Hatchling** | Package metadata, extras, console script, build backend, and Ruff/Pytest configuration. |
+| **Pydantic** | Typed stage contracts: expansion, enhancement annotations, decomposition components, subqueries, machine query, aggregation plan, and judge verdicts. |
+| **Typer** | CLI entry points for full runs, isolated stages, lookup, DAG rendering, services, and evaluation. |
+| **RapidFuzz** | Exact-adjacent and fuzzy lookup over closed-set taxonomy names. |
+| **python-dotenv** | Lazy `.env` loading when LLM or TERMite-backed paths need credentials. |
+| **urllib.request** | Standard-library HTTP execution for `countTotal` calls; no extra HTTP dependency in the core. |
+| **LangChain / langchain-openai** | Optional structured-output LLM client through Portkey/OpenAI-compatible settings. |
+| **LangGraph** | Optional graph wrapper around the same pipeline stages, available through `build_langgraph()`. |
+| **SciBite TERMite toolkit** | Optional Stage 0 NER enhancer that supplies entity labels, types, and public synonyms. |
+| **Streamlit** | Optional browser UI for stage-by-stage debugging. |
+| **matplotlib** | Optional DAG PNG rendering for `oppp dag`. |
+| **openpyxl** | Optional XLSX report export from `oppp eval --output`. |
+| **Pytest / Ruff** | Test and lint tooling. |
 
 ## Pluggability
 
-Every step is defined by a **Pydantic-typed interface**, registered behind a
-factory, and selected by config — not hard-wired. This already shows up in the
-design:
+Each swappable part uses a small `Protocol` plus the shared
+[Registry](../../src/oppp/registry.py):
 
-- per-field **translators** in [stage-2-subquery-translation.md](../03-proposed-design/stage-2-subquery-translation.md);
-- the **CSV lookup tools** in [grounding-and-tool-calling.md](../03-proposed-design/grounding-and-tool-calling.md);
-- the **misspelling normalizers** in [misspelling-strategy.md](../03-proposed-design/misspelling-strategy.md);
-- per-service **config** (fields, facet allow-lists, invariants, output serializer)
-  from [architecture.md](../03-proposed-design/architecture.md).
+| Surface | Registry | Implementations |
+|---------|----------|-----------------|
+| Stage -1 expander | `expander_registry` | `llm`, `noop` |
+| Stage 0 enhancer | `enhancer_registry` | `termite`, `noop` |
+| Stage 1 decomposer | `decomposer_registry` | `llm`, `gazetteer` |
+| Stage 2 translator | `translator_registry` | `tool`, `deterministic` |
+| Stage 2 normalizer | `normalizer_registry` | `fuzzy`, `noop` |
+| Stage 3 aggregator | `aggregator_registry` | `llm`, `deterministic` |
+| Service config | `service_registry` | `safety`, `pk`, `rtb` |
 
-Concretely: a step is a `Protocol`/ABC with a typed `run(input) -> output`
-method; implementations register under a name; LangGraph nodes resolve the
-implementation from config. Swapping a normalizer or a translator is a config
-change, not a code edit.
+The full pipeline resolves these names in
+[pipeline.py](../../src/oppp/pipeline.py). The CLI exposes the same choices as
+flags, and the Streamlit UI reads names from the registries.
 
-## Isolation for evaluation
+## Isolation for Evaluation
 
-Because each step has typed inputs/outputs, each can be exercised **alone**:
+Because each stage has typed inputs and outputs, each can be exercised alone:
 
-| Step | Isolated input → output | Evaluated against |
-|------|--------------------------|-------------------|
-| Stage 0 — enhance *(optional)* | NL query → enhanced query + entity annotations | enhancer on/off behaviour |
-| Stage 1 — decomposition | NL query → list of components (`field`, `type`, `reason`, …) | gold field-routing / type / boolean hints |
-| Stage 2 — per-field translate | one component → one machine subquery | gold per-field values (P/R/F1) |
-| Stage 2 — lookup/expansion | fragment → grounded labels/ids | gold hierarchy expansions |
-| Stage 2 — normalizer | misspelled fragment → corrected | typo fixtures |
-| Stage 3 — aggregation | subqueries → final machine query | schema validity + structure |
+| Step | Isolated input -> output | Code surface |
+|------|--------------------------|--------------|
+| Stage -1 expand | query -> `ExpandedQuery` | `oppp.stages.expand.expand()` |
+| Stage 0 enhance | query -> `EnhancedQuery` | `oppp enhance` |
+| Stage 1 decompose | query -> `Decomposition` | `oppp decompose` |
+| Stage 2 translate | one `Component` -> `MachineSubquery` | `oppp field` |
+| Taxonomy lookup | taxonomy + term -> `GroundingHit` list | `oppp lookup` |
+| Stage 3 aggregate | decomposition + subqueries -> `MachineQuery` | `oppp aggregate` |
+| End-to-end eval | gold question -> validity/count metrics | `oppp eval` |
 
-This is exactly the per-field/per-stage scoring in
-[../05-evaluation/gold-set-and-metrics.md](../05-evaluation/gold-set-and-metrics.md).
-Each LangGraph node is independently invokable; Typer exposes a
-`--stage`/`--field` target so a single step can be benchmarked from the CLI, and
-DSPy optimization targets one module at a time using these isolated harnesses.
+The per-step comparators in [eval/per_step.py](../../src/oppp/eval/per_step.py)
+score Stage 0 labels, Stage 1 routing/type pairs, Stage 2 emitted field names,
+and Stage 3 machine-query structure. The count harness in
+[eval/harness.py](../../src/oppp/eval/harness.py) scores `countTotal` proximity.
 
-## Structured output (preferred)
+## Structured Output
 
-We **prefer LLM calls that return structured output** over free-text-then-parse,
-wherever the model/provider supports it. Every LLM step in the pipeline emits a
-typed object validated against its Pydantic model:
+LLM-backed stages use the central [llm.py](../../src/oppp/llm.py) factory, which
+builds a LangChain chat model with temperature `0`, `top_p=0`, and a fixed seed
+unless `LLM_SEED` overrides it. Structured-output calls are bound to Pydantic
+models:
 
-- **Stage 1 — decomposition** → a list of components
-  (`field`, `type`, `reason`, `source`, …).
-- **Stage 2 — open-field translation / disambiguation** → a typed machine
-  subquery (`operator`, `field`, `value`).
-- **CSV lookup tool calls** → typed arguments (LangChain tool-calling) rather
-  than a stringified call.
+| Stage | Structured model |
+|-------|------------------|
+| Stage -1 expander | `QueryExpansion` |
+| Stage 1 decomposer | `Decomposition` |
+| Stage 2 term selector / LLM fallbacks | `TermSelection` |
+| Stage 3 LLM aggregator | `AggregationPlan` |
+| LLM-as-judge | `JudgeVerdict` |
 
-Why this is the default:
+The final request body is always represented by `MachineQuery` and validated by
+Stage 3. Closed-set values proposed by the LLM are re-grounded against the CSV
+before they can be emitted.
 
-- It **kills the legacy failure mode** — the regex + brace-matching JSON scraper
-  in [extract_payload_req()](../../utils/ppendium/__init__.py) exists only because
-  the model returned prose. Structured output removes that surface entirely.
-- It composes with **Pydantic** validation and with **DSPy** typed signatures,
-  so the schema is the contract end-to-end.
-- It makes **isolation/eval** clean: each step's output is already a typed object
-  to diff against the gold set.
+## Prompt Optimization
 
-Mechanism: provider-native structured/JSON output or tool-calling via LangChain
-(`with_structured_output` / function-calling) bound to the step's Pydantic model;
-DSPy signatures declare the same typed outputs.
+The package includes typed boundaries that are suitable for prompt optimization,
+but there are no DSPy modules under `src/oppp/` in v0.1. Prompt optimization can
+reuse the same registries and Pydantic contracts without changing the stage
+interfaces.
 
-**"If possible" caveat:** when a model or path can't guarantee structured output,
-fall back to constrained generation + Pydantic validation with a bounded retry,
-and surface a validation error rather than silently accepting malformed output.
-The final machine query is **always** schema-validated in Stage 3 regardless of
-how it was produced.
+## Package Layout
 
-## Prompt optimization (DSPy)
-
-The LLM-driven steps (Stage 1 decomposition, the open-field translators, any
-LLM-based normalizer or disambiguator) are written as DSPy programs:
-
-- a **signature** declares typed inputs/outputs (aligned with the Pydantic
-  models), so the prompt is generated, not hand-written;
-- the **SME gold set** ([inputs/sme_expected_cases.csv](../../inputs/sme_expected_cases.csv))
-  provides train/dev examples and the metric;
-- DSPy **optimizers** tune instructions/demonstrations per module, and because
-  each module is isolated, we optimize one step without regressing the others.
-
-This is the reason DSPy is in the stack: "we create the agent so it's compatible
-for prompt optimization" — the architecture's per-step isolation is what makes
-that optimization tractable.
-
-## Suggested layout (sketch)
-
-```
-pyproject.toml          # uv-managed; deps + ruff config
-uv.lock
-src/oppp/
-  models/               # pydantic contracts (component, subquery, machine query)
-  pipeline/
-    graph.py            # langgraph wiring of the stages
-    stage0_enhance.py   # optional enhancer (termite default, noop opt-out)
-    stage1_decompose.py # dspy module (vocab-free)
-    stage2_translate/   # per-field translators (pluggable, registered)
-    stage2_lookup/      # csv lookup tools + hierarchy expansion
-    stage2_normalize/   # misspelling strategies (pluggable)
-    stage3_aggregate.py # deterministic assembly + service invariants
-  services/             # per-service config (safety, pk, rtb)
-  eval/                 # isolated harnesses + metrics over the gold set
-  cli.py                # typer entry points
-  ui/app.py             # streamlit debug/demo UI
-```
-
-> **Status:** proposed stack and conventions. Layout is illustrative, not final.
+| Path | Purpose |
+|------|---------|
+| [src/oppp/models.py](../../src/oppp/models.py) | Pydantic contracts shared by all stages. |
+| [src/oppp/pipeline.py](../../src/oppp/pipeline.py) | Sequential runner and optional LangGraph builder. |
+| [src/oppp/stages/](../../src/oppp/stages/) | Expansion, enhancement, decomposition, translation, and aggregation stages. |
+| [src/oppp/taxonomy/](../../src/oppp/taxonomy/) | CSV-backed closed-set indexes and hierarchy helpers. |
+| [src/oppp/normalize/](../../src/oppp/normalize/) | Misspelling normalizer strategies. |
+| [src/oppp/services/](../../src/oppp/services/) | Safety, PK, and RTB field maps, invariants, and RTB serializer. |
+| [src/oppp/eval/](../../src/oppp/eval/) | Count harness, per-step comparators, judge, and gold diff helpers. |
+| [src/oppp/ui/app.py](../../src/oppp/ui/app.py) | Streamlit debug UI. |
+| [src/oppp/cli.py](../../src/oppp/cli.py) | Typer CLI. |

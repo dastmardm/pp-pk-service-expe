@@ -1,141 +1,189 @@
-# Stage 2 — Per-field translation
+# Stage 2 - Per-field translation
 
-**Input:** one single-field NL subquery from Stage 1.
-**Output:** one machine subquery — a filter `(operator, field, value)` (possibly
-a small boolean group when one field carries multiple concepts).
+**Input:** filter components from Stage 1, each carrying one field and one NL
+fragment.
+**Output:** valid machine subqueries for input closed-set fields, plus validated
+post-filters for fields that become closed sets only after datapoints are fetched.
 
-This stage runs **independently per subquery** (naturally parallel), and it is
-where the closed-vs-open distinction does its work.
+This stage is where the closed-set/open-set distinction is enforced. A
+translation is valid only when it chooses values from a known set. The set may be
+known before the API call (`inputs/` CSVs and inline enums), or it may be derived
+from fetched datapoints for an open-set field.
 
-## The branch
+Question components do not become filters. They are carried forward so Stage 3
+can choose facets or `displayColumns`.
+
+## Two translation passes
 
 ```
-subquery for field F
+Stage-1 filter components
         │
-        ├─ F is CLOSED-VOCAB ─────────────────────────────────────────────┐
-        │     1. tool-call: lookup F's CSV with the nl_fragment            │
-        │        (exact → fuzzy → TERMite-preferred-label)                 │
-        │     2. if the user named a class/rollup, expand via              │
-        │        parent_id/parent_name to the member set                   │
-        │     3. choose operator: MATCH (single/list), or NOT, or RANGE    │
-        │        (documentYear), honouring the boolean hint                │
-        │     4. emit MATCH F = [preferred labels]                         │
-        │                                                                  │
-        └─ F is OPEN ─────────────────────────────────────────────────────┤
-              1. LLM produces the value directly                           │
-              2. text → REGEX pattern (with synonym expansion)             │
-                 numeric → RANGE (after unit normalization)                │
-                 short qualifier → MATCH                                   │
-              3. emit the filter                                           │
-                                                                           ▼
-                                                              machine subquery
+        ├─ Pass A: input closed-set fields
+        │     closed_set = CSV / enum / boolean values
+        │     pool = NL fragment + enhancer labels + synonyms
+        │     translate_closed_set(pool, closed_set)
+        │     valid subset -> machine subquery
+        │     [] / None    -> invalid, excluded downstream
+        │
+        ├─ aggregate valid Pass-A subqueries
+        │     -> API query
+        │     -> fetched datapoints
+        │
+        └─ Pass B: open-set fields
+              closed_set = unique values for that field in fetched datapoints
+              pool = NL fragment + generated synonyms
+              translate_closed_set(pool, closed_set)
+              valid subset -> post-filter datapoints
+              [] / None    -> invalid, no downstream narrowing
 ```
 
-## Closed-vocabulary fields
+The same closed-set translator is used in both passes. The difference is only
+where the closed set comes from.
 
-The value **must** come from the CSV. The generic algorithm:
+## Closed-set translator
 
-0. **Normalize (misspellings).** Run the pluggable normalizer for this field
-   over `nl_fragment` first (see
-   [misspelling-strategy.md](misspelling-strategy.md)). For closed-vocab fields
-   this bridges typos to a real taxonomy entry before lookup. Defaults to a
-   no-op until a strategy is chosen.
-1. **Lookup.** Resolve the (normalized) `nl_fragment` against the field's CSV
-   ([drugs.csv](../../inputs/drugs.csv), [species.csv](../../inputs/species.csv),
-   …) in priority order — **exact → close (fuzzy) → LLM**:
-   1. TERMite preferred label, if the subquery came from an annotation;
-   2. exact (case-insensitive) name match;
-   3. fuzzy / synonym / wildcard match (with `count` as a tie-breaker where the
-      CSV has it);
-   4. **LLM fallback, when exact + fuzzy return no candidates.** If the
-      candidate pool is empty — the fragment is a synonym, scientific name, brand
-      name, or abbreviation the string matcher can't reach (`homo sapiens` →
-      `Human`, `per os` → `Oral`, `Columvi` → `Glofitamab`) — the LLM is asked for
-      the canonical vocabulary term(s) the phrase denotes, and **each proposal is
-      re-grounded against the CSV** (steps 2–3) before use. The emitted value is
-      therefore always a real taxonomy entry, never the model's raw string. This
-      runs only on the production (LLM-enabled) translator; the offline
-      deterministic double skips it. See
-      [grounding-and-tool-calling.md](grounding-and-tool-calling.md#resolution-order-recall-vs-precision).
-2. **Expand (hierarchy).** If the fragment denotes a class or rollup rather than a
-   leaf, walk `parent_id`/`parent_name`:
-   - drug class → member drugs (Q8 "kinase inhibitors", Q23 "monoclonal
-     antibodies", Q24 "ADC");
-   - species class → member species (Q23 "Monkeys" → all monkey species);
-   - effect category → preferred terms (Q1-driven MedDRA rollups);
-   - "non-clinical / preclinical species" → the curated preclinical set (Q7/Q16).
-   Expansion direction (up vs down) is driven by the user's intent: a *class*
-   name expands **down** to members; a specific term used as a *filter* may stay
-   as-is or roll **up** per service rules.
-3. **Operator.** Default `MATCH` with a value array of the resolved preferred
-   labels. Use `NOT` for exclusions, `RANGE`/`DATE_RANGE` for `documentYear`
-   thresholds. Honour the Stage-1 boolean hint within the field.
-4. **Drug fuzzy nuance.** Per the legacy prompts, drug filters typically use
-   `drugsFuzzy` with a conservative trailing wildcard on the base name
-   (`Sunitinib*`, `Imatinib*`) so salts/forms are captured, while `drugs` is for
-   strict exact matching. The CSV's `parent_name` gives the class label for
-   class queries.
+The translator is a tool over a closed set of entities. It starts with:
 
-Output example (closed):
+- `field`: the field being filtered;
+- `pool`: one or more candidate phrasings for the user's intended value;
+- `closed_set`: the legal entities for the field.
+
+It always returns a **sublist of `closed_set`**. Returning `[]` or `None` means
+translation failed. A failed translation is marked invalid and does not affect
+the API query, entity filters, post-filtering, facets, or display columns.
+
+Resolution order:
+
+1. **Exact search.** Compare every pool item with the closed-set entities using
+   case-insensitive exact matching. Keep every exact entity that matches the
+   field intent.
+2. **Fuzzy search.** If exact search returns nothing, compare every pool item
+   with the closed set using fuzzy matching. Ranking may use string similarity,
+   corpus `count`, and hierarchy signals.
+3. **Pool enrichment.** If fuzzy search also returns nothing, call the LLM to add
+   equivalent pool items: synonyms, abbreviations, brand names, scientific names,
+   spelling variants, or likely class/member names. Then restart exact search and
+   fuzzy search over the enriched pool.
+4. **Closed-set LLM selection.** If the enriched pool still produces no match,
+   pass the pool and the closed-set entities to the LLM and ask it to select the
+   matching entities using the exact closed-set spellings. The LLM is selecting
+   from the set, not inventing values.
+5. **Invalid result.** If the selected list is still empty, the translation
+   fails and is marked invalid.
+
+The closed-set contract asserts every LLM candidate against `closed_set`. Values
+that cannot be verified are dropped, so the final emitted value is always a valid
+subset of the available entities.
+
+In the v0.1 implementation, this membership assertion is enforced by
+re-grounding every LLM proposal against the CSV (`exact` first, then `fuzzy`) and
+dropping any proposal that cannot be verified. The synonym-mapping fallback makes
+several attempts to recover from empty model responses; the closed-set window
+selection path keeps only re-grounded rows.
+
+## Input closed-set fields
+
+For fields backed by [inputs/](../../inputs/) taxonomies, the closed set is the
+CSV's preferred-label list. The generic algorithm handles typos, synonyms, and
+hierarchy:
+
+1. **Normalize.** Run the pluggable normalizer for this field over the NL
+   fragment first (see [misspelling-strategy.md](misspelling-strategy.md)).
+   Closed-set fields can safely normalize toward the nearest known entity because
+   every correction is later validated against the closed set.
+2. **Build the pool.** Start with the normalized fragment. Add matching Stage-0
+   enhancer preferred labels and synonyms when available. Add LLM-generated
+   synonyms only if exact and fuzzy search over the initial pool fail.
+3. **Translate over the closed set.** Run the closed-set translator above.
+4. **Expand hierarchy when the selected entity is a class or rollup.**
+   - drug class -> class label, resolved server-side by the API;
+   - species class -> class label, resolved server-side by the API;
+   - effect category -> preferred terms via the effects hierarchy;
+   - preclinical / non-clinical phrasing -> the `isPreclinical` boolean field.
+5. **Choose the operator.** Default to `MATCH`. Use `NOT` for exclusions and
+   `RANGE`/`DATE_RANGE` for `documentYear` thresholds. Preserve the Stage-1
+   boolean group so Stage 3 can assemble `AND`/`OR` correctly.
+6. **Apply field emission rules.** Drug filters typically emit to `drugsFuzzy`
+   with a conservative trailing wildcard on a single leaf name, while strict
+   fields emit their configured API field.
+
+Output example:
 
 ```json
-{ "MATCH": { "field": "species", "value": ["African green monkey", "Cynomolgus monkey", "Rhesus monkey", "..."] } }
+{ "MATCH": { "field": "species", "value": ["African green monkey", "Cynomolgus monkey", "Rhesus monkey"] } }
 ```
 
-## Open fields
+## Runtime closed-set fields
 
-The LLM decides, because there is nothing to look up. The same pluggable
-normalizer step applies first (see
-[misspelling-strategy.md](misspelling-strategy.md)), but for open fields it must
-be conservative — there is no vocabulary to validate a correction against, so we
-risk "fixing" a deliberate term. Guidance carried over from the legacy prompts,
-now scoped to just this field:
+Open-set fields are deferred until the closed-set query has fetched datapoints.
+At that point each open-set field gets a runtime closed set:
 
-- **Free text → `REGEX`, with synonym expansion.** `studyGroup` for "hepatic
-  impairment" → `.*(cirrhosis|liver disease|hepatic insufficiency|Child-Pugh
-  B|Child-Pugh C|…).*`.
-- **Numeric → `RANGE`, after unit normalization.** "clearance over 100 L/h" →
-  convert to a supported unit, then bound `valueMaxNormalized` with `min`
-  (PK threshold rules).
-- **Short qualifier → `MATCH`.** `parameterComment = "Maternal toxicity"`.
-- **`ages`** → substring/`REGEX` (gold set: "substring search adult").
+1. Collect the unique non-empty values for that field from the fetched datapoints.
+2. Build a pool from the user's NL fragment and LLM-generated synonyms.
+3. Run the same closed-set translator against the runtime entity list.
+4. Keep only datapoints whose field value is in the returned subset.
 
-Output example (open):
+This turns a field such as `parameterComment`, `studyGroup`, `dose`, `ages`, PK
+`parameterDisplay`, or RTB `model` into a validated post-filter instead of a raw
+LLM value in the first API query.
+
+The v0.1 translator does not expose a generic
+`translate(field, pool, runtime_closed_set)` entry point. Open fields are handled
+by `_translate_open` before aggregation:
+
+- `studyGroup` and `ages` emit `REGEX` constraints; `studyGroup` expands a small
+  built-in synonym set for hepatic and renal impairment.
+- Plain free-text fields such as `parameterComment` strip leading relational
+  connective text before emitting `MATCH`.
+- Entity-routed open fields such as `targets` emit the enhancer's preferred label
+  when a corresponding TERMite annotation exists, otherwise the raw fragment.
+- Live runs can call `drop_empty_open_filters` before aggregation to remove an
+  open-set filter whose isolated API count is confirmed as `0`.
+
+Example:
 
 ```json
-{ "REGEX": { "field": "studyGroup", "pattern": ".*(cirrhosis|hepatic impairment|Child-Pugh B|Child-Pugh C).*" } }
+{
+  "field": "parameterComment",
+  "pool": ["maternal toxicity", "maternal toxic effect"],
+  "runtime_closed_set": ["Maternal toxicity", "Paternal toxicity", "Embryo-fetal toxicity"],
+  "selected": ["Maternal toxicity"]
+}
 ```
 
 ## Per-field contract
 
-Whatever the implementation, each field translator should expose a uniform
-contract so Stage 3 and the evaluator can treat them uniformly:
+Every field translator exposes the same selection result so Stage 3 and the
+evaluator can treat input-closed and runtime-closed translations uniformly:
 
-```
-translate(nl_fragment, context) -> {
+```text
+translate(field, pool, closed_set, context) -> {
   field:    str,
-  operator: "MATCH" | "REGEX" | "RANGE" | "NOT" | "DATE_RANGE" | "EMPTY",
-  value:    str | [str] | {min,max},
-  boolean_group?: { id, op: "AND" | "OR" },   # for multi-concept fields
-  grounding?: { matched_ids: [...], expanded_from: "class"|"term"|null, confidence: 0..1 },
+  selected: [str],          # always a subset of closed_set
+  valid:    bool,
+  phase:    "input_closed" | "runtime_closed",
+  boolean_group?: { id, op: "AND" | "OR" },
+  grounding?: { matched_ids: [...], expanded_from: "class"|"term"|"runtime"|null, confidence: 0..1 },
+  machine_subquery?: { operator, field, value },  # input-closed phase only
   notes?:   str
 }
 ```
 
-The `grounding` block is what makes the system auditable: for every closed-vocab
-value we can show *which* CSV rows it came from and whether it was expanded.
+`selected` is always a member subset of the provided closed set. For the
+input-closed phase, `machine_subquery` is derived from `selected` and the field's
+emission rules. For the runtime-closed phase, `selected` is applied directly as a
+datapoint post-filter. `valid=false` means the translation returned `[]` or
+`None`, or every candidate failed membership validation.
 
 ## Failure handling
 
-- **Empty exact/fuzzy pool** for a closed-vocab fragment → on the production
-  translator, fall back to the **LLM map → re-ground** step above: the LLM proposes
-  the canonical term(s), which are looked up against the CSV before use, so the
-  result still comes from the vocabulary. This is what resolves synonyms/brands the
-  string matcher misses (`homo sapiens` → `Human`).
-- **No CSV match** (even after the LLM fallback, or offline with no LLM) → do not
-  fall back to a hallucinated value. Either (a) return a low-confidence fuzzy
-  candidate flagged for review, or (b) surface "term not found in vocabulary"
-  (confidence 0) so the orchestrator can ask the user or drop the constraint
-  deliberately. This directly addresses the legacy "invented value" failures.
-- **Ambiguous field** (class vs target) → attempt both lookups; keep the higher-
-  confidence one, record the alternative.
+- **Input closed-set field fails translation** -> exclude the constraint from
+  the API query and record the invalid translation. A hard `MATCH` on an
+  out-of-set value is never emitted because it would silently zero the query.
+- **Runtime closed-set field fails translation** -> keep the fetched datapoints
+  from the closed-set query and do not apply that post-filter.
+- **LLM selects out-of-set candidates** -> reject the candidates, retry with
+  feedback that it must choose exact items from the closed set, and keep only
+  verified members.
+- **Ambiguous field reading** -> try the configured candidate fields and keep the
+  highest-confidence valid closed-set translation, recording the alternatives.

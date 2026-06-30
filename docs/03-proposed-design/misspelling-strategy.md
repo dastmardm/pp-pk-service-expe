@@ -1,101 +1,100 @@
 # Misspelling handling (pluggable)
 
-Users misspell things — "suntinib", "cabozantininb", "Columvi" for Glofitamab,
-"non small lung cancer". The pipeline must tolerate this **without** baking one
-correction approach into the core. So misspelling handling is defined here as a
-**pluggable strategy** with a fixed interface; *which* concrete strategy we use
-is a later decision.
-
-> **Status:** interface only. The concrete normalizers are deliberately left
-> open — see [Open decisions](#open-decisions). The point now is that Stage 2 has
-> a single, swappable seam to hang them on.
+Users misspell things: "suntinib", "cabozantininb", "Columvi" for Glofitamab,
+"non small lung cancer". The pipeline tolerates this through a **pluggable
+normalizer** with a fixed interface. The default configuration provides a no-op
+baseline and a fuzzy closed-set normalizer; field-specific normalizers can be
+registered without changing Stage 1 or Stage 3.
 
 ## Where it plugs in
 
-Normalization runs **inside Stage 2**, on the `nl_fragment`, *before* the field's
-value is produced — for both field buckets, but with different defaults:
+Normalization runs **inside Stage 2**, on the `nl_fragment`, before translation
+against the field's closed set:
 
+```text
+nl_fragment -> [normalizer for this field] -> cleaned fragment -> closed-set translation
 ```
-nl_fragment ─▶ [ Normalizer for this field ] ─▶ cleaned fragment ─▶ value production
-                                                                     (CSV lookup | LLM)
-```
 
-- **Closed-vocab fields** — the normalizer's job is to bridge the misspelling to a
-  real taxonomy entry (the CSV is the ground truth, so we can be aggressive).
-- **Open fields** — there is no vocabulary to anchor to, so correction is
-  necessarily lighter / more conservative (we must not "correct" a deliberate
-  free-text term into the wrong thing).
+- **Input closed-set fields**: the normalizer bridges misspellings toward a real
+  CSV, enum, or boolean entry.
+- **Runtime closed-set fields**: normalization stays conservative before the API
+  call; after datapoints are fetched, the runtime closed set anchors exact and
+  fuzzy matching.
 
-This keeps misspelling logic out of Stage 1 (routing) and Stage 3 (assembly).
+In v0.1, the implemented `fuzzy` normalizer only corrects CSV-backed closed-set
+fields. Open-set fields pass through conservatively; their current protection is
+surface cleanup in translation plus optional zero-count probing in live runs.
+
+This keeps misspelling logic out of Stage 1 routing and Stage 3 assembly.
 
 ## The interface
 
-One small contract, implemented by any strategy:
+One small contract is implemented by every strategy:
 
-```
+```text
 normalize(fragment: str, field: str, bucket: "closed" | "open", context) -> {
-  normalized: str,            # the fragment to use downstream (may == input)
-  candidates?: [              # optional ranked alternatives (esp. closed-vocab)
+  normalized: str,
+  candidates?: [
     { value: str, id?: str, score: 0..1, source: "exact"|"fuzzy"|"phonetic"|"llm"|... }
   ],
-  changed: bool,              # did we alter the fragment?
-  confidence: 0..1,           # how sure we are the correction is right
-  note?: str                  # human-readable explanation (audit trail)
+  changed: bool,
+  confidence: 0..1,
+  note?: str
 }
 ```
 
-Strategies are **registered per bucket** (and optionally overridden per field), so
-swapping one in/out is a config change, not a code change:
+Strategies are registered per bucket and may be overridden per field:
 
-```
+```text
 normalizers = {
-  "closed": <ClosedVocabNormalizer>,   # default for all closed-vocab fields
-  "open":   <OpenFieldNormalizer>,     # default for all open fields
-  "drugs":  <DrugNormalizer>,          # optional per-field override
+  "closed": <ClosedSetNormalizer>,
+  "open":   <ConservativeNormalizer>,
+  "drugs":  <DrugNormalizer>,
 }
 ```
 
-A **no-op normalizer** (`changed=false`, `normalized==input`) is the baseline, so
-the pipeline works end-to-end before any real strategy is chosen.
+A **no-op normalizer** (`changed=false`, `normalized==input`) is always
+available, so a service can disable correction for a field without changing the
+pipeline.
 
-## Candidate strategies (to choose from later)
-
-These are options to evaluate, **not** decisions:
+## Strategy families
 
 | Strategy | Fits | Idea |
 |----------|------|------|
-| No-op | both | passthrough; baseline / disable |
-| Fuzzy match | closed | edit-distance / token-set ratio against the field's CSV; reuses the Stage-2 lookup index |
-| Phonetic | closed | Soundex/Metaphone keys over CSV names for sound-alike typos |
-| TERMite-first | closed | trust TERMite's preferred label when it already resolved the (mis)spelled surface |
-| LLM correction | both | ask the model for the most likely intended term, optionally constrained to candidate values |
-| Hybrid | both | fuzzy/phonetic to shortlist from CSV, LLM to disambiguate the shortlist |
+| No-op | both | Pass through the fragment unchanged. |
+| Fuzzy match | closed sets | Use edit-distance / token-set ratio against the field's CSV or runtime closed set. |
+| Phonetic | input closed sets | Use Soundex/Metaphone keys over CSV names for sound-alike typos. |
+| TERMite-first | input closed sets | Use TERMite's preferred label when it corresponds to the field fragment. |
+| LLM pool enrichment | both | Ask the model for equivalent pool items, then ground them against the closed set. |
+| Hybrid | both | Use fuzzy/phonetic shortlist, LLM disambiguation, then membership validation. |
 
-For **open** fields the realistic choices are no-op, a generic spell-checker, or
-light LLM correction — there is no CSV to validate against.
+For open-set fields before fetch, correction is limited to no-op or conservative
+surface cleanup. After fetch, the runtime closed set supplies the validation
+anchor.
 
-## Confidence handling (deferred)
+## Confidence handling
 
-How we *act* on `confidence` is part of the later decision. Sketch of the options
-the interface already supports:
+- **High confidence**: use `normalized`.
+- **Medium confidence**: use `normalized` and surface `note` for auditability.
+- **Low or ambiguous confidence**: keep candidates in the pool and let the
+  closed-set translator resolve them by exact/fuzzy/LLM selection. If no
+  candidate grounds, the filter is invalid rather than guessed.
 
-- **high** → silently use `normalized`;
-- **medium** → use it but surface the correction (`note`) for transparency;
-- **low / ambiguous** → keep candidates and let the orchestrator decide (ask the
-  user, try top-N, or drop the constraint) rather than guess.
-
-Crucially, for closed-vocab fields a correction is only "valid" if it lands on a
-real CSV entry — this reuses the final grounding check in
-[stage-3-aggregation.md](stage-3-aggregation.md), so a bad correction can't slip
+For every bucket, a correction is only valid if it lands on a real member of the
+field's input or runtime closed set. This reuses the final grounding check in
+[stage-3-aggregation.md](stage-3-aggregation.md), so a bad correction cannot slip
 through as an invented value.
 
-## Open decisions
+## Normalizer policy
 
-- Which concrete normalizer per bucket (and which per-field overrides)?
-- The confidence thresholds and the medium/low actions above.
-- Whether open-field correction is worth the risk of "fixing" intentional terms.
-- Whether normalization is one pass or iterative (correct → lookup → re-correct on
-  miss).
-
-These are intentionally unresolved; this doc only fixes the **seam** so any of the
-above can be dropped in later without touching Stage 1 or Stage 3.
+- Closed-set fields use the configured field normalizer before translation. A
+  correction is accepted only when the corrected value grounds to the field's
+  closed set.
+- Enum and boolean fields normalize through their inline value list.
+- Open-set fields are conservative before the API call because no value set
+  exists yet. After datapoints are fetched, the runtime closed set provides the
+  anchor for exact/fuzzy matching and any correction must select from those
+  fetched values.
+- Normalization is iterative only inside the closed-set translator's resolution
+  loop: normalize, exact search, fuzzy search, LLM pool enrichment, then exact and
+  fuzzy search again.

@@ -10,7 +10,7 @@ then do we roll the steps up to an end-to-end number.
 Two SME gold datasets support this, at different granularities:
 
 - **Per-step expected outputs — [`docs/sme_stage_cases.csv`](../sme_stage_cases.csv)**
-  *(new; preliminary — see [Status & next steps](#status--next-steps)).* One
+  *(see [Status](#status)).* One
   column per pipeline step, so each stage's output can be diffed directly against
   what the SME expected at that step. This is the primary reference for per-step
   evaluation.
@@ -42,11 +42,9 @@ Because the columns line up with the stages, each stage's evaluator reads exactl
 one column as its reference — there is no need to re-derive a stage's expectation
 from the final query.
 
-> **Preliminary.** This dataset is **not final**. The shorthand notation, the
-> exact expansions (especially MedDRA effect rollups and species-class member
-> lists), and the per-step granularity will be refined as we build the per-step
-> evaluators and learn what each comparator actually needs. Treat current cells as
-> SME *intent*, not a frozen contract.
+The shorthand notation is SME intent in a compact form. The comparators parse the
+parts that are canonical enough to score deterministically; free-text nuances are
+sent to the typed judge when needed.
 
 ## The per-field gold set (`inputs/sme_expected_cases.csv`)
 
@@ -78,8 +76,8 @@ because the output is free-text or has many equally-correct surface forms.
 | 1 — decompose (routing) | `decompose` | `field` + `type` per component | **Exact** on field-routing and filter-vs-question type; **set** on which fields appear (missing / spurious). |
 | 1 — decompose (fragment) | `decompose` | the NL span per component | **LLM-as-judge**: spans are free text ("rats or mice", "at which dose"); judge semantic equivalence to the gold fragment. |
 | 1 — decompose (boolean) | `decompose` | `(OR)` / `(AND)` hints | **Exact** on the per-field boolean hint. |
-| 2 — translate (closed-vocab) | `translate` | resolved preferred-label set | **Set P/R/F1** over labels, after hierarchy expansion — deterministic. |
-| 2 — translate (open field) | `translate` | a `REGEX` / free-text pattern | **LLM-as-judge**: a regex has no canonical form; judge whether it captures the intended synonyms/threshold without over-matching. |
+| 2 — translate (input closed set) | `translate` | resolved preferred-label set | **Set P/R/F1** over labels, after hierarchy expansion — deterministic. |
+| 2 — translate (runtime closed set) | `translate` | selected subset of fetched field values | **Set P/R/F1** over fetched values when canonical; **LLM-as-judge** only when the gold value is free-text and several fetched strings are semantically equivalent. |
 | 3 — aggregate (structure) | `aggregate` | boolean tree + facets / displayColumns | **Structural** compare of the normalized tree; **LLM-as-judge** tie-break when two trees are logically equivalent but shaped differently. |
 | final | `machine query` / `counts` | full JSON payload | **Schema validity** + structural diff vs `machine query`; **count proximity** vs `counts` (tolerance band — see End-to-end below). |
 
@@ -98,10 +96,10 @@ auditable and themselves checkable:
 - **Stage 1 fragments** — "rats or mice" vs "rats, mice", "at which dose" vs
   "dose" carry the same intent; the judge scores semantic equivalence, not string
   equality. (Field/type routing is still scored deterministically.)
-- **Stage 2 open-field patterns** — a `studyGroup` `REGEX` for "hepatic
-  impairment" can be written many ways; the judge checks it matches the intended
-  synonym set (cirrhosis, Child-Pugh B/C, …) and does not over-match. Closed-vocab
-  values stay deterministic (set F1).
+- **Stage 2 runtime closed-set post-filters** — a `studyGroup` value for
+  "hepatic impairment" is selected from fetched datapoint values. Exact set
+  scoring is used when the fetched value is canonical; the judge is used only to
+  compare semantically equivalent free-text values.
 - **Stage 3 structure (tie-break)** — when the actual boolean tree is logically
   equivalent to the gold one but nested differently, the judge confirms
   equivalence only after the cheap structural compare reports a difference.
@@ -124,9 +122,9 @@ set:
 - **Precision / recall / F1** over resolved preferred labels (handles the
   `;`-separated multi-value cells and expansions).
 - **Exact-set match** rate (did we get the whole field right?).
-- Track **closed-vocab** vs **open** fields separately — they fail differently
-  (grounding/expansion errors vs free-text phrasing; the latter scored by the
-  judge).
+- Track **input closed-set** vs **runtime closed-set** fields separately — they
+  fail differently (taxonomy grounding/expansion errors vs too-broad or too-empty
+  fetched candidate sets).
 
 ### 2. Decomposition quality (Stage 1)
 
@@ -161,7 +159,7 @@ for case in sme_stage_cases.csv:               # one row per question, one colum
     out = pipeline.run(case.nl_query, service) # keep every intermediate artifact
     score step 0 vs case.termite               # set match (+ tolerated fallbacks)
     score step 1 vs case.decompose             # routing/type/boolean exact; fragment via judge
-    score step 2 vs case.translate             # closed-vocab set F1; open field via judge
+    score step 2 vs case.translate             # input/runtime closed-set F1; judge only for semantic free-text ties
     score step 3 vs case.aggregate             # structural; judge tie-break
     (optional) execute vs case.counts          # count proximity
 report: per-step table + per-stage rollup + diff vs legacy baseline
@@ -180,18 +178,19 @@ expand "Monkeys" to the full monkey species set (its `translate` cell) and resol
 the `Monoclonal antibodies` class node. Because steps are scored independently, a
 fix to species expansion cannot silently break drug resolution.
 
-## Status & next steps
+## Status
 
-- **The per-step dataset is preliminary.** [`docs/sme_stage_cases.csv`](../sme_stage_cases.csv)
-  is SME intent in shorthand, not a frozen contract; the notation and the
-  expansions will be refined alongside the evaluators.
-- **The current harness is count-based.** As built, the eval harness scores by
-  result-count accuracy only (translate → execute → compare to `counts` / `s`); see
-  [../06-implementation/build-status.md](../06-implementation/build-status.md). The
-  per-step comparators and the LLM-as-judge above are the **design target**, not
-  yet implemented.
-- **Coverage.** The set is small and Safety-centric. To trust the system broadly:
-  extend to **PK** and **RTB** questions; add **negative cases** (out-of-scope
-  questions, unknown drugs, empty results); and add **ambiguity cases**
-  (class-vs-target, brand-vs-generic), since those are the documented legacy
-  failure mode.
+- **The per-step dataset is compact SME intent.** [`docs/sme_stage_cases.csv`](../sme_stage_cases.csv)
+  is parsed by [eval/per_step.py](../../src/oppp/eval/per_step.py), which scores
+  TERMite labels, decomposition routing/type pairs, translated field names, and
+  final machine-query structure.
+- **The CLI harness is count-based.** `oppp eval` runs
+  [eval/harness.py](../../src/oppp/eval/harness.py): translate → optionally
+  execute → compare `countTotal` to the `counts` column, with CSV/XLSX report
+  export.
+- **The typed judge is implemented.** [eval/judge.py](../../src/oppp/eval/judge.py)
+  exposes `LLMJudge` and `JudgeVerdict` for fragment, open-pattern, and structure
+  tie-breaks. Tests inject a fake client so the judge contract stays hermetic.
+- **Coverage is Safety-centric.** The current SME sets focus on Safety questions;
+  PK and RTB service configs exist, and their broader evaluation coverage is
+  represented by targeted service tests.

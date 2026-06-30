@@ -1,14 +1,16 @@
 # Grounding & tool calling
 
-This is the mechanism that turns "trust the LLM" into "verify against the CSV".
-It applies to **closed-vocabulary fields** (Set A in
-[../02-domain-inputs/field-taxonomy.md](../02-domain-inputs/field-taxonomy.md)).
+This is the mechanism that turns "trust the LLM" into "verify against a closed
+set". It applies to input closed-set fields now, and to runtime closed sets once
+row fetching supplies the fetched datapoint values described in
+[../02-domain-inputs/field-taxonomy.md](../02-domain-inputs/field-taxonomy.md).
 
 ## The core move
 
-The legacy system lets the model write any string into a field value. The
-redesign instead exposes each taxonomy CSV as a **lookup tool** and requires the
-closed-vocab value to be the tool's output. The model chooses *what to look up*;
+The translator never accepts a raw generated value for a closed-set filter. For
+input closed-set fields, each taxonomy CSV is exposed as a **lookup tool**. For
+runtime closed-set fields, the unique values from fetched datapoints become the
+lookup list. The model may help build search phrases or select from candidates;
 the tool decides *what legal values exist*.
 
 ```
@@ -28,9 +30,9 @@ returns: [
 LLM emits:  MATCH species = [those preferred labels]
 ```
 
-The emitted value is therefore guaranteed to exist in the vocabulary.
+The emitted value is therefore guaranteed to exist in the relevant closed set.
 
-## One tool per closed-vocab taxonomy
+## One tool per input taxonomy
 
 | Tool | Backing CSV | Returns |
 |------|-------------|---------|
@@ -54,99 +56,65 @@ lookup_<field>(
 ) -> [ { name, id, parent_id, parent_name, count? } ]
 ```
 
-## Resolution order (recall vs precision)
+## Resolution order
 
-1. **TERMite preferred label** — if the fragment came from a TERMite annotation,
-   its preferred label is usually already a taxonomy term; verify it exists in the
-   CSV and use it. Highest precision. The annotation must **correspond to this
-   component's fragment**, not merely share the field type — otherwise a multi-value
-   field (`rats or mice`, `neutropenia or thrombocytopenia`) would bind every value
-   to the *first* same-typed annotation, silently duplicating one and dropping the
-   rest. Correspondence uses two signals: **textual overlap** of surface/label with
-   the fragment, OR **no grounding conflict** — the annotation still binds when the
-   surfaces differ (e.g. fragment `No Observed Adverse Effect Level` vs label
-   `NOAEL`, an abbreviation TERMite normalised) *unless* the fragment itself strongly
-   self-grounds (exact/high-fuzzy) to a **different** vocab entry. That conflict is
-   exactly the multi-value case (`Rat` self-grounds to `Rat` while the lone
-   annotation is `Mouse`), so the annotation is rejected and the fragment grounds
-   itself. When no annotation corresponds, fall through to fragment-based grounding.
-2. **Exact name match** (case-insensitive) in the CSV.
-3. **Fuzzy / synonym / wildcard** match; rank by closeness and, where present, by
-   the corpus `count` column (more frequent → more likely intended). This is also
-   where misspellings are reconciled — the pluggable normalizer feeds candidates
-   here (see [misspelling-strategy.md](misspelling-strategy.md)).
-4. **LLM map → re-ground** *(when exact + fuzzy return an empty candidate pool)* —
-   the fragment is something the string matcher cannot reach, in one of two shapes:
-   * a **synonym / scientific name / brand / abbreviation of one term** (e.g. `homo
-     sapiens` → `Human`; `per os` → `Oral`; `Columvi` → `Glofitamab`; `IV
-     administration` → `intravenous`); or
-   * a **class/group whose members are listed individually but the group itself is
-     not** — the vocabulary names the *members*, not the concept. `ADC` /
-     `antibody-drug conjugates` is no row in `drugs.csv`, yet Brentuximab Vedotin,
-     Trastuzumab Deruxtecan, Gemtuzumab Ozogamicin… all are. A pure string matcher
-     can never bridge this (there is no string to match), but the model's
-     pharmacology knowledge can: it is asked to **point at the specific member
-     entries** it is confident belong to the group.
+The same order applies to an input CSV and to a runtime list of fetched values.
+The only difference is the source of the closed set.
 
-   In both shapes the LLM names *what to look up*; **each proposal is then re-grounded
-   against the CSV** (exact first so a named real entity binds to its own row, then
-   fuzzy for spelling drift). The emitted value is therefore **always a subset of the
-   closed set** — every entry is a verified taxonomy row, never the model's raw string
-   or the group abbreviation (CONST-1). A proposal that does not ground (a
-   hallucinated drug) is simply dropped; if nothing grounds, the filter is dropped
-   rather than invented. This keeps **ground, don't generate** intact even when the
-   model supplies the membership knowledge a string match cannot. The call is
-   non-deterministic in practice even at temperature 0, so it is **retried and unioned
-   over a few attempts** (a single empty response must not silently drop the
-   constraint), and the kept set is capped below the API's ~49-value-per-`MATCH`-list
-   ceiling. Runs only on the production (LLM-enabled) lookup path; the offline
-   deterministic double skips it.
-5. **No match** → the constraint is **dropped** (marked `dropped`, confidence 0)
-   rather than inventing a value. Reached only when even the LLM's proposal fails to
-   ground across attempts (or offline, when no LLM is available). Emitting the raw
-   out-of-vocabulary phrase as a hard `MATCH` would silently **zero the whole query**
-   (an `AND` with a value that exists in no record), so Stage 3 excludes a dropped
-   constraint from the boolean tree, entity routing, and the budget alike, recording
-   a warning so the gap is visible. The query then returns the valid superset, not 0.
-   This is **ground, don't generate** taken to its conclusion: a closed-vocab field
-   never carries a value the vocabulary doesn't contain — not even as a last resort.
+1. **Build the pool.** Start with the normalized Stage-1 fragment. For input
+   closed-set fields, add corresponding Stage-0 enhancer preferred labels and
+   synonyms when available. For runtime closed-set fields, add LLM-generated
+   synonyms only as pool items, not as accepted values.
+2. **Exact search.** Compare every pool item to every closed-set entity using
+   case-insensitive exact matching. If exact matches are found, return those
+   closed-set entities.
+3. **Fuzzy search.** If exact search is empty, run fuzzy search from every pool
+   item into the closed set. Rank by string similarity, corpus `count` where
+   present, and hierarchy signals.
+4. **Pool enrichment.** If fuzzy search is also empty, ask the LLM for more pool
+   items: synonyms, abbreviations, brand names, scientific names, spelling
+   variants, or likely class/member names. Restart exact search and fuzzy search
+   with the enriched pool.
+5. **Closed-set LLM selection.** If the enriched pool still returns no matches,
+   pass the pool and the closed-set entities to the LLM and ask it to select the
+   matching rows using exact closed-set spellings. This handles cases where the
+   right row exists but string matching cannot bridge the wording.
+6. **Membership assertion and retry.** Every LLM-selected candidate is checked
+   against the closed set. Out-of-set candidates are rejected, and the LLM is
+   retried with explicit feedback to choose exactly from the provided items.
+   Candidates that still fail membership validation are dropped.
+7. **Invalid translation.** If the selected list is `[]` or `None`, translation
+   fails. Input closed-set failures are excluded from the API query; runtime
+   closed-set failures do not post-filter the fetched datapoints.
 
-### Entity-routed open fields (e.g. `targets`)
+The emitted value is therefore always a subset of the closed set. A raw phrase
+that cannot be grounded is never emitted as a hard `MATCH`, because it would
+silently zero an `AND` query or remove every datapoint in post-filtering.
 
-`targets` has no taxonomy CSV (it is an *open* field routed through the
-`DrugsTargets` entity filter), but the back-end still matches it against the
-enhancer's **preferred label**, not a free phrase: the filter accepts `Kinases`
-(the TERMite label) and returns nothing for the raw `inhibitors of kinases`. So
-for an entity-routed open field, when a TERMite annotation of the matching type is
-present, Stage 2 emits its label — the same "use the enhancer's preferred label"
-principle as step 1 above, applied where there is no CSV to verify against. With no
-annotation, the fragment passes through unchanged.
+### Runtime closed sets for open-set fields
 
-For a **plain free-text field** (e.g. `parameterComment`) there is no vocabulary at
-all — the value is searched as a substring of the record's comment text. The
-decomposer copies the user's surface words, so the fragment can carry the query's
-relational glue (`...NOAEL related to maternal toxicity` → fragment `related to
-maternal toxicity`). The API matches the *substantive* phrase, so Stage 2 strips a
-leading relational connective (`related to`, `associated with`, `due to`, `for`,
-`of`, `in`, …) before emitting (`related to maternal toxicity` → `maternal
-toxicity`). This is general over open free-text fields, not tied to any one comment.
+Open-set fields such as `parameterComment`, `studyGroup`, `dose`, `ages`, PK
+`parameterDisplay`, and RTB `model` have no complete value list before the first
+API call. The pipeline therefore defers them:
 
-#### Server-side zero-count probe (open-set safety net)
+1. Translate and aggregate all valid input closed-set filters.
+2. Execute the API query and fetch datapoints.
+3. For each deferred open-set field, collect the unique values present in those
+   datapoints.
+4. Run the closed-set translator over that runtime list.
+5. Keep only datapoints whose field value is in the returned subset.
 
-A closed-vocab field is validated against its CSV *before* it is ever emitted, so a
-bad value is caught locally. An open-set field has no such check — a mis-routed or
-glue-laden phrase can carry a value that exists in **no record** and silently zeroes
-the whole `AND`, and we cannot know that offline. So at Stage 3 (live paths only) we
-**ask the API**: each open-set filter is probed **in isolation** with one cheap
-server-side `countTotal` (`drop_empty_open_filters`, never fetching rows), and a
-filter whose count is confirmed **0** is dropped — it matches nothing in the corpus,
-so it cannot legitimately constrain anything. Design choices: probe the filter
-**alone** (not ANDed with the rest), so only a genuinely-invalid value is dropped,
-never a valid value that is merely empty in combination; on any probe error/timeout
-**keep** the filter (fail open). Entity-routed fields (`targets`/`indications` via
-`entityFilters`) are skipped — the API rejects an `entityFilters`-only query, so they
-can't be probed alone and fall through to keep. This is the open-field analogue of the
-CSV check: ground or drop, never let an in-no-record value zero the query.
+Entity-routed open-set fields, such as `targets` when no local `targets.csv` is
+available, follow the same rule when their values are present in the fetched
+datapoints or linked result entities: the post-filter may only keep values from
+the fetched runtime set.
+
+The v0.1 code does not fetch rows. Its implemented guard for open-set fields is
+server-side count probing: open fields are translated as direct `MATCH` or
+`REGEX` constraints, and live runs may probe each one in isolation. A confirmed
+zero-count open filter is dropped with a warning; probe errors keep the filter.
+Entity-routed open fields such as `targets` are skipped by this probe because the
+API rejects entity-filter-only requests.
 
 ## Hierarchy expansion (the rollup engine)
 
@@ -208,9 +176,13 @@ Tool calling keeps the prompt small, makes grounding *enforced* rather than
 
 ## Implementation note
 
-The lookups are simple in-memory operations over small/medium tables. A first
-implementation can load each CSV into a pandas/dict index at startup; exact and
-prefix matching cover most cases, with a fuzzy matcher (e.g. token-set ratio) and
-optional embedding search for hard synonym cases. No external service is required
-beyond the existing TERMite and LLM clients
-([utils/client/](../../utils/client/), [utils/termite/](../../utils/termite/)).
+The implemented lookup layer is an in-memory CSV index in
+[taxonomy/index.py](../../src/oppp/taxonomy/index.py). It loads each taxonomy with
+the standard `csv` module, keeps lower-cased name and parent-child maps, and uses
+RapidFuzz for fuzzy lookup. For large closed sets, the LLM closed-set fallback is
+given a focused candidate window rather than every row; every LLM proposal is
+re-grounded against the CSV before it can be emitted.
+
+No external service is required for CSV grounding. TERMite and the LLM client are
+optional helpers: TERMite supplies entity annotations, and the LLM supplies
+structured expansion/selection when configured.

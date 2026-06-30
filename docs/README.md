@@ -1,13 +1,15 @@
 # PharmaPendium NL→Machine-Query Redesign
 
-This folder documents the redesign of the natural-language-to-machine-query
-translation layer that currently lives in [utils/ppendium/](../utils/ppendium/).
+This folder documents the natural-language-to-machine-query translation layer
+implemented in [src/oppp/](../src/oppp/) and the legacy prompt stack it replaces
+under [utils/ppendium/](../utils/ppendium/). See [index.md](index.md) for the
+complete documentation map.
 
 The **goal of the redesign**: replace the single monolithic "one giant prompt
 does everything" translator with a **decomposed, field-by-field pipeline** that
-grounds closed-vocabulary fields against the taxonomy CSVs in
-[inputs/](../inputs/) and only relies on free LLM judgement for fields whose
-value space we cannot enumerate.
+grounds input closed-set fields against the taxonomy CSVs in
+[inputs/](../inputs/), then handles fields whose value space is not known until
+runtime by translating against the unique values in fetched datapoints.
 
 ## Reading order
 
@@ -30,27 +32,32 @@ value space we cannot enumerate.
 | 5 | [05-evaluation/gold-set-and-metrics.md](05-evaluation/gold-set-and-metrics.md) | How we measure success — per-step gold set, metrics & LLM-as-judge |
 | 6 | [06-implementation/tech-stack.md](06-implementation/tech-stack.md) | Tools/packages + pluggability & per-step isolation |
 | 6 | [06-implementation/build-status.md](06-implementation/build-status.md) | What's built (the `oppp` package), how to run it, limitations |
+| 6 | [06-implementation/operations.md](06-implementation/operations.md) | Install, run, configuration, credentials, and execution model |
 | 6 | [06-implementation/streamlit-ui.md](06-implementation/streamlit-ui.md) | The Streamlit demo/debug UI: question picker, per-step selectors, stage outputs |
 
 ## Pipeline stages (pluggable + isolatable)
 
 The pipeline is **three core stages** (decompose → translate → aggregate) preceded
-by an **optional Stage 0 enhancer** — each selectable by name (a registry) and
-runnable on its own. Production defaults are the LLM-based design; offline
-**doubles** let the test suite and per-stage evaluation run without the LLM. (The
-doubles skip LLM calls, not the API — add `--no-execute` to skip the API too.)
+by Stage -1 query expansion and an optional Stage 0 enhancer. Each step is
+selectable by name through a registry and runnable on its own. CLI defaults use
+the model-backed path; offline **doubles** let the test suite and per-stage
+evaluation run without the LLM. The doubles skip LLM calls, not the API; add
+`--no-execute` to skip the API too.
 
-| Stage | Job | Backends (default in **bold**) | Run alone |
+| Stage | Job | Backends (CLI default in **bold**) | Run alone |
 |-------|-----|--------------------------------|-----------|
+| -1 Expand | clarify the query and spell out abbreviations without changing meaning | **`llm`**, `noop` | full pipeline only |
 | 0 Enhance *(optional)* | normalize entities in the raw query | **`termite`**, `noop` (offline) | `oppp enhance` |
 | 1 Decompose | split into single-field components — **no vocab, no guessing** | **`llm`**, `gazetteer` (offline double) | `oppp decompose` |
-| 2 Translate | ground each field via its taxonomy tool(s) | **`tool`** (LLM term-select), `deterministic` (offline double) | `oppp field` |
-| 3 Aggregate | assemble the global boolean query | **`llm`**, `deterministic` (offline double) | `oppp aggregate` |
+| 2 Translate | translate fields against input or runtime closed sets | **`tool`** (LLM term-select), `deterministic` (offline double) | `oppp field` |
+| 3 Aggregate | assemble and validate the API query; live runs may execute it for `countTotal` and probe open-set filters | **`llm`**, `deterministic` (offline double) | `oppp aggregate` |
 
-The defaults match `oppp eval` (termite enhance · llm decompose · tool translate ·
-llm aggregate · fuzzy normalize). For an LLM-free run pin the doubles and disable
-the enhancer
-(`--enhancer noop --decomposer gazetteer --translator deterministic --aggregator deterministic`);
+`oppp run` defaults to `llm` expansion, `termite` enhancement, `llm`
+decomposition, `tool` translation, `llm` aggregation, fuzzy normalization, and
+API execution. The Python `run_pipeline()` defaults are more conservative for
+library use: `enhancer=noop`, `normalizer=noop`, and no open-filter probes. For
+an LLM-free run pin the doubles and disable the enhancer
+(`--expander noop --enhancer noop --decomposer gazetteer --translator deterministic --aggregator deterministic`);
 add `--no-execute` to also skip the API and stay fully offline.
 
 ![Agent component DAG](agent-dag.png)
@@ -113,19 +120,22 @@ oppp eval --tolerance 0.10 --show-cases
 
 ## One-paragraph summary
 
-A user asks a question in natural language. An optional **enhancer** (TERMite)
-normalizes entities up front. An LLM **decomposer** then splits the question into
-single-field components using the user's own words — it only segments, it does
-not resolve, normalize, or consult any vocabulary. Each component is
-**translated independently** into a machine subquery — a single filter of the
-form `(operator, field, value)`. For fields whose legal values we already have as
-CSV taxonomies (drugs, effects, species, route, …), the value is **grounded by
-tool-calling against the CSV** (optionally refined by an LLM term selector); for
-fields we cannot enumerate (study group, dose comment, free-text qualifiers,
-numeric thresholds), the value passes through directly. Finally an LLM
-**aggregator** reads the decomposition plus every machine subquery and assembles
-the single nested machine query the PharmaPendium API expects (the boolean
-structure is LLM-decided but rendered and validated deterministically).
+A user asks a question in natural language. Stage -1 may rewrite it into a
+clearer form while preserving every entity and filter. An optional **enhancer**
+(TERMite) annotates recognized entities up front. An LLM **decomposer** then
+splits the question into single-field components using the user's own words; it
+only segments, and does not resolve, normalize, or consult any vocabulary. Each
+component is **translated independently** against a known closed set. For fields
+whose legal values are available as CSV taxonomies or inline enums (drugs,
+effects, species, route, dose type, sex, ...), the value is grounded before the
+API call. Fields without an input value set (study group, comments, free-text
+qualifiers, target values without a local taxonomy) are represented in the design
+as runtime closed-set post-filters. In the current package, those open fields are
+emitted as direct `MATCH`/`REGEX` constraints and, when execution is enabled, can
+be guarded by isolated zero-count probes before final aggregation. Finally an LLM
+**aggregator** reads the decomposition plus valid machine subqueries and assembles
+the nested machine query the PharmaPendium API expects; the boolean structure is
+rendered and validated deterministically.
 
 > **Status:** implemented as the `oppp` package. Every stage is pluggable by name
 > and isolatable; offline doubles (`gazetteer` / `deterministic`) keep the test

@@ -1,6 +1,7 @@
 # Stage 1 — Decomposition
 
-**Input:** the NL query (optionally enriched by the Stage 0 enhancer's annotations).
+**Input:** the query text after optional Stage -1 expansion and Stage 0
+enhancement.
 **Output:** a list of single-field NL subqueries, each routed to a target field.
 
 ## Goal
@@ -38,8 +39,9 @@ A list of items like:
 - **reason** — a one-sentence natural-language justification for why this
   fragment maps to this field and this `type`. Keep it to a single sentence;
   it is the human-readable audit trail for the decomposition.
-- **source** — provenance: the LLM, or (when the Stage 0 enhancer is on) a TERMite
-  annotation. Useful for debugging and for deciding grounding confidence in Stage 2.
+- **source** — provenance such as `llm`, `gazetteer:<field>`,
+  `gazetteer-fuzzy:<field>`, or a reconciliation suffix. Useful for debugging and
+  for deciding grounding confidence in Stage 2.
 - **boolean hint** (optional) — when one field carries multiple concepts with
   explicit logic, e.g. `effects` with "neutropenia **or** thrombocytopenia",
   record the intended operator so Stage 3 can honour it.
@@ -68,16 +70,14 @@ A list of items like:
    annotations carry a type that maps cleanly to a field: `DRUG→drugs`,
    `SPECIES→species`, `ROUTE→route`, `ADVERSE_EVENT→effects`,
    `TOXICITY_PARAMETER→toxicityParameter`, `INDICATION→indications`,
-   `PARAMETER→parameter` (PK), `AGE→ages` (PK), `TARGET→targets`. These seed
+   `PARAMETER→parameter` (PK), `AGE→ages` (Safety), `AGE→age` (PK),
+   `TARGET→targets`. These seed
    high-confidence routing and carry `source: termite:<TYPE>`. With the default
    `noop` enhancer there are no such hints and the LLM does all the routing.
 3. **Offline double.** A `gazetteer` decomposer (vocab-based, exact + fuzzy
    taxonomy matching) exists for hermetic tests/eval only — the production `llm`
    decomposer never touches the vocabulary.
-4. **Disambiguation.** When a span could be two fields (the classic "kinase" =
-   drug *class* vs *target*, Q8/Q21), Stage 1 records both candidates; Stage 2
-   resolves by attempting the relevant CSV lookups and comparing confidence.
-5. **Annotation reconciliation (deterministic, post-decompose).** Because the
+4. **Annotation reconciliation (deterministic, post-decompose).** Because the
    vocab-free LLM still routes by intuition, a small deterministic pass honours the
    enhancer's annotations rather than trusting the prompt hint alone. It resolves
    the "kinase" case above: when TERMite recognized a `TARGET` entity and the
@@ -107,21 +107,17 @@ A list of items like:
    Both rules live in `reconcile_with_annotations`, run by the pipeline after any
    decomposer backend.
 
-## Granularity: per field or per concept?
+## Granularity: per concept, tagged by field
 
-Two defensible options (open question — see
-[architecture.md](architecture.md#open-questions)):
+Stage 1 decomposes to **concepts** and tags each concept with its target field.
+When several concepts belong to the same field, they share a `boolean_group` so
+Stage 2 can translate each concept independently and Stage 3 can recombine them
+with the intended operator.
 
-- **One subquery per field.** "neutropenia or thrombocytopenia" → a single
-  `effects` subquery carrying both concepts + an `OR` hint.
-- **One subquery per concept.** → two `effects` subqueries; Stage 3 OR-joins
-  them.
-
-The gold set supports *per concept* internally but reports *per field*: Q14
-stores `(neutropenia terms) AND (thrombocytopenia terms)` in one `effects` cell.
-Recommended: decompose to **concepts** but tag them with the same field + a
-shared boolean group, so Stage 2 can expand each concept independently and Stage
-3 can recombine with the right operator.
+For example, "neutropenia or thrombocytopenia" becomes two `effects` components
+with one shared `OR` group. "Neutropenia and cytopenia" becomes two `effects`
+components with one shared `AND` group. This preserves per-concept grounding
+while still reporting the field as a single logical filter in evaluation.
 
 ## What Stage 1 must NOT do
 

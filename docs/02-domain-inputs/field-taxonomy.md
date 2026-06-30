@@ -1,81 +1,117 @@
-# The two sets of searchable fields
+# Filterable fields and value sets
 
-This is the central design distinction. Every searchable field falls into one of
-two buckets, and the bucket determines **how Stage 2 produces its value**.
+Every searchable filter field belongs to exactly one bucket in the service
+configuration. The bucket determines when the field can be translated and where
+its legal values come from.
 
-## Set A — Closed-vocabulary (CSV-backed) fields
+- **Closed-set fields** have a complete value set before query execution. The set
+  comes from an `inputs/` taxonomy CSV, an inline enum, or a boolean domain. Stage
+  2 may only emit values that are members of that set.
+- **Open-set fields** do not have a complete value set in `inputs/`. The row-level
+  design defers them until fetched datapoints provide a runtime closed set for
+  post-filtering. In v0.1, these fields are translated directly to `MATCH` or
+  `REGEX` constraints and live runs may drop a filter only when an isolated API
+  count probe confirms that it matches no records.
 
-The complete set of legal values exists on disk as a taxonomy CSV in
-[inputs/](../../inputs/). For these fields we **must not** let the model invent a
-value — we ground it against the CSV (see
-[../03-proposed-design/grounding-and-tool-calling.md](../03-proposed-design/grounding-and-tool-calling.md))
-and we can exploit the hierarchy for expansion.
+A **filterable field** is any field Stage 1 may emit as a `type=filter`
+component. Fields requested only as outputs become facets or `displayColumns`;
+they are not filters unless the user also uses them to restrict retrieval.
 
-| Field | Backing CSV | Rows | Hierarchical? | Typical operator |
+## Input closed sets
+
+These fields have their full legal value set available before query execution.
+For CSV-backed fields, the preferred labels in the `name` column are the values
+that may be emitted to the API.
+
+| Field | Backing set | Rows | Hierarchical? | Typical operator |
 |-------|-------------|------|---------------|------------------|
-| `drugs` / `drugsFuzzy` | [drugs.csv](../../inputs/drugs.csv) | 5,227 | yes (drug → class via `parent_name`) | `MATCH` (+ trailing `*` for fuzzy) |
+| `drugs` / `drugsFuzzy` | [drugs.csv](../../inputs/drugs.csv) | 5,227 | yes (drug -> class via `parent_name`) | `MATCH` (+ trailing `*` for fuzzy drug leaves) |
 | `effects` | [effects.csv](../../inputs/effects.csv) | 12,724 | yes (MedDRA-style) | `MATCH` with expanded value list |
-| `indications` | [indications.csv](../../inputs/indications.csv) | 3,152 | yes | `MATCH` (often via `entityFilters`) |
-| `species` | [species.csv](../../inputs/species.csv) | 286 | yes (class → members, e.g. Rodent/Primate) | `MATCH` with expanded list |
+| `indications` | [indications.csv](../../inputs/indications.csv) | 3,152 | yes | `MATCH` via `entityFilters` where required |
+| `species` | [species.csv](../../inputs/species.csv) | 286 | yes (class -> members, e.g. Rodent/Primate) | `MATCH` with class/leaf handling |
 | `route` | [route.csv](../../inputs/route.csv) | 204 | flat (+ usage counts) | `MATCH` |
 | `toxicityParameter` | [toxicity_parameters.csv](../../inputs/toxicity_parameters.csv) | 33 | yes | `MATCH` |
-| `documentSource` / `sources` | [sources.csv](../../inputs/sources.csv) | 56 | yes (doc → FDA/EMA parent) | `MATCH` |
+| `documentSource` / `sources` | [sources.csv](../../inputs/sources.csv) | 56 | yes (doc -> FDA/EMA parent) | `MATCH` |
 | `doseType` | [dose_type.csv](../../inputs/dose_type.csv) | 7 | flat enum | `MATCH` |
-| `documentYear` | [document_year.csv](../../inputs/document_year.csv) | 118 | flat (years + ranges) | `MATCH` / `RANGE` / `DATE_RANGE` |
-| `targets` | *(taxonomy exists; no CSV shipped here yet — see note)* | — | yes | `MATCH` / `entityFilters` |
+| `documentYear` | [document_year.csv](../../inputs/document_year.csv) | 118 | flat years/ranges | `MATCH` / `RANGE` / `DATE_RANGE` |
 
-> **Note on `targets`:** [enums.csv](../../inputs/enums.csv) lists `Targets` /
-> `ActivityTargets` as real `FuzzyLookupFilter` taxonomies, and the gold set uses
-> targets (Q21 CDK4), but no `targets.csv` is present in `inputs/`. It is
-> conceptually a closed-vocabulary field; the taxonomy export is an
-> [open question](../03-proposed-design/architecture.md#open-questions).
+### Inline closed sets
 
-### Sub-case: tiny fixed enums
+Small enums and booleans are also closed-set fields. They do not need a CSV
+lookup, but translation still chooses from an explicit finite set.
 
-Some closed fields have so few values that a CSV lookup is overkill — they can be
-inlined into the Stage-2 translator as a fixed enum rather than a tool call:
+| Field | Allowed values |
+|-------|----------------|
+| `sex` | `Male`, `Female`, `Both` |
+| `isPreclinical` | `true`, `false` |
+| `concomitants` (PK) | `Fed`, `Fasted` |
+| `tissueSpecific` (PK) | `Tissue-specific`, `Not tissue-specific` |
+| `metabolitesEnantiomers` (PK) | `Not metabolites/enantiomers`, `Metabolite`, `Enantiomer` |
+| `category` (RTB) | `In vitro (efficacy)`, `In vivo (animal models)`, `Metabolism/transport`, `Pharmacokinetic`, `Toxicity/safety pharmacology` |
 
-| Field | Allowed values | Source |
-|-------|----------------|--------|
-| `sex` | Male, Female, Both | prompts / fields |
-| `doseType` | overdose, repeated, single, single/repeated, single/twice, twice, twice/repeated | [dose_type.csv](../../inputs/dose_type.csv) |
-| `metabolitesEnantiomers` (PK) | Not metabolites/enantiomers, Metabolite, Enantiomer | PK prompt |
-| `concomitants` (PK) | Fed, Fasted | PK prompt |
-| `tissueSpecific` (PK) | Tissue-specific, Not tissue-specific | PK prompt |
-| `isPreclinical` | true, false | boolean |
+The `FuzzyLookupFilter.taxonomy` values in [enums.csv](../../inputs/enums.csv)
+are a useful cross-check for server-side fuzzy lookup support, but this document
+uses the local `inputs/` value sets as the definition of what can be translated
+before the first API call.
 
-They are still "closed", just handled inline. The `FuzzyLookupFilter.taxonomy`
-list in [enums.csv](../../inputs/enums.csv) enumerates which taxonomies the
-back-end fuzzy-lookup endpoint can resolve (Drugs, Effects, Species, Sources,
-Routes, Indications, Targets, PKParameters, ToxicityParameters, Concomitants, …)
-— a useful cross-check on which fields are genuinely closed-vocabulary.
+## Runtime closed sets
 
-## Set B — Open (LLM-decides) fields
-
-We cannot enumerate the values, so the LLM produces them directly — usually as a
-`REGEX` (free-text substring) or a `RANGE` (numeric threshold).
-
-| Field | Why open | Typical operator |
-|-------|----------|------------------|
-| `studyGroup` | free text; needs synonym expansion (e.g. hepatic impairment → cirrhosis, Child-Pugh B/C, …) | `REGEX` |
-| `parameterComment` | free-text qualifier (e.g. "Maternal toxicity") | `MATCH`/`REGEX` |
-| `parameterDisplay` (PK) | tissue + metabolite names | `REGEX` |
-| `dose` | free numeric+unit text | `MATCH`/`REGEX` |
-| `valueNormalized` / `valueMin…` / `valueMax…` (PK) | continuous numeric, unit-normalized | `RANGE` |
-| `ages` | substring/category (gold set: "substring search adult") | `REGEX` |
-| `comorbidities`, `diseaseName`, `raceEthnicity`, `galenicForm`, … | free text | `MATCH`/`REGEX` |
-| metabolite names | open identifiers | `REGEX` |
-
-## Decision rule (used by Stage 1 routing & Stage 2)
+Open-set fields become closed only after the first query has returned
+datapoints. For each open-set filter field, the pipeline collects the unique
+non-empty values present in the fetched datapoints for that field. That unique
+list becomes the field's runtime closed set:
 
 ```
-Is there a taxonomy CSV (or fuzzy-lookup taxonomy) for this field?
-├─ yes → CLOSED-VOCAB: ground the value against the CSV via tool calling;
-│         expand along the hierarchy if the user named a class/rollup.
-└─ no  → OPEN: let the LLM produce the value (REGEX for text, RANGE for numbers),
-          applying any service-specific synonym-expansion guidance.
+open-set field fragment + fetched unique values
+        -> closed-set translation
+        -> valid subset of fetched values
+        -> post-filter the datapoints
 ```
 
-The complete field list (response side) is in
-[inputs/fields.csv](../../inputs/fields.csv); the request-side criteria and their
+If translation over the runtime closed set returns `[]` or `None`, the open-set
+filter is invalid and does not narrow the datapoints. The invalid translation is
+recorded so the final answer can explain that the field could not be grounded.
+
+The v0.1 execution layer reads `countTotal` and does not fetch rows, so the
+runtime closed-set post-filter path is not materialized in code. The implemented
+open-set safety mechanism is the zero-count probe described above.
+
+Typical open-set fields:
+
+| Field | Why open before fetch | Runtime closed set |
+|-------|-----------------------|--------------------|
+| `parameterComment` | free-text qualifier, e.g. "maternal toxicity" | unique comments in the fetched datapoints |
+| `studyGroup` | free text needing synonym handling, e.g. hepatic impairment | unique study-group strings in the fetched datapoints |
+| `dose` | free numeric/unit text as stored in records | unique dose strings in the fetched datapoints |
+| `ages` / `age` | free text or category-like record values | unique age strings in the fetched datapoints |
+| `parameter`, `parameterDisplay`, `duration` (PK) | no local PK parameter/duration value set in `inputs/` | unique PK values in fetched datapoints |
+| `targets` | no local `targets.csv` value set in `inputs/` | v0.1 emits a `DrugsTargets` entity filter, using a TERMite preferred label when available; row-level runtime sets apply when fetched linked values are available |
+| `model`, `cellLine`, `tissue`, `regimen` (RTB) | free-text CrossFire columns | unique column values in fetched rows |
+
+## Service field map
+
+The service config is the source of truth for which filter fields exist and which
+bucket each field uses.
+
+| Service | Closed-set filters before API query | Open-set fields |
+|---------|-------------------------------------|-------------------------------------------|
+| Safety | `drugs`, `effects`, `species`, `route`, `toxicityParameter`, `documentSource`, `doseType`, `documentYear`, `indications`, `sex`, `isPreclinical` | `targets`, `parameterComment`, `studyGroup`, `ages`, `dose` |
+| PK | `drugs`, `species`, `route`, `documentSource`, `documentYear`, `sex`, `concomitants`, `tissueSpecific`, `metabolitesEnantiomers`, `isPreclinical` | `parameter`, `parameterDisplay`, `studyGroup`, `age`, `dose`, `duration` |
+| RTB | `drugs`, `species`, `route`, `category` | `parameter`, `model`, `cellLine`, `tissue`, `regimen` |
+
+## Decision rule
+
+```
+Does the field have a complete value set in inputs/ or an inline enum/boolean?
+├─ yes -> CLOSED SET before query execution:
+│        translate against that set and only emit a valid subset.
+└─ no  -> OPEN SET before query execution:
+         v0.1 translates directly and may apply zero-count probes;
+         the row-level design defers the filter, fetches datapoints using
+         closed-set filters, derives this field's unique fetched values,
+         translates against that runtime closed set, then post-filters rows.
+```
+
+The complete response-side field list is in
+[inputs/fields.csv](../../inputs/fields.csv); request-side criteria and their
 types are in [inputs/query_criteria_fields.csv](../../inputs/query_criteria_fields.csv).

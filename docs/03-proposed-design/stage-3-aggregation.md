@@ -1,106 +1,144 @@
-# Stage 3 — Aggregation
+# Stage 3 - Aggregation, fetch, and post-filtering
 
-**Input:** all per-field machine subqueries from Stage 2.
-**Output:** one final machine query in the
-[target format](../02-domain-inputs/machine-query-schema.md), ready to POST.
+**Input:** valid input closed-set machine subqueries from Stage 2A, deferred
+open-set filter components, and question components from Stage 1.
+**Output:** one closed-filter API query, fetched datapoints, and the datapoints
+after any validated runtime closed-set post-filters.
 
-This stage is deterministic assembly + a small amount of rule application. It
-should be mostly code, not LLM — the hard semantic work already happened.
+This stage is deterministic assembly plus API execution. The hard per-field
+value selection stays in Stage 2; Stage 3 decides how valid filters are combined,
+where they are routed, and when the API is called.
+
+The v0.1 implementation builds and validates the machine query and can execute it
+for `countTotal`. It does not fetch full datapoint rows, so runtime closed-set
+post-filtering is documented below as the row-level design path. The implemented
+open-set guard is `drop_empty_open_filters`: live runs may probe each open-set
+filter in isolation and drop it only when the API confirms a zero count.
 
 ## Steps
 
-### 1. Group by boolean intent
+### 1. Keep only valid input closed-set filters
 
-- Subqueries that are plain filters combine under a top-level **`AND`** (the
-  default: every field constrains the result). This is the cross-field boolean.
-- Subqueries that share a Stage-1 `boolean_group` combine with that group's
+Stage 2A marks a closed-set translation invalid when it returns `[]`/`None` or
+when the selected candidates are not members of the field's closed set. Stage 3
+does not place invalid filters in the API query. It records them as warnings so
+the final result explains which user constraint could not be grounded.
+
+In the row-level design, open-set filters are held aside at this point because
+their closed set is not known until datapoints are fetched. In v0.1, open-set
+filters have already been translated as `MATCH` or `REGEX` subqueries and may be
+kept or removed by the zero-count probe before aggregation.
+
+### 2. Group by boolean intent
+
+- Valid filters combine under a top-level **`AND`** by default: every field
+  constrains the result.
+- Filters that share a Stage-1 `boolean_group` combine with that group's
   operator first, then join the rest. Examples from the gold set:
-  - Q13 effects "neutropenia **or** thrombocytopenia" → an `OR` node of two
-    expanded `effects` MATCHes, then AND-ed with `species=Human`.
-  - Q14 effects "neutropenia **and** cytopenia" → an `AND` of two expanded
-    `effects` MATCHes.
-  - Q7 species "Human **AND** at least one preclinical species" → an `OR` over
-    `species=Human` and `isPreclinical=true` (cross-field boolean), per the
-    Safety "Human plus preclinical" rule.
+  - Q13 effects "neutropenia **or** thrombocytopenia" -> an `OR` node of two
+    expanded `effects` `MATCH` filters, then AND-ed with `species=Human`.
+  - Q14 effects "neutropenia **and** cytopenia" -> an `AND` of two expanded
+    `effects` `MATCH` filters.
+  - Q7 species "Human **AND** at least one preclinical species" -> an `OR` over
+    `species=Human` and `isPreclinical=true`, per the Safety rule.
 
-### 2. Route to `entityFilters` where required
+### 3. Route to `entityFilters` where required
 
-Some fields must be expressed via a linked entity rather than the top-level
-`query`. Stage 3 moves them:
+Some input closed-set fields must be expressed via a linked entity rather than
+the top-level `query`. Stage 3 moves them:
 
-- Safety: `indications` → `DrugsIndications`; `targets` → `DrugsTargets`.
-- `species`, `route`, `toxicityParameter` stay as **direct** top-level fields
-  (per the Safety prompt's explicit instruction).
-- PK adds `Species`, `Concomitants`, `PKParameters` entities.
+- Safety: `indications` -> `DrugsIndications`.
+- `species`, `route`, and `toxicityParameter` stay as direct top-level fields.
+- PK has no configured entity routes in v0.1.
 
-A per-service routing table drives this.
+A per-service routing table drives this. Open-set fields that have no input
+closed set are not routed into the first API query.
 
-### 3. Apply service invariants
+### 4. Apply service invariants
 
-Rules that are not derivable from the user's words but are always required by a
-service. Carried over from the legacy prompts, now applied as deterministic
-post-processing:
+Rules that are not derived from the user's words but are always required by a
+service are applied as deterministic post-processing:
 
-- **PK — concomitants.** Always pin to Fasted-or-empty:
+- **PK - concomitants.** Always pin to Fasted-or-empty:
   `{"OR":[{"MATCH":{"field":"concomitants","value":"Fasted"}},{"EMPTY":{"field":"concomitants"}}]}`.
-- **PK — tissueSpecific.** Default `Not tissue-specific`; set `Tissue-specific`
-  + a `parameterDisplay` REGEX when a non-plasma location is named.
-- **PK — metabolitesEnantiomers.** Default `Not metabolites/enantiomers`; set
-  `Metabolite` for named-metabolite queries.
-- **PK — duration / steady-state, clearance & Vd parameter defaults, unit
-  normalization** — see the PK rules block in
-  [prompts.py](../../utils/ppendium/prompts.py).
-- **Safety — species "Human" gating.** Only add `species=Human` on unambiguous
-  human terms (patient, subject, man/woman, child); "study" alone is not enough.
+- **PK - tissueSpecific.** Default to `Not tissue-specific` unless the query
+  already contains `tissueSpecific`.
+- **PK - metabolitesEnantiomers.** Default to `Not metabolites/enantiomers`
+  unless the query already contains `metabolitesEnantiomers`.
+- **RTB - category.** Add `DAT.CATEG = "Pharmacokinetic"` when no category is
+  present, because the RTB where-clause surface requires a non-empty category.
 
-These should live in a per-service **invariants module**, unit-tested in
-isolation.
+These live in per-service invariants and are unit-tested in isolation.
 
-### 4. Attach output options
+### 5. Attach output options
 
-- **`facets`** — when the question asks "which / what are the / list of /
-  categories", add the relevant allow-listed facet(s). Allow-lists per service
-  (Safety: `drugs, species, sources, effects, route, doseType, documentYear`).
-  Fields whose Stage-1 `type` is `question` map to facets / display columns here.
-- **`displayColumns`** — only when the user explicitly asks for specific output
-  columns (e.g. "at which dose, regimen and route" → `["drug","dose","doseType",
-  "route"]`). Otherwise omit. Names come from [fields.csv](../../inputs/fields.csv).
-- **`sortColumns`**, **`leafOnly`** as needed.
+- **`facets`** - when the question asks "which", "what are the", "list of", or
+  categories, add the relevant allow-listed facet(s). Safety allows `drugs`,
+  `species`, `sources`, `effects`, `route`, `doseType`, and `documentYear`.
+- **`displayColumns`** - when the user explicitly asks for specific output
+  columns, add them from [fields.csv](../../inputs/fields.csv), e.g. "at which
+  dose, regimen and route" -> `["drug","dose","doseType","route"]`.
+- `sortColumns` and `leafOnly` exist on the `MachineQuery` model, but v0.1 does
+  not derive them from user intent.
 
-### 5. Validate before returning
+### 6. Validate the API query
 
-Because every piece is structured, Stage 3 can **validate** rather than hope:
+Before execution, Stage 3 validates that:
 
-- exactly one top-level constraint in `query`;
-- all constraint types upper-case and well-formed;
-- every `field` exists in [query_criteria_fields.csv](../../inputs/query_criteria_fields.csv)
-  / [fields.csv](../../inputs/fields.csv);
+- exactly one top-level constraint exists in `query`;
+- all constraint types are upper-case and well-formed;
 - facet fields are within the service allow-list;
-- closed-vocab values exist in their CSV (final grounding check);
-- `OR`/`AND` have ≥2 children, `NOT` exactly 1.
+- `OR`/`AND` have at least two children and `NOT` has exactly one.
 
-A validation failure is a *bug we can catch here*, not a silent bad query — a
-strict improvement over the legacy regex-scrape of free-text JSON.
+A validation failure stops the API query from being treated as a successful
+closed-filter pass.
+
+### 7. Execute and build runtime closed sets
+
+The validated closed-filter query is sent to the service API. The returned
+datapoints are then scanned field-by-field for every deferred open-set filter:
+
+```
+runtime_closed_set[field] =
+  sorted(unique(non-empty datapoint[field] values))
+```
+
+Those runtime closed sets are passed back through the Stage 2 closed-set
+translator. The translator receives the user's pool for the open-set field and may
+return only a subset of the fetched values.
+
+### 8. Apply post-filters
+
+For each valid runtime closed-set translation, Stage 3 keeps only datapoints
+whose field value is in the selected subset. Invalid runtime translations do not
+filter the datapoints.
+
+The final result therefore has two auditable filter layers:
+
+- **API-layer filters:** all valid input closed-set filters in the machine query.
+- **Post-filter layer:** all valid open-set filters grounded against fetched
+  datapoint values.
 
 ## Output surface per service
 
-- **Safety / PK** → the JSON envelope.
-- **RTB / CrossFire** → a `where_clause` string (`DAT.VTYPE='AUC' AND
-  DAT.BSPECIE='rat' AND …`) plus `instructions`. Same filter set, different
-  serializer. Stage 3 picks the serializer from service config.
+- **Safety / PK** -> the JSON envelope plus fetched datapoints and post-filter
+  metadata.
+- **RTB / CrossFire** -> a `where_clause` string over the closed-set query plus
+  fetched rows and post-filter metadata. The same filter set has a different
+  serializer.
 
 ## Example assembly
 
-Stage 2 produced (for Q13):
+Stage 2A produced (for Q13):
 
-```
+```text
 A: MATCH species = "Human"
-B: MATCH effects = [neutropenia terms...]     boolean_group: g1/OR
+B: MATCH effects = [neutropenia terms...]      boolean_group: g1/OR
 C: MATCH effects = [thrombocytopenia terms...] boolean_group: g1/OR
-questions: dose, doseType, route   (type: question → displayColumns)
+questions: dose, doseType, route   (type: question -> displayColumns)
 ```
 
-Stage 3 assembles:
+Stage 3 assembles and executes:
 
 ```json
 {
@@ -108,11 +146,17 @@ Stage 3 assembles:
     "AND": [
       { "MATCH": { "field": "species", "value": "Human" } },
       { "OR": [
-        { "MATCH": { "field": "effects", "value": ["Neutropenia", "Granulocytopenia", "..."] } },
-        { "MATCH": { "field": "effects", "value": ["Thrombocytopenia", "Immune thrombocytopenia", "..."] } }
+        { "MATCH": { "field": "effects", "value": ["Neutropenia", "Granulocytopenia"] } },
+        { "MATCH": { "field": "effects", "value": ["Thrombocytopenia", "Immune thrombocytopenia"] } }
       ]}
     ]
   },
   "displayColumns": ["drug", "dose", "doseType", "route"]
 }
 ```
+
+If the same question also had an open-set phrase such as `parameterComment =
+"maternal toxicity"`, that phrase would be deferred. After the query above
+fetches datapoints, the unique `parameterComment` values in those datapoints
+become the runtime closed set, and only then is the comment filter translated and
+applied as a post-filter.

@@ -10,18 +10,19 @@ behind lazy imports and optional extras.
 |------|--------|-------|
 | Pydantic contracts | [models.py](../../src/oppp/models.py) | `EnhancedQuery`, `Component` (`type` filter/question + `reason`), `MachineSubquery`, `MachineQuery`, grounding, validation. |
 | Pluggable registry | [registry.py](../../src/oppp/registry.py) | Every step resolved by name from config. |
-| Taxonomy grounding | [taxonomy/index.py](../../src/oppp/taxonomy/index.py) | CSV load, exact + fuzzy (rapidfuzz) lookup, class→members hierarchy expansion, gazetteer membership. |
-| Misspelling normalizer | [normalize/](../../src/oppp/normalize/) | `fuzzy` (default) + `noop`; conservative on open fields. |
-| Stage 0 — enhance | [stages/enhance.py](../../src/oppp/stages/enhance.py) | `termite` (default; SciBite NER, lazy) + `noop` (offline) — prepends a recognized-entities hints block. Optional. |
+| Taxonomy grounding | [taxonomy/index.py](../../src/oppp/taxonomy/index.py) | CSV load, exact + fuzzy (RapidFuzz) lookup, singularization, class labels, candidate windows, MedDRA family expansion, gazetteer membership. |
+| Misspelling normalizer | [normalize/](../../src/oppp/normalize/) | `noop` + `fuzzy`; CLI defaults to `fuzzy`, while `run_pipeline()` defaults to `noop`. Conservative on open-set fields. |
+| Stage -1 — expand | [stages/expand.py](../../src/oppp/stages/expand.py) | `llm` (default in CLI/library) + `noop`; rewrites for clarity and abbreviation expansion, preserving the original query. |
+| Stage 0 — enhance | [stages/enhance.py](../../src/oppp/stages/enhance.py) | `termite` + `noop`; `oppp run` defaults to `termite`, while `get_enhancer()`/`run_pipeline()` default to `noop`. SciBite NER is lazy and records preferred labels plus public synonyms. |
 | Stage 1 — decompose | [stages/decompose.py](../../src/oppp/stages/decompose.py) | `llm` (LangChain structured output, lazy; **vocab-free**) + `gazetteer` (offline double; exact **+ fuzzy** taxonomy detection). |
-| Stage 2 — translate | [stages/translate.py](../../src/oppp/stages/translate.py) | closed-vocab grounding + expansion, open→REGEX, enum, boolean, year→RANGE. |
-| Stage 3 — aggregate | [stages/aggregate.py](../../src/oppp/stages/aggregate.py) | boolean tree, entityFilters routing, facets/displayColumns, validation, service invariants hook. |
-| Service config | [services/safety.py](../../src/oppp/services/safety.py) | Safety field map, buckets, facet allow-list, TERMite type map. |
+| Stage 2 — translate | [stages/translate.py](../../src/oppp/stages/translate.py) | closed-set grounding + class/effect expansion, enum, boolean, year→RANGE, LLM term selection, LLM synonym/closed-window fallback, and direct open-field `MATCH`/`REGEX` translation. |
+| Stage 3 — aggregate | [stages/aggregate.py](../../src/oppp/stages/aggregate.py) | dropped-filter handling, API constraint budget collapse, boolean tree, entityFilters routing, facets/displayColumns, validation, service invariants, optional zero-count open-filter probe. |
+| Service config | [services/](../../src/oppp/services/) | Safety, PK, and RTB field maps, buckets, facet allow-lists, TERMite type maps, invariants, and RTB `where_clause` serializer. |
 | Pipeline | [pipeline.py](../../src/oppp/pipeline.py) | sequential runner + optional LangGraph graph (same signature). |
-| Execution | [execute.py](../../src/oppp/execute.py) | POST machine query to the PP API, read `countTotal`. |
-| Evaluation | [eval/harness.py](../../src/oppp/eval/harness.py) | **count-based**: compares executed `countTotal` to gold `s`. |
+| Execution | [execute.py](../../src/oppp/execute.py) | POST machine query to the PP API and read `data.countTotal`; full rows are not fetched. |
+| Evaluation | [eval/](../../src/oppp/eval/) | count-based harness, per-step comparators, gold-vs-agent filter diff, typed LLM judge, CSV/XLSX report export. |
 | CLI | [cli.py](../../src/oppp/cli.py) | `run`, `enhance`, `decompose`, `field`, `aggregate`, `lookup`, `services`, `dag`, `eval`. |
-| UI | [ui/app.py](../../src/oppp/ui/app.py) | Streamlit stage-by-stage inspector: Service / Decomposer / Normalizer selectors + Stage 1–3 panels. Per-step Enhancer/Translator/Aggregator/Execute selectors, a Stage 0 panel, and a gold-set question picker are the documented target ([streamlit-ui.md](streamlit-ui.md)). |
+| UI | [ui/app.py](../../src/oppp/ui/app.py) | Streamlit stage-by-stage inspector with service/enhancer/decomposer/translator/aggregator/normalizer selectors, gold-set picker, Stage 0-3 panels, payload display, and optional count execution. |
 | Tests | [tests/](../../tests/) | taxonomy, pipeline, eval (offline). |
 
 ## How to run
@@ -50,6 +51,9 @@ pytest -q
 ruff check src tests
 ```
 
+See [operations.md](operations.md) for install extras, `.env` variables, and the
+execution model.
+
 ## Evaluation metric
 
 Per [docs/05](../05-evaluation/gold-set-and-metrics.md), the harness scores by
@@ -57,9 +61,10 @@ Per [docs/05](../05-evaluation/gold-set-and-metrics.md), the harness scores by
 the expected `s`. Reported: `valid_rate`, `executed_rate`, `exact_count`,
 `within_<tol>`.
 
-Baseline with the offline `gazetteer` backend is intentionally modest — it nails
-clean cases (e.g. Q1 Sunitinib/Human = 4300 exact, Q10 = 43 exact) and diverges
-on the cases the docs flagged as open questions. Those drive the next steps.
+Baseline with the offline `gazetteer` backend is intentionally modest. It handles
+clean preferred-label cases and many taxonomy expansions, and diverges where a
+case depends on live TERMite recognition, model-backed disambiguation, or
+row-level runtime closed-set post-filtering.
 
 ## Entity detection — recall fix
 
@@ -80,18 +85,20 @@ correct a fragment *already routed* to a field). Two fixes:
 Synonyms absent from the CSVs (e.g. `homo sapiens`) still require the `termite`
 enhancer or the `llm` decomposer; the offline gazetteer only knows preferred labels.
 
-## Known limitations (next steps)
+## Current limitations
 
-- **MedDRA effect rollups** and **drug-class / species-class** detection are not
-  done offline (Q2/Q4/Q8/Q23…), causing under/over-counting — the documented
-  open questions in [architecture.md](../03-proposed-design/architecture.md#open-questions).
-- **`targets`** has no shipped CSV, so it is best-effort/open.
+- **Row-level post-filtering is not wired.** Execution reads `countTotal` only,
+  so runtime closed sets derived from fetched datapoints are represented in the
+  design docs but not materialized by the v0.1 execution layer.
+- **Open-set filters are guarded by probes.** `parameterComment`, `studyGroup`,
+  `ages`, `dose`, and similar fields are emitted as direct `MATCH`/`REGEX`
+  constraints. Live runs may drop a filter whose isolated count is confirmed `0`.
+- **`targets` has no input closed set in `inputs/`.** The current Safety path
+  routes it through `DrugsTargets` and uses a TERMite preferred label when
+  available; entity-routed filters are not zero-count probed.
 - **TERMite Stage 0 enhancer** is implemented but unverified live here (no
   creds/network in this environment); the gazetteer and llm paths are exercised.
-- **DSPy** modules and the **PK/RTB** service configs are scaffolded by the
-  architecture but not yet implemented (Safety only in v0.1).
-- **Streamlit UI** currently exposes Service / Decomposer / Normalizer selectors
-  and the Stage 1–3 panels; the per-step Enhancer/Translator/Aggregator/Execute
-  selectors, the Stage 0 panel, and the gold-set question picker
-  ([streamlit-ui.md](streamlit-ui.md)) are not built yet.
+- **DSPy optimization modules are not present in `src/oppp/`.** The pipeline uses
+  Pydantic structured outputs and registries; prompt optimization remains a
+  convention described in [tech-stack.md](tech-stack.md).
 - LLM/TERMite backends require their extras + `.env` credentials.

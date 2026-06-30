@@ -4,6 +4,13 @@ This is what the pipeline must ultimately produce. It is the request body the
 PharmaPendium search API (`/v1/safety/search/advanced`, `/v1/pk/search/advanced`,
 …) accepts.
 
+The API payload represents the filter layer sent to the search API. In the
+row-level design, this is the input closed-set layer: filters whose values are
+already known from `inputs/` taxonomies, inline enums, or booleans; open-set
+filters are translated after row fetch and applied as post-filters. In v0.1,
+open-set filters can still appear in this payload as direct `MATCH` or `REGEX`
+constraints, guarded in live runs by optional isolated zero-count probes.
+
 ## Top-level envelope
 
 ```json
@@ -83,10 +90,11 @@ Some restrictions go through a linked entity rather than a direct field:
 ]
 ```
 
-Supported entity names differ by service (Safety: `Drugs`, `DrugsTargets`,
-`DrugsIndications`, `Effects`, `Sources`, `Indications`; PK adds `Species`,
-`Concomitants`, `PKParameters`). Stage 3 is responsible for routing a field's
-filter into `entityFilters` vs the top-level `query` when required.
+Supported entity names differ by service. The current Safety config routes
+`indications` through `DrugsIndications` and `targets` through `DrugsTargets`.
+The PK and RTB configs currently emit their configured fields directly. Stage 3
+is responsible for routing a field's filter into `entityFilters` vs the
+top-level `query` when required.
 
 ## Facets and display columns
 

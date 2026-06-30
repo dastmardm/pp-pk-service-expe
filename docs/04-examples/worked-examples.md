@@ -1,9 +1,15 @@
 # Worked examples (end-to-end)
 
-Each trace runs an SME gold-set question through all three stages. Values match
+Each trace runs an SME gold-set question through the core decomposition,
+translation, and aggregation stages. Stage -1 expansion and Stage 0 enhancement
+are omitted where they do not change the example. Values match
 the expected per-field mappings in
 [inputs/sme_expected_cases.csv](../../inputs/sme_expected_cases.csv). Effect/
 species expansions are abbreviated with `…`.
+
+Examples that mention runtime closed-set post-filtering show the row-level design
+path. In v0.1, open-set fields are emitted as direct `MATCH`/`REGEX` constraints
+and may be guarded by zero-count probes during live execution.
 
 ---
 
@@ -48,8 +54,8 @@ species expansions are abbreviated with `…`.
 
 ## Example B — Q12: "What is the NOAEL for sunitinib in rats related to maternal toxicity"
 
-Shows a **closed** field (toxicityParameter) next to an **open** field
-(parameterComment).
+Shows input closed-set fields (toxicityParameter, drugs, species) next to a
+runtime closed-set field (`parameterComment`).
 
 **Stage 1**
 
@@ -63,16 +69,16 @@ Shows a **closed** field (toxicityParameter) next to an **open** field
 ]
 ```
 
-**Stage 2**
+**Stage 2A - input closed-set translation**
 
 | field | bucket | machine subquery |
 |-------|--------|------------------|
-| toxicityParameter | closed | `MATCH toxicityParameter = "NOAEL"` (verified in toxicity_parameters.csv) |
-| drugs | closed | `MATCH drugsFuzzy = ["Sunitinib*"]` |
-| species | closed | `MATCH species = "Rat"` |
-| parameterComment | **open** | `MATCH parameterComment = "Maternal toxicity"` (LLM decides; no CSV) |
+| toxicityParameter | input closed set | `MATCH toxicityParameter = "NOAEL"` (verified in toxicity_parameters.csv) |
+| drugs | input closed set | `MATCH drugsFuzzy = ["Sunitinib*"]` |
+| species | input closed set | `MATCH species = "Rat"` |
+| parameterComment | runtime closed set | deferred until datapoints are fetched |
 
-**Stage 3**
+**Stage 3 - closed-filter query**
 
 ```json
 {
@@ -80,12 +86,19 @@ Shows a **closed** field (toxicityParameter) next to an **open** field
     "AND": [
       { "MATCH": { "field": "drugsFuzzy", "value": ["Sunitinib*"] } },
       { "MATCH": { "field": "toxicityParameter", "value": "NOAEL" } },
-      { "MATCH": { "field": "species", "value": "Rat" } },
-      { "MATCH": { "field": "parameterComment", "value": "Maternal toxicity" } }
+      { "MATCH": { "field": "species", "value": "Rat" } }
     ]
   }
 }
 ```
+
+**Stage 2B - runtime closed-set post-filter**
+
+After the API returns datapoints, collect the unique `parameterComment` values
+from those datapoints and translate `"maternal toxicity"` against that runtime
+closed set. If the translator selects `["Maternal toxicity"]`, Stage 3 keeps only
+datapoints whose `parameterComment` value is `Maternal toxicity`. If it returns
+`[]` or `None`, the comment filter is invalid and no post-filter is applied.
 
 ---
 
@@ -175,20 +188,24 @@ species grounded to `Human`.
 
 ## Example E — PK: "Cmax of Cabozantinib in adults with hepatic impairment after oral administration"
 
-Shows an **open** field needing synonym expansion + **service invariants**.
+Shows runtime closed-set fields needing synonym selection plus **service
+invariants**.
 
 **Stage 2** highlights:
 
 | field | bucket | machine subquery |
 |-------|--------|------------------|
-| drugs | closed | `MATCH drugsFuzzy = "Cabozantinib*"` |
-| parameter | closed (PKParameters) | `MATCH parameter = "Cmax"` |
-| species | closed | `MATCH species = "Human"` |
-| route | closed | `MATCH route = "Oral"` |
-| studyGroup | **open** | `REGEX studyGroup = ".*(cirrhosis|hepatic impairment|Child-Pugh B|Child-Pugh C|liver failure).*"` |
-| ages | **open** | `REGEX age = "Adult"` |
+| drugs | input closed set | `MATCH drugsFuzzy = "Cabozantinib*"` |
+| species | input closed set | `MATCH species = "Human"` |
+| route | input closed set | `MATCH route = "Oral"` |
+| parameter | runtime closed set | selected from fetched `parameter` values, e.g. `["Cmax"]` |
+| studyGroup | runtime closed set | selected from fetched `studyGroup` values matching hepatic impairment synonyms |
+| age | runtime closed set | selected from fetched `age` values, e.g. `["Adult"]` |
 
-**Stage 3** then injects the PK **invariants** automatically:
+**Stage 3** injects the PK **invariants** automatically into the closed-filter
+query:
 `metabolitesEnantiomers = "Not metabolites/enantiomers"`, `tissueSpecific =
 "Not tissue-specific"`, and the `concomitants` Fasted-or-empty OR block — none of
-which the user said, but all of which the PK service always requires.
+which the user said, but all of which the PK service always requires. After
+fetching datapoints, the runtime closed-set translator selects the `parameter`,
+`studyGroup`, and `age` post-filter values from the fetched rows.

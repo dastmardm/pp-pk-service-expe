@@ -35,17 +35,19 @@ the value(s), then combine them.**
 
 The redesign hinges on one observation: not all fields are the same.
 
-1. **Closed-vocabulary fields** — fields whose complete set of legal values we
-   *already have on disk* as CSV taxonomies (`drugs`, `effects`, `indications`,
-   `species`, `route`, `sources`, `toxicityParameter`, `doseType`,
-   `documentYear`). For these we should not let the LLM hallucinate a value — we
-   should **extract** the value by matching/grounding against the CSV (via tool
-   calling), and we can exploit the hierarchy in those CSVs (e.g. expand a drug
-   class to its members).
+1. **Closed-set fields** — fields whose complete set of legal values is known
+   before query execution, either from CSV taxonomies (`drugs`, `effects`,
+   `indications`, `species`, `route`, `sources`, `toxicityParameter`,
+   `doseType`, `documentYear`) or from inline enums/booleans. These values are
+   selected by grounding against the set, and hierarchy in the CSVs can be used
+   for class or rollup expansion.
 
-2. **Open fields** — fields whose value space we cannot enumerate (`studyGroup`,
-   `parameterComment`, `parameterDisplay`, free-text `dose`, numeric value
-   ranges, …). For these the LLM legitimately has to **decide** the value.
+2. **Open-set fields** — fields whose value space is not known before query
+   execution (`studyGroup`, `parameterComment`, `parameterDisplay`, free-text
+   `dose`, target values without a local taxonomy, ...). These filters are
+   deferred until the closed-set query fetches datapoints. The unique fetched
+   values for the field become a runtime closed set, and the same translator
+   selects a valid subset for post-filtering.
 
 See [../02-domain-inputs/field-taxonomy.md](../02-domain-inputs/field-taxonomy.md)
 for the full classification.
@@ -70,9 +72,14 @@ drawn directly from the SME gold set in
 
 ## The new shape (one line)
 
-> NL query → **many single-field NL subqueries** → **one machine subquery per
-> field** (grounded on CSV where possible) → **aggregate** into the final
-> machine query.
+> NL query -> **many single-field NL subqueries** -> **closed-set translations**
+> for fields with known values -> **aggregate and fetch datapoints** -> **runtime
+> closed-set translations** for deferred open-set fields -> **post-filter**.
+
+The implemented v0.1 package includes Stage -1 query expansion before
+decomposition and currently executes API calls for `countTotal`; full row fetch
+and runtime closed-set post-filtering remain represented as the row-level design
+path.
 
 The full pipeline is in
 [../03-proposed-design/architecture.md](../03-proposed-design/architecture.md).
