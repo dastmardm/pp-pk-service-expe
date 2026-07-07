@@ -68,12 +68,14 @@ Resolution order:
    pass the pool and the closed-set entities to the LLM and ask it to select the
    matching entities using the exact closed-set spellings. The LLM is selecting
    from the set, not inventing values.
-5. **Invalid result.** If the selected list is still empty, the translation
+5. **Membership assertion and retry.** Assert every LLM-selected candidate
+   against `closed_set`. Reject out-of-set candidates, retry with explicit
+   feedback that the model must choose exact items from the provided closed set,
+   and keep only verified members.
+6. **Invalid result.** If the selected list is still empty, the translation
    fails and is marked invalid.
 
-The closed-set contract asserts every LLM candidate against `closed_set`. Values
-that cannot be verified are dropped, so the final emitted value is always a valid
-subset of the available entities.
+The final emitted value is always a valid subset of the available entities.
 
 In the v0.1 implementation, this membership assertion is enforced by
 re-grounding every LLM proposal against the CSV (`exact` first, then `fuzzy`) and

@@ -27,10 +27,10 @@ runtime by translating against the unique values in fetched datapoints.
 | 3 | [03-proposed-design/stage-2-subquery-translation.md](03-proposed-design/stage-2-subquery-translation.md) | NL subquery → machine subquery |
 | 3 | [03-proposed-design/stage-3-aggregation.md](03-proposed-design/stage-3-aggregation.md) | Subqueries → final machine query |
 | 3 | [03-proposed-design/grounding-and-tool-calling.md](03-proposed-design/grounding-and-tool-calling.md) | How CSV grounding + tool calling work |
-| 3 | [03-proposed-design/misspelling-strategy.md](03-proposed-design/misspelling-strategy.md) | Pluggable handling of user misspellings (interface only) |
+| 3 | [03-proposed-design/misspelling-strategy.md](03-proposed-design/misspelling-strategy.md) | Fixed handling of user misspellings by field/bucket |
 | 4 | [04-examples/worked-examples.md](04-examples/worked-examples.md) | End-to-end traces from the SME gold set |
 | 5 | [05-evaluation/gold-set-and-metrics.md](05-evaluation/gold-set-and-metrics.md) | How we measure success — per-step gold set, metrics & LLM-as-judge |
-| 6 | [06-implementation/tech-stack.md](06-implementation/tech-stack.md) | Tools/packages + pluggability & per-step isolation |
+| 6 | [06-implementation/tech-stack.md](06-implementation/tech-stack.md) | Tools/packages, fixed methods, and per-step isolation |
 | 6 | [06-implementation/build-status.md](06-implementation/build-status.md) | What's built (the `oppp` package), how to run it, limitations |
 | 6 | [06-implementation/operations.md](06-implementation/operations.md) | Install, run, configuration, credentials, and execution model |
 | 6 | [06-implementation/streamlit-ui.md](06-implementation/streamlit-ui.md) | The Streamlit demo/debug UI: question picker, run controls, stage outputs |
@@ -61,6 +61,12 @@ replace or bypass any pipeline stage.
 > Edit the source diagram in [agent-dag.drawio](agent-dag.drawio) and export it
 > to [agent-dag.png](agent-dag.png). Solid arrows show runtime data flow; dashed
 > arrows show helper inputs or deferred pools.
+>
+> The tracked Draw.io source and PNG are documentation artifacts. They are
+> maintained through docs updates, not by the implementation WBS. Code-side
+> diagram helpers such as `oppp dag` may validate or mirror the same fixed flow,
+> but they must not be the source of truth for `docs/agent-dag.drawio` or
+> advertise registry-derived stage options.
 
 ## Common CLI commands
 

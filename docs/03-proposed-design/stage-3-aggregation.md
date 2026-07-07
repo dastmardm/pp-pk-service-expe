@@ -103,6 +103,34 @@ requested row bound is reached, all available rows are collected, or an API erro
 is returned. Pagination state is execution-layer metadata; Stage 2 and Stage 3
 consume the typed datapoints and do not infer pagination themselves.
 
+The execution layer normalizes service-specific API responses into this typed row
+result before any stage sees them:
+
+```json
+{
+  "ok": true,
+  "count_total": 123,
+  "datapoints": [{ "...": "..." }],
+  "status": 200,
+  "error": null,
+  "page_state": { "page": 1, "next": null }
+}
+```
+
+- `datapoints` is a list of flat record dictionaries keyed by the API/display
+  field names in the service configuration.
+- `count_total` is copied from the same response count used by count-only
+  execution when present.
+- `page_state` is opaque execution metadata; downstream stages may log it but
+  must not branch on raw API pagination keys.
+- If row data is unavailable for a service or response, `ok=false`,
+  `datapoints=[]`, and `error` explains that row fetching was unavailable. The
+  count-only path may still be reported, but runtime post-filtering is skipped
+  for that run.
+- Tests and offline evaluation use a canonical mocked response whose rows are
+  already normalized as `datapoints`; live service adapters may map whatever raw
+  response key the API uses into this shape.
+
 ```
 runtime_closed_set[field] =
   sorted(unique(non-empty datapoint[field] values))

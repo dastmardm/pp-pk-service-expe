@@ -37,16 +37,18 @@ stage's actual output can be compared to it.
 | Column | Step | What the cell records |
 |--------|------|------------------------|
 | `nl query` | input | The raw natural-language question. |
-| `counts` | end-to-end | Expected result count (the API `countTotal`; same role as `s` in the per-field set). |
+| `counts` | end-to-end | Expected end-to-end result count. For closed-filter-only cases this is the API `countTotal`; for cases with runtime post-filters it is the final post-filtered datapoint count, while the API `count_total` is reported separately when available. |
 | `termite` | Stage 0 — enhance | Expected recognized entities as `TYPE:Label` pairs, with notes (e.g. *fuzzy on misspelled 'suntinib'*, *NOT recognized by TERMite — falls back to CSV fuzzy*, *MIS-TYPED by NER*). |
 | `decompose` | Stage 1 — decompose | Expected components as `field[type]:"fragment"` (e.g. `drugs[filter]:"Sunitinib"; effects[question]:"ADRs"`), with boolean hints like `(OR)`. |
-| `translate` | Stage 2 — translate | Expected per-field machine subqueries (`MATCH drugsFuzzy=["Sunitinib*"]; MATCH species="Human"; facet:effects`), with grounding/expansion notes (`(+salt Sunitinib Malate)`, `[neutropenia rollup, MedDRA]`, `[PT terms under "Hepatic and hepatobiliary disorders NEC"]`). |
-| `aggregate` | Stage 3 — aggregate | Expected boolean structure + output options (`AND[ drugsFuzzy=[…], species="Human" ] \| facets=[effects]` / `\| displayColumns=[dose]`). |
-| `machine query` | final | The fully rendered machine-query JSON payload the API receives. |
+| `translate` | Stage 2 — translate | Expected per-field closed-set selections: API-layer machine subqueries for input closed-set fields and runtime post-filter selections for open-set fields (`MATCH drugsFuzzy=["Sunitinib*"]; POST-FILTER parameterComment="Maternal toxicity"; facet:effects`), with grounding/expansion notes (`(+salt Sunitinib Malate)`, `[neutropenia rollup, MedDRA]`, `[PT terms under "Hepatic and hepatobiliary disorders NEC"]`). |
+| `aggregate` | Stage 3 — aggregate | Expected API-layer boolean structure + output options + runtime post-filter metadata (`AND[ drugsFuzzy=[…], species="Human" ] \| facets=[effects]` / `\| postFilters=[parameterComment="Maternal toxicity"]`). |
+| `machine query` | final | The fully rendered API-layer machine-query JSON payload. Runtime post-filters are not embedded in the API `query`; they are represented in `translate` and `aggregate`. |
 
 Because the columns line up with the stages, each stage's evaluator reads exactly
 one column as its reference — there is no need to re-derive a stage's expectation
-from the final query.
+from the final query. Rows with runtime/open-set filters keep the closed-filter
+API payload in `machine query` and put the post-filter expectation in
+`translate`/`aggregate`.
 
 The shorthand notation is SME intent in a compact form. The comparators parse the
 parts that are canonical enough to score deterministically; free-text nuances are
@@ -70,6 +72,33 @@ independently — exactly matching the Stage-2 output contract. (See
 [../02-domain-inputs/csv-catalog.md](../02-domain-inputs/csv-catalog.md) for the
 full column layout.)
 
+The evaluator treats these columns as the per-field contract:
+
+| CSV column | Logical field | Notes |
+|------------|---------------|-------|
+| `drugsFuzzy` | `drugs` | Compare after removing only API wildcard decoration such as a trailing `*`. |
+| `indications` | `indications` | Entity-routed closed-set field. |
+| `targets` | `targets` | Entity-routed/runtime field when fetched linked values are available. |
+| `species` | `species` | Includes class/member expansions. |
+| `effects` | `effects` | Includes MedDRA/family expansions. |
+| `parameterComment` | `parameterComment` | Runtime/open field; compare against the post-filter selected subset when rows are available. |
+| `toxicityParameter` | `toxicityParameter` | Closed-set toxicity endpoint. |
+| `doseType` | `doseType` | Closed-set dose regimen/type. |
+| `route` | `route` | Closed-set route. |
+| `ages` | `ages` | Runtime/open field for Safety age text. |
+| `sex` | `sex` | Inline enum. |
+| `studyGroup` | `studyGroup` | Runtime/open field; synonym-equivalent fetched strings may use the typed judge. |
+| `isPreclinical` | `isPreclinical` | Boolean. |
+| `concomitants` | `concomitants` | PK enum/invariant field. |
+
+Cells may contain multiple expected values separated by semicolons, commas, or
+explicit `AND`/`OR` wording. `Empty`, `None`, `N/A`, and blank cells mean the
+field is not expected to constrain that case. Input closed-set fields are scored
+against Stage-2A machine subqueries. Runtime/open fields are scored against
+Stage-2B post-filter selections when row execution is available; when rows are
+not available, the evaluator records the runtime-field score as unavailable
+rather than treating the missing post-filter as a correct empty set.
+
 ## Per-step evaluation (the core design)
 
 Each step is scored against its own column with the comparator that fits its
@@ -85,7 +114,7 @@ because the output is free-text or has many equally-correct surface forms.
 | 2 — translate (input closed set) | `translate` | resolved preferred-label set | **Set P/R/F1** over labels, after hierarchy expansion — deterministic. |
 | 2 — translate (runtime closed set) | `translate` | selected subset of fetched field values | **Set P/R/F1** over fetched values when canonical; **LLM-as-judge** only when the gold value is free-text and several fetched strings are semantically equivalent. |
 | 3 — aggregate (structure) | `aggregate` | boolean tree + facets / displayColumns | **Structural** compare of the normalized tree; **LLM-as-judge** tie-break when two trees are logically equivalent but shaped differently. |
-| final | `machine query` / `counts` | full JSON payload | **Schema validity** + structural diff vs `machine query`; **count proximity** vs `counts` (tolerance band — see End-to-end below). |
+| final | `machine query` / `counts` | API JSON payload plus optional post-filtered rows | **Schema validity** + structural diff vs `machine query`; **count proximity** vs `counts` after runtime post-filters when present (tolerance band — see End-to-end below). |
 
 This pins a failure to a single step: a wrong final count becomes traceable to a
 mis-routed field in Stage 1, a bad expansion in Stage 2, or a wrong boolean in
@@ -157,9 +186,11 @@ Targeted on the cases the legacy system failed:
 
 - **Valid-query rate:** fraction that pass Stage-3 validation (a free win over the
   legacy regex-scrape).
-- **Result-count proximity:** compare actual API `countTotal` to the gold `counts`
-  (within a tolerance band — counts drift as the DB updates, so treat as a signal
-  not a hard gate).
+- **Result-count proximity:** compare actual API `countTotal` to the gold
+  `counts` for closed-filter-only cases. When runtime post-filters are present,
+  compare the final post-filtered datapoint count to `counts` and report the
+  upstream API `count_total` separately. Counts drift as the DB updates, so treat
+  proximity as a signal, not a hard gate.
 - **Executable rate:** fraction the API accepts without error.
 
 ## Suggested harness
@@ -171,7 +202,7 @@ for case in sme_stage_cases.csv:               # one row per question, one colum
     score step 1 vs case.decompose             # routing/type/boolean exact; fragment via judge
     score step 2 vs case.translate             # input/runtime closed-set F1; judge only for semantic free-text ties
     score step 3 vs case.aggregate             # structural; judge tie-break
-    execute when requested vs case.counts     # count proximity
+    execute/fetch when requested vs case.counts # API count or post-filtered row count
 report: per-step table + per-stage rollup + diff vs legacy baseline
 ```
 

@@ -56,6 +56,24 @@ lookup_<field>(
 ) -> [ { name, id, parent_id, parent_name, count? } ]
 ```
 
+Each returned candidate is recorded as a `GroundingHit` with the following
+fields:
+
+| Field | Meaning |
+|-------|---------|
+| `name` | The exact closed-set value that may be emitted. Required. |
+| `id` | Closed-set row id when the source has one. Optional for runtime values. |
+| `parent_id` | Parent row id for hierarchical input taxonomies. Optional. |
+| `parent_name` | Parent label for hierarchical input taxonomies. Optional. |
+| `score` | Confidence or match score on a 0-100 scale before conversion to the trace confidence. |
+| `match` | Provenance: `exact`, `fuzzy`, `termite`, `class`, `expand`, `llm`, `runtime`, or `unmatched`. |
+| `count` | Corpus count when present in the input CSV. Optional. |
+
+The `grounding` block on a translated filter stores
+`matched: GroundingHit[]`, optional `expanded_from` (`class`, `family`,
+`runtime`, or `llm`), and a 0-1 `confidence`. Runtime closed-set hits use
+`match="runtime"` and omit taxonomy ids unless fetched rows provide stable ids.
+
 ## Resolution order
 
 The same order applies to an input CSV and to a runtime list of fetched values.

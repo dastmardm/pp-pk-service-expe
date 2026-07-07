@@ -45,6 +45,25 @@ A list of items like:
   explicit logic, e.g. `effects` with "neutropenia **or** thrombocytopenia",
   record the intended operator so Stage 3 can honour it.
 
+The boolean hint is a structured `boolean_group` object:
+
+```json
+{ "id": "effects-1", "op": "OR" }
+```
+
+- `id` is an opaque group id shared by every component that belongs to the same
+  logical group.
+- `op` is either `AND` or `OR`.
+- A group usually contains components from the same field, such as two `effects`
+  values. It may span fields only when the user's retrieval intent explicitly
+  asks for alternatives across fields, such as the Safety Q7 human-or-preclinical
+  retrieval rule.
+- A component with no `boolean_group` joins the rest of the query through the
+  Stage-3 top-level operator, which defaults to `AND` unless the aggregation plan
+  records a different explicit user intent.
+- Negation is not encoded in Stage 1 unless the user explicitly excludes a value;
+  Stage 3 represents that with a single-child `NOT` node.
+
 > **Note on `type` vs filtering.** Only `type: "filter"` components flow into
 > Stage 2 translation and the machine query. `type: "question"` components are
 > carried forward untouched as the post-retrieval task(s) — they tell the answer

@@ -99,6 +99,74 @@ bucket each field uses.
 | PK | `drugs`, `species`, `route`, `documentSource`, `documentYear`, `sex`, `concomitants`, `tissueSpecific`, `metabolitesEnantiomers`, `isPreclinical` | `parameter`, `parameterDisplay`, `studyGroup`, `age`, `dose`, `duration` |
 | RTB | `drugs`, `species`, `route`, `category` | `parameter`, `model`, `cellLine`, `tissue`, `regimen` |
 
+### Concrete service configuration
+
+The generated technical spec must enumerate the concrete service mappings below
+so implementation and evaluation do not have to rediscover them from code.
+
+Safety emits JSON machine queries:
+
+| Logical field | Bucket | Backing set | API field / route | Output metadata |
+|---------------|--------|-------------|-------------------|-----------------|
+| `drugs` | closed | `drugs.csv` | `drugsFuzzy` | facet `drugs`, display `drug` |
+| `effects` | closed | `effects.csv` | `effects` | facet `effects`, display `effect` |
+| `species` | closed | `species.csv` | `species` | facet `species`, display `specie` |
+| `route` | closed | `route.csv` | `route` | facet/display `route` |
+| `toxicityParameter` | closed | `toxicity_parameters.csv` | `toxicityParameter` | display `toxicityParameter` |
+| `documentSource` | closed | `sources.csv` | `documentSource` | facet `sources`, display `source` |
+| `doseType` | closed | `dose_type.csv` | `doseType` | facet/display `doseType` |
+| `documentYear` | closed | `document_year.csv` | `documentYear` | facet/display `documentYear` |
+| `indications` | closed | `indications.csv` | entity filter `DrugsIndications` | none |
+| `targets` | open | fetched linked target values | entity filter `DrugsTargets` when available | none |
+| `parameterComment` | open | fetched datapoint values | post-filter field `parameterComment` | display `parameterComment` |
+| `studyGroup` | open | fetched datapoint values | post-filter field `studyGroup` | none |
+| `ages` | open | fetched datapoint values | post-filter field `ages` | none |
+| `dose` | open | fetched datapoint values | post-filter field `dose` | display `dose` |
+| `sex` | enum | `Male`, `Female`, `Both` | `sex` | none |
+| `isPreclinical` | boolean | `true`, `false` | `isPreclinical` | none |
+
+PK emits JSON machine queries:
+
+| Logical field | Bucket | Backing set | API field / route | Output metadata |
+|---------------|--------|-------------|-------------------|-----------------|
+| `drugs` | closed | `drugs.csv` | `drugsFuzzy` | facet `drugs`, display `drug` |
+| `species` | closed | `species.csv` | `species` | facet `species`, display `specie` |
+| `route` | closed | `route.csv` | `route` | facet/display `route` |
+| `documentSource` | closed | `sources.csv` | `documentSource` | facet `sources`, display `source` |
+| `documentYear` | closed | `document_year.csv` | `documentYear` | facet/display `documentYear` |
+| `parameter` | open | fetched PK values | post-filter field `parameter` | facet `parameters`, display `parameter` |
+| `parameterDisplay` | open | fetched PK values | post-filter field `parameterDisplay` | none |
+| `studyGroup` | open | fetched datapoint values | post-filter field `studyGroup` | facet `studyGroup` |
+| `age` | open | fetched datapoint values | post-filter field `age` | none |
+| `dose` | open | fetched datapoint values | post-filter field `dose` | display `dose` |
+| `duration` | open | fetched datapoint values | post-filter field `duration` | none |
+| `sex` | enum | `Male`, `Female`, `Both` | `sex` | none |
+| `concomitants` | enum | `Fed`, `Fasted` | `concomitants` | facet `concomitants` |
+| `tissueSpecific` | enum | `Tissue-specific`, `Not tissue-specific` | `tissueSpecific` | facet `tissueSpecific` |
+| `metabolitesEnantiomers` | enum | `Not metabolites/enantiomers`, `Metabolite`, `Enantiomer` | `metabolitesEnantiomers` | facet `metabolitesEnantiomers` |
+| `isPreclinical` | boolean | `true`, `false` | `isPreclinical` | none |
+
+PK always adds the following invariants unless the user query already supplies
+the field: `concomitants` is `Fasted` or empty, `tissueSpecific` is
+`Not tissue-specific`, and `metabolitesEnantiomers` is
+`Not metabolites/enantiomers`.
+
+RTB emits a CrossFire `where_clause` over `DAT.*` columns:
+
+| Logical field | Bucket | Backing set | CrossFire column |
+|---------------|--------|-------------|------------------|
+| `drugs` | closed | `drugs.csv` | `DAT.MNAME` |
+| `species` | closed | `species.csv` | `DAT.BSPECIE` |
+| `route` | closed | `route.csv` | `DAT.MROUTE` |
+| `category` | enum | category enum above | `DAT.CATEG` |
+| `parameter` | open | fetched row values | `DAT.VTYPE` |
+| `model` | open | fetched row values | `DAT.MODEL` |
+| `cellLine` | open | fetched row values | `DAT.BCELL` |
+| `tissue` | open | fetched row values | `MEASLOC.TISSUE` |
+| `regimen` | open | fetched row values | `DAT.MREGIM` |
+
+RTB always adds `DAT.CATEG = "Pharmacokinetic"` when no category is present.
+
 ## Decision rule
 
 ```
