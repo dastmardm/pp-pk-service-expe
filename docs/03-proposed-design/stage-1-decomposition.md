@@ -1,8 +1,9 @@
 # Stage 1 — Decomposition
 
-**Input:** the query text after Stage -1 expansion and required TERMite Stage 0
-enhancement.
+**Input:** the query text after Stage -1 expansion.
 **Output:** a list of single-field NL subqueries, each routed to a target field.
+Each fragment is then passed to Stage 0 (TERMite) for entity annotation before
+Stage 2 translation begins.
 
 ## Goal
 
@@ -17,9 +18,10 @@ A list of items like:
 
 ```json
 [
-  { "field": "drugs",   "nl_fragment": "sunitinib", "type": "filter",   "reason": "The user restricts results to the drug sunitinib.",        "source": "termite:DRUG" },
-  { "field": "species", "nl_fragment": "human",     "type": "filter",   "reason": "The user restricts results to human studies.",             "source": "termite:SPECIES" },
-  { "field": "effects", "nl_fragment": "ADRs",      "type": "question", "reason": "The user wants to know which adverse effects occur, answered over the retrieved records.", "source": "llm" }
+  { "field": "drugs",     "nl_fragment": "sunitinib",    "type": "filter",   "reason": "The user restricts results to the drug sunitinib.",              "source": "termite:DRUG" },
+  { "field": "species",   "nl_fragment": "human",        "type": "filter",   "reason": "The user restricts results to human studies.",                   "source": "termite:SPECIES" },
+  { "field": "parameter", "nl_fragment": "AUC",          "type": "filter",   "reason": "The user restricts results to AUC PK records.",                  "source": "termite:PARAMETER" },
+  { "field": "value",     "nl_fragment": "what is AUC",  "type": "question", "reason": "The user wants the AUC value reported from the retrieved records.", "source": "llm" }
 ]
 ```
 
@@ -42,22 +44,21 @@ A list of items like:
 - **source** — provenance such as `llm`, `termite:<TYPE>`, or a reconciliation
   suffix. Useful for debugging and for deciding grounding confidence in Stage 2.
 - **boolean hint** (optional) — when one field carries multiple concepts with
-  explicit logic, e.g. `effects` with "neutropenia **or** thrombocytopenia",
+  explicit logic, e.g. `parameter` with "AUC **or** Cmax",
   record the intended operator so Stage 3 can honour it.
 
 The boolean hint is a structured `boolean_group` object:
 
 ```json
-{ "id": "effects-1", "op": "OR" }
+{ "id": "parameter-1", "op": "OR" }
 ```
 
 - `id` is an opaque group id shared by every component that belongs to the same
   logical group.
 - `op` is either `AND` or `OR`.
-- A group usually contains components from the same field, such as two `effects`
+- A group usually contains components from the same field, such as two `parameter`
   values. It may span fields only when the user's retrieval intent explicitly
-  asks for alternatives across fields, such as the Safety Q7 human-or-preclinical
-  retrieval rule.
+  asks for alternatives across fields.
 - A component with no `boolean_group` joins the rest of the query through the
   Stage-3 top-level operator, which defaults to `AND` unless the aggregation plan
   records a different explicit user intent.
@@ -73,54 +74,40 @@ The boolean hint is a structured `boolean_group` object:
 
 ## How routing is seeded
 
-1. **Required TERMite annotations.** Stage 0 always runs before decomposition.
-   TERMite annotations carry a type that maps cleanly to a field: `DRUG->drugs`,
-   `SPECIES->species`, `ROUTE->route`, `ADVERSE_EVENT->effects`,
-   `TOXICITY_PARAMETER->toxicityParameter`, `INDICATION->indications`,
-   `PARAMETER->parameter` (PK), `AGE->ages` (Safety), `AGE->age` (PK),
-   `TARGET->targets`. These seed high-confidence routing and carry
-   `source: termite:<TYPE>`.
-2. **LLM decomposer.** The decomposer is a **vocab-free** LLM step: it segments
+1. **LLM decomposer.** The decomposer is a **vocab-free** LLM step: it segments
    the query into single-field spans and routes each to a field using the field
-   catalogue, the TERMite annotation block, and the user's own words. It does
-   **not** resolve, normalize, or consult any taxonomy — that is Stage 2's
-   grounded job. It also assigns each component its `type` and writes its
-   one-sentence `reason`. Components not grounded directly by TERMite carry
-   `source: llm`. The prompt instructs it to emit a `drugs` filter only when a
-   **specific drug or drug class is named** (Sunitinib, kinase inhibitors): the
-   bare head noun "drugs" in a *"drugs treating/causing/for `<condition>`"*
+   catalogue and the user's own words. It does **not** resolve, normalize, or
+   consult any taxonomy — that is Stage 2's grounded job. It also assigns each
+   component its `type` and writes its one-sentence `reason`. Components carry
+   `source: llm` initially. The prompt instructs it to emit a `drugs` filter only
+   when a **specific drug or drug class is named** (Sunitinib, kinase inhibitors):
+   the bare head noun "drugs" in a *"drugs treating/causing/for `<condition>`"*
    construction is the thing asked about, not a filter — the `<condition>` routes
-   to `indications`/`effects` and "drugs" becomes a `question` (the reported
+   to `studyGroup` and "drugs" becomes a `question` (the reported
    output). Otherwise the carrier phrase fuzzy-grounds to a nonsense drug and
    zeroes the query.
-3. **Annotation reconciliation (deterministic, post-decompose).** Because the
-   vocab-free LLM still routes by intuition, a small deterministic pass honours the
-   enhancer's annotations rather than trusting the prompt hint alone. It resolves
-   the "kinase" case above: when TERMite recognized a `TARGET` entity and the
-   decomposer parked a mechanism phrase containing that target surface (e.g.
-   "inhibitors of kinases") on `drugs`, the phrase has two readings, resolved by
-   probing the drugs taxonomy:
-   - **Drug class (preferred when it exists):** if "<target> inhibitors" is a real
-     drug-class node (e.g. `Kinase inhibitors`), the phrase denotes that class. Keep
-     it on `drugs` and rewrite the fragment to the class label — the tighter,
-     intended set (Q8 → ~1851). The earlier assumption that the `DrugsTargets`
-     reading yields ~1851 was wrong: `targets=Kinases` is a strictly broader set
-     (~6980).
-   - **Target (fallback):** otherwise route to `targets`, answered via the
-     `DrugsTargets` entity filter using the TERMite preferred label.
-   An untagged "CDk4 inhibitors" (no TERMite TARGET, Q21) stays on `drugs`.
+2. **Stage 0 TERMite annotation.** After decomposition, each per-field NL
+   fragment is passed to the TERMite NER service. TERMite annotations carry a type
+   that maps to a PK field: `DRUG->drugs`, `SPECIES->species`, `ROUTE->route`,
+   `PARAMETER->parameter`, `AGE->age`. Fragments that receive a TERMite hit have
+   their `source` updated to `termite:<TYPE>`, providing high-confidence preferred
+   labels that seed Stage 2 translation.
+3. **Annotation reconciliation (deterministic, post-annotation).** A small
+   deterministic pass honours TERMite annotations and resolves routing ambiguities.
+   It resolves routing ambiguities: when TERMite annotates a fragment with a type
+   that conflicts with the decomposer's field assignment, the pass probes the
+   relevant taxonomy and picks the narrower, more precise reading.
 
-   A second rule promotes **retrieval-defining** entities: a recognized toxicity
-   parameter (NOAEL/NOEL/LD50/MTD/…) names the *kind of record* sought, so it must
-   be a **filter**, not just a reported column. "What is the **Maximum tolerated
-   dose** of X" asks about MTD *and* restricts retrieval to MTD records, but the
-   decomposer often emits only a `toxicityParameter` *question*, dropping the
-   constraint (MTD: 2292 records vs the intended 4). When TERMite recognized such an
-   entity, the pass promotes the same-field question to a filter on the preferred
+   It also promotes **retrieval-defining** entities: a recognized PK parameter
+   (AUC, Cmax, t½, …) names the *kind of record* sought, so it must be a
+   **filter**, not just a reported column. "What is the **AUC** of X in fed
+   subjects" asks about AUC *and* restricts retrieval to AUC records, but the
+   decomposer may emit only a `parameter` *question*. When TERMite recognized such
+   an entity, the pass promotes the same-field question to a filter on the preferred
    label (the field is still reported via Stage-3 facets/displayColumns). Plain
    questions like "at which dose" are untouched.
 
-   Both rules live in `reconcile_with_annotations` and run after decomposition.
+   Both rules live in `reconcile_with_annotations` and run after annotation.
 
 ## Granularity: per concept, tagged by field
 
@@ -129,10 +116,10 @@ When several concepts belong to the same field, they share a `boolean_group` so
 Stage 2 can translate each concept independently and Stage 3 can recombine them
 with the intended operator.
 
-For example, "neutropenia or thrombocytopenia" becomes two `effects` components
-with one shared `OR` group. "Neutropenia and cytopenia" becomes two `effects`
-components with one shared `AND` group. This preserves per-concept grounding
-while still reporting the field as a single logical filter in evaluation.
+For example, "AUC or Cmax" becomes two `parameter` components with one shared
+`OR` group. "AUC and Cmax" becomes two `parameter` components with one shared
+`AND` group. This preserves per-concept grounding while still reporting the field
+as a single logical filter in evaluation.
 
 ## What Stage 1 must NOT do
 
@@ -143,18 +130,20 @@ while still reporting the field as a single logical filter in evaluation.
 
 ## Worked example
 
-> "What is the NOAEL for sunitinib in rats related to maternal toxicity" (Q12)
+> "What is the AUC of sunitinib in rats after oral administration in fasted subjects?"
 
 ```json
 [
-  { "field": "toxicityParameter", "nl_fragment": "NOAEL",             "type": "filter",   "reason": "The user restricts results to the NOAEL toxicity endpoint.",         "source": "termite:TOXICITY_PARAMETER" },
-  { "field": "drugs",             "nl_fragment": "sunitinib",         "type": "filter",   "reason": "The user restricts results to the drug sunitinib.",                 "source": "termite:DRUG" },
-  { "field": "species",           "nl_fragment": "rats",              "type": "filter",   "reason": "The user restricts results to rat studies.",                        "source": "termite:SPECIES" },
-  { "field": "parameterComment",  "nl_fragment": "maternal toxicity", "type": "filter",   "reason": "The user restricts results to the maternal-toxicity qualifier.",    "source": "llm" },
-  { "field": "value",             "nl_fragment": "what is the NOAEL", "type": "question", "reason": "The user wants the NOAEL value reported from the retrieved records.", "source": "llm" }
+  { "field": "parameter", "nl_fragment": "AUC",               "type": "filter",   "reason": "The user restricts results to AUC records.",                           "source": "termite:PARAMETER" },
+  { "field": "drugs",     "nl_fragment": "sunitinib",         "type": "filter",   "reason": "The user restricts results to the drug sunitinib.",                    "source": "termite:DRUG" },
+  { "field": "species",   "nl_fragment": "rats",              "type": "filter",   "reason": "The user restricts results to rat studies.",                           "source": "termite:SPECIES" },
+  { "field": "route",     "nl_fragment": "oral",              "type": "filter",   "reason": "The user restricts results to oral administration.",                   "source": "termite:ROUTE" },
+  { "field": "concomitants", "nl_fragment": "fasted",         "type": "filter",   "reason": "The user restricts results to fasted-state records.",                  "source": "llm" },
+  { "field": "value",     "nl_fragment": "what is the AUC",  "type": "question", "reason": "The user wants the AUC value reported from the retrieved records.",    "source": "llm" }
 ]
 ```
 
-Note `maternal toxicity` is routed to the **open** field `parameterComment` (not
-`effects`), matching the SME mapping for Q12. The `value` component is a
-`question` — after retrieval we report the NOAEL value(s); it is not a filter.
+`parameter` is promoted to a **filter** by the annotation reconciliation pass
+because AUC names the kind of PK record sought — it restricts retrieval, not just
+the reported output. The `value` component is a `question` — after retrieval we
+report the AUC value(s); it is not a filter.

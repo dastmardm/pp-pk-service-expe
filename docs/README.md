@@ -17,12 +17,10 @@ runtime by translating against the unique values in fetched datapoints.
 |---|-----|----------------|
 | 0 | [00-overview/problem-statement.md](00-overview/problem-statement.md) | The problem in one page |
 | 0 | [00-overview/glossary.md](00-overview/glossary.md) | Shared vocabulary |
-| 1 | [01-current-system/legacy-architecture.md](01-current-system/legacy-architecture.md) | How the legacy translator works today |
-| 1 | [01-current-system/pain-points.md](01-current-system/pain-points.md) | Why it needs to change (evidence from the gold set) |
 | 2 | [02-domain-inputs/machine-query-schema.md](02-domain-inputs/machine-query-schema.md) | The target machine-query format |
 | 2 | [02-domain-inputs/field-taxonomy.md](02-domain-inputs/field-taxonomy.md) | The two sets of searchable fields |
 | 2 | [02-domain-inputs/csv-catalog.md](02-domain-inputs/csv-catalog.md) | What each CSV in `inputs/` is for |
-| 3 | [03-proposed-design/architecture.md](03-proposed-design/architecture.md) | The pipeline: Stage -1, required TERMite Stage 0, and 3 core stages |
+| 3 | [03-proposed-design/architecture.md](03-proposed-design/architecture.md) | The pipeline: Stage -1, Stage 1 decomposition, TERMite Stage 0, and 3 translation/aggregation stages |
 | 3 | [03-proposed-design/stage-1-decomposition.md](03-proposed-design/stage-1-decomposition.md) | NL query → per-field NL subqueries |
 | 3 | [03-proposed-design/stage-2-subquery-translation.md](03-proposed-design/stage-2-subquery-translation.md) | NL subquery → machine subquery |
 | 3 | [03-proposed-design/stage-3-aggregation.md](03-proposed-design/stage-3-aggregation.md) | Subqueries → final machine query |
@@ -87,24 +85,24 @@ LLM and TERMite credentials present in `.env`.
 
 ```bash
 # Full pipeline: expand -> TERMite enhance -> decompose -> translate -> aggregate
-oppp run "adverse effects of sunitinib in humans"
+oppp run "AUC of sunitinib in human after oral"
 
 # Print only the API payload JSON, or POST it to get countTotal
 oppp run "<question>" --payload-only
 oppp run "<question>" --execute
 
-# Run a specific SME gold case and diff against the gold filters
-oppp run --case 23
+# Run a specific gold case and diff against the gold filters
+oppp run --case 1
 
 # Isolate a single stage
-oppp enhance   "adverse effects of sunitinib in humans"
-oppp decompose "adverse effects of sunitinib in humans"
+oppp enhance   "AUC of sunitinib in human after oral"
+oppp decompose "AUC of sunitinib in human after oral"
 oppp field     drugs "sunitnib"
-oppp aggregate "abemaciclib liver disorders in rats or mice"
+oppp aggregate "AUC or Cmax of sunitinib in rat"
 
 # Grounding: look up a term, optionally expanding a class node
 oppp lookup drugs "sunitinib"
-oppp lookup effects "Neutropenia" --expand
+oppp lookup species "Rodent" --expand
 
 # Evaluation against the gold set. Add --no-execute to skip API count execution.
 oppp eval --tolerance 0.10 --show-cases
@@ -119,9 +117,9 @@ splits the question into single-field components using the user's own words; it
 only segments, and does not resolve, normalize, or consult any vocabulary. Each
 component is **translated independently** against a known closed set. For fields
 whose legal values are available as CSV taxonomies or inline enums (drugs,
-effects, species, route, dose type, sex, ...), the value is grounded before the
-API call. Fields without an input value set (study group, comments, free-text
-qualifiers, target values without a local taxonomy) are represented in the design
+species, route, documentYear, sex, concomitants, ...), the value is grounded before the
+API call. Fields without an input value set (parameter, parameterDisplay,
+studyGroup, age, dose, duration) are represented in the design
 as runtime closed-set post-filters. In the current package, those open fields are
 emitted as direct `MATCH`/`REGEX` constraints and, when execution is enabled, can
 be guarded by isolated zero-count probes before final aggregation. Finally an LLM

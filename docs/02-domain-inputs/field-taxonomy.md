@@ -26,13 +26,9 @@ that may be emitted to the API.
 | Field | Backing set | Rows | Hierarchical? | Typical operator |
 |-------|-------------|------|---------------|------------------|
 | `drugs` / `drugsFuzzy` | [drugs.csv](../../inputs/drugs.csv) | 5,227 | yes (drug -> class via `parent_name`) | `MATCH` (+ trailing `*` for fuzzy drug leaves) |
-| `effects` | [effects.csv](../../inputs/effects.csv) | 12,724 | yes (MedDRA-style) | `MATCH` with expanded value list |
-| `indications` | [indications.csv](../../inputs/indications.csv) | 3,152 | yes | `MATCH` via `entityFilters` where required |
 | `species` | [species.csv](../../inputs/species.csv) | 286 | yes (class -> members, e.g. Rodent/Primate) | `MATCH` with class/leaf handling |
 | `route` | [route.csv](../../inputs/route.csv) | 204 | flat (+ usage counts) | `MATCH` |
-| `toxicityParameter` | [toxicity_parameters.csv](../../inputs/toxicity_parameters.csv) | 33 | yes | `MATCH` |
 | `documentSource` / `sources` | [sources.csv](../../inputs/sources.csv) | 56 | yes (doc -> FDA/EMA parent) | `MATCH` |
-| `doseType` | [dose_type.csv](../../inputs/dose_type.csv) | 7 | flat enum | `MATCH` |
 | `documentYear` | [document_year.csv](../../inputs/document_year.csv) | 118 | flat years/ranges | `MATCH` / `RANGE` / `DATE_RANGE` |
 
 ### Inline closed sets
@@ -44,10 +40,9 @@ lookup, but translation still chooses from an explicit finite set.
 |-------|----------------|
 | `sex` | `Male`, `Female`, `Both` |
 | `isPreclinical` | `true`, `false` |
-| `concomitants` (PK) | `Fed`, `Fasted` |
-| `tissueSpecific` (PK) | `Tissue-specific`, `Not tissue-specific` |
-| `metabolitesEnantiomers` (PK) | `Not metabolites/enantiomers`, `Metabolite`, `Enantiomer` |
-| `category` (RTB) | `In vitro (efficacy)`, `In vivo (animal models)`, `Metabolism/transport`, `Pharmacokinetic`, `Toxicity/safety pharmacology` |
+| `concomitants` | `Fed`, `Fasted` |
+| `tissueSpecific` | `Tissue-specific`, `Not tissue-specific` |
+| `metabolitesEnantiomers` | `Not metabolites/enantiomers`, `Metabolite`, `Enantiomer` |
 
 The `FuzzyLookupFilter.taxonomy` values in [enums.csv](../../inputs/enums.csv)
 are a useful cross-check for server-side fuzzy lookup support, but this document
@@ -80,13 +75,12 @@ Typical open-set fields:
 
 | Field | Why open before fetch | Runtime closed set |
 |-------|-----------------------|--------------------|
-| `parameterComment` | free-text qualifier, e.g. "maternal toxicity" | unique comments in the fetched datapoints |
+| `parameter` | no local PK parameter value set in `inputs/` | unique PK parameter values in fetched datapoints |
+| `parameterDisplay` | no local value set in `inputs/` | unique display values in fetched datapoints |
 | `studyGroup` | free text needing synonym handling, e.g. hepatic impairment | unique study-group strings in the fetched datapoints |
+| `age` | free text or category-like record values | unique age strings in the fetched datapoints |
 | `dose` | free numeric/unit text as stored in records | unique dose strings in the fetched datapoints |
-| `ages` / `age` | free text or category-like record values | unique age strings in the fetched datapoints |
-| `parameter`, `parameterDisplay`, `duration` (PK) | no local PK parameter/duration value set in `inputs/` | unique PK values in fetched datapoints |
-| `targets` | no local `targets.csv` value set in `inputs/` | v0.1 emits a `DrugsTargets` entity filter, using a TERMite preferred label when available; row-level runtime sets apply when fetched linked values are available |
-| `model`, `cellLine`, `tissue`, `regimen` (RTB) | free-text CrossFire columns | unique column values in fetched rows |
+| `duration` | free text stored in records | unique duration strings in the fetched datapoints |
 
 ## Service field map
 
@@ -95,35 +89,9 @@ bucket each field uses.
 
 | Service | Closed-set filters before API query | Open-set fields |
 |---------|-------------------------------------|-------------------------------------------|
-| Safety | `drugs`, `effects`, `species`, `route`, `toxicityParameter`, `documentSource`, `doseType`, `documentYear`, `indications`, `sex`, `isPreclinical` | `targets`, `parameterComment`, `studyGroup`, `ages`, `dose` |
 | PK | `drugs`, `species`, `route`, `documentSource`, `documentYear`, `sex`, `concomitants`, `tissueSpecific`, `metabolitesEnantiomers`, `isPreclinical` | `parameter`, `parameterDisplay`, `studyGroup`, `age`, `dose`, `duration` |
-| RTB | `drugs`, `species`, `route`, `category` | `parameter`, `model`, `cellLine`, `tissue`, `regimen` |
 
 ### Concrete service configuration
-
-The generated technical spec must enumerate the concrete service mappings below
-so implementation and evaluation do not have to rediscover them from code.
-
-Safety emits JSON machine queries:
-
-| Logical field | Bucket | Backing set | API field / route | Output metadata |
-|---------------|--------|-------------|-------------------|-----------------|
-| `drugs` | closed | `drugs.csv` | `drugsFuzzy` | facet `drugs`, display `drug` |
-| `effects` | closed | `effects.csv` | `effects` | facet `effects`, display `effect` |
-| `species` | closed | `species.csv` | `species` | facet `species`, display `specie` |
-| `route` | closed | `route.csv` | `route` | facet/display `route` |
-| `toxicityParameter` | closed | `toxicity_parameters.csv` | `toxicityParameter` | display `toxicityParameter` |
-| `documentSource` | closed | `sources.csv` | `documentSource` | facet `sources`, display `source` |
-| `doseType` | closed | `dose_type.csv` | `doseType` | facet/display `doseType` |
-| `documentYear` | closed | `document_year.csv` | `documentYear` | facet/display `documentYear` |
-| `indications` | closed | `indications.csv` | entity filter `DrugsIndications` | none |
-| `targets` | open | fetched linked target values | entity filter `DrugsTargets` when available | none |
-| `parameterComment` | open | fetched datapoint values | post-filter field `parameterComment` | display `parameterComment` |
-| `studyGroup` | open | fetched datapoint values | post-filter field `studyGroup` | none |
-| `ages` | open | fetched datapoint values | post-filter field `ages` | none |
-| `dose` | open | fetched datapoint values | post-filter field `dose` | display `dose` |
-| `sex` | enum | `Male`, `Female`, `Both` | `sex` | none |
-| `isPreclinical` | boolean | `true`, `false` | `isPreclinical` | none |
 
 PK emits JSON machine queries:
 
@@ -151,33 +119,24 @@ the field: `concomitants` is `Fasted` or empty, `tissueSpecific` is
 `Not tissue-specific`, and `metabolitesEnantiomers` is
 `Not metabolites/enantiomers`.
 
-RTB emits a CrossFire `where_clause` over `DAT.*` columns:
-
-| Logical field | Bucket | Backing set | CrossFire column |
-|---------------|--------|-------------|------------------|
-| `drugs` | closed | `drugs.csv` | `DAT.MNAME` |
-| `species` | closed | `species.csv` | `DAT.BSPECIE` |
-| `route` | closed | `route.csv` | `DAT.MROUTE` |
-| `category` | enum | category enum above | `DAT.CATEG` |
-| `parameter` | open | fetched row values | `DAT.VTYPE` |
-| `model` | open | fetched row values | `DAT.MODEL` |
-| `cellLine` | open | fetched row values | `DAT.BCELL` |
-| `tissue` | open | fetched row values | `MEASLOC.TISSUE` |
-| `regimen` | open | fetched row values | `DAT.MREGIM` |
-
-RTB always adds `DAT.CATEG = "Pharmacokinetic"` when no category is present.
-
 ## Decision rule
 
 ```
 Does the field have a complete value set in inputs/ or an inline enum/boolean?
-├─ yes -> CLOSED SET before query execution:
-│        translate against that set and only emit a valid subset.
-└─ no  -> OPEN SET before query execution:
-         v0.1 translates directly and may apply zero-count probes;
-         the row-level design defers the filter, fetches datapoints using
-         closed-set filters, derives this field's unique fetched values,
-         translates against that runtime closed set, then post-filters rows.
+├─ yes -> CLOSED SET:
+│        Is the vocabulary size < EARLY_CONTRIBUTOR_THRESHOLD (default 500)?
+│        ├─ yes -> EARLY CONTRIBUTOR (Pass A):
+│        │        translate before the first API call; include in Stage 3A query.
+│        └─ no  -> LARGE CLOSED SET (Pass B):
+│                 defer until early-contributor datapoints are fetched;
+│                 if the unique value count in those datapoints is < threshold,
+│                 translate against the narrowed list and add as a new contributor;
+│                 iterate until convergence; include resolved fields in Stage 3B query.
+└─ no  -> OPEN SET (Pass C):
+         defer until Stage 3B datapoints are fetched;
+         derive the unique values from those datapoints as the runtime closed set;
+         translate against that set and post-filter rows.
+         v0.1 translates directly and may apply zero-count probes instead.
 ```
 
 The complete response-side field list is in

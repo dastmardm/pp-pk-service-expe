@@ -9,11 +9,9 @@ uses, the staged pipeline design, examples, evaluation, and implementation notes
 | Start here | [README.md](README.md) | Project overview, reading order, pipeline stages, common CLI commands. |
 | Overview | [00-overview/problem-statement.md](00-overview/problem-statement.md) | Why the monolithic legacy translator is being replaced. |
 | Overview | [00-overview/glossary.md](00-overview/glossary.md) | Shared vocabulary for fields, grounding, services, and evaluation. |
-| Current system | [01-current-system/legacy-architecture.md](01-current-system/legacy-architecture.md) | How the legacy PharmaPendium prompt stack works. |
-| Current system | [01-current-system/pain-points.md](01-current-system/pain-points.md) | Failure modes seen in the SME gold cases. |
 | Domain inputs | [02-domain-inputs/csv-catalog.md](02-domain-inputs/csv-catalog.md) | CSV files under `inputs/` and how the code uses them. |
 | Domain inputs | [02-domain-inputs/field-taxonomy.md](02-domain-inputs/field-taxonomy.md) | Filterable fields, closed sets, open sets, and service field maps. |
-| Domain inputs | [02-domain-inputs/machine-query-schema.md](02-domain-inputs/machine-query-schema.md) | The machine-query JSON shape and RTB where-clause surface. |
+| Domain inputs | [02-domain-inputs/machine-query-schema.md](02-domain-inputs/machine-query-schema.md) | The machine-query JSON shape and PK-specific invariants. |
 | Design | [03-proposed-design/architecture.md](03-proposed-design/architecture.md) | Pipeline architecture and service boundaries. |
 | Design | [03-proposed-design/stage-1-decomposition.md](03-proposed-design/stage-1-decomposition.md) | Stage 1 component decomposition and annotation reconciliation. |
 | Design | [03-proposed-design/stage-2-subquery-translation.md](03-proposed-design/stage-2-subquery-translation.md) | Stage 2 field translation and grounding behavior. |
@@ -28,4 +26,4 @@ uses, the staged pipeline design, examples, evaluation, and implementation notes
 | Implementation | [06-implementation/tech-stack.md](06-implementation/tech-stack.md) | Stack choices and implementation conventions. |
 | Artifact | [agent-dag.drawio](agent-dag.drawio) | Editable Draw.io source for the agent component DAG. |
 | Artifact | [agent-dag.png](agent-dag.png) | Rendered Draw.io component DAG used by the overview README. |
-| Artifact | [sme_stage_cases.csv](sme_stage_cases.csv) | Per-step SME gold cases used by per-step evaluation. |
+| Artifact | [PPPK.xlsx](PPPK.xlsx) | SME gold query set used by evaluation; includes PK queries with expected counts and parameter taxonomy. |

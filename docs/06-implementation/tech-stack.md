@@ -37,7 +37,7 @@ same production path rather than a menu of interchangeable implementations:
 | Stage 2 translator | [stages/translate.py](../../src/oppp/stages/translate.py) | grounded closed-set tool translation |
 | Stage 2 normalizer | [normalize/](../../src/oppp/normalize/) | fuzzy closed-set normalization plus conservative open-set cleanup |
 | Stage 3 aggregator | [stages/aggregate.py](../../src/oppp/stages/aggregate.py) | LLM aggregation plan plus deterministic validation |
-| Service config | [services/](../../src/oppp/services/) | Safety, PK, and RTB field maps, facets, invariants, and serializers |
+| Service config | [services/](../../src/oppp/services/) | PK field map, facets, and invariants |
 
 The full pipeline executes these surfaces in [pipeline.py](../../src/oppp/pipeline.py).
 Stage replacement methods and bypass shortcuts are not accepted.
@@ -95,8 +95,8 @@ Generated implementation plans must keep all MUST requirements assigned to WBS
 tasks and evaluation criteria, including requirements that are mostly preservation
 work. In particular:
 
-- service configuration separation for Safety/PK/RTB remains covered even when a
-  feature primarily changes runtime filtering;
+- service configuration coverage remains included even when a feature primarily
+  changes runtime filtering;
 - lazy secret loading, `.env.example`, and `.gitignore` secret protection remain
   covered even when no credential behavior is being changed;
 - dependency import isolation remains covered so importing the package does not
@@ -118,7 +118,7 @@ reuse the same Pydantic contracts without changing the fixed stage interfaces.
 | [src/oppp/stages/](../../src/oppp/stages/) | Expansion, enhancement, decomposition, translation, and aggregation stages. |
 | [src/oppp/taxonomy/](../../src/oppp/taxonomy/) | CSV-backed closed-set indexes and hierarchy helpers. |
 | [src/oppp/normalize/](../../src/oppp/normalize/) | Misspelling normalizer strategies. |
-| [src/oppp/services/](../../src/oppp/services/) | Safety, PK, and RTB field maps, invariants, and RTB serializer. |
+| [src/oppp/services/](../../src/oppp/services/) | PK field map and service invariants. |
 | [src/oppp/eval/](../../src/oppp/eval/) | Count harness, per-step comparators, judge, and gold diff helpers. |
 | [src/oppp/ui/app.py](../../src/oppp/ui/app.py) | Streamlit debug UI. |
 | [src/oppp/cli.py](../../src/oppp/cli.py) | Typer CLI. |

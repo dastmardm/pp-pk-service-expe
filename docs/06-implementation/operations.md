@@ -85,5 +85,4 @@ evaluation harness uses it for result-count accuracy.
 When `probe_open_filters=true`, the pipeline asks the API for isolated counts of
 open-set filters before final aggregation. If an open-set filter's isolated count
 is confirmed as `0`, it is dropped and recorded as a warning. Probe failures keep
-the filter, and entity-routed filters such as `DrugsTargets` are skipped because
-the API rejects an entity-filter-only probe.
+the filter. The PK service has no entity-routed filters in v0.1.

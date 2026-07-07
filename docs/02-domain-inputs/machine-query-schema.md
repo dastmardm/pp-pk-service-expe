@@ -1,8 +1,7 @@
 # The machine-query format (target output)
 
 This is what the pipeline must ultimately produce. It is the request body the
-PharmaPendium search API (`/v1/safety/search/advanced`, `/v1/pk/search/advanced`,
-…) accepts.
+PharmaPendium PK search API (`/v1/pk/search/advanced`) accepts.
 
 The API payload represents the filter layer sent to the search API. In the
 row-level design, this is the input closed-set layer: filters whose values are
@@ -30,8 +29,7 @@ The request-side field/type catalogue is in
 | field | type |
 |-------|------|
 | `drugs`, `drugsFuzzy`, `drugsAndSynonyms` | `array<string>` |
-| `effects`, `species`, `routes`, `sources` | `array<string>` |
-| `doseTypes`, `metaboliteTypes`, `toxicityParameters` | `array<string>` |
+| `species`, `routes`, `sources` | `array<string>` |
 | `years` | `array<integer>` |
 | `facets`, `displayColumns` | `array<string>` |
 | `sortColumns` | `array<SortColumn>` |
@@ -60,57 +58,46 @@ produces. The interior `AND`/`OR`/`NOT` nodes are the structure Stage 3 builds.
 
 ### Example
 
-> "drugs causing neutropenia or thrombocytopenia in human"
+> "AUC or Cmax of Sunitinib in human after oral administration"
 
 ```json
 {
   "query": {
     "AND": [
-      { "MATCH": { "field": "species", "value": "Human" } },
-      { "OR": [
-        { "MATCH": { "field": "effects", "value": ["Neutropenia", "Granulocytopenia", "..."] } },
-        { "MATCH": { "field": "effects", "value": ["Thrombocytopenia", "Immune thrombocytopenia", "..."] } }
-      ]}
+      { "MATCH": { "field": "drugsFuzzy", "value": ["Sunitinib*"] } },
+      { "MATCH": { "field": "species",    "value": "Human" } },
+      { "MATCH": { "field": "route",      "value": "Oral" } }
     ]
   }
 }
 ```
 
-Note the two layers of boolean: an **AND across fields** (species ∧ effects) and
-an **OR within the effects field** (neutropenia ∨ thrombocytopenia), each effect
-already **expanded** to its taxonomy preferred terms.
+Note the AND across fields (drug ∧ species ∧ route). The `parameter` filter
+(AUC or Cmax) is deferred as an open-set field and applied as a post-filter
+after datapoints are fetched.
 
 ## Entity filters
 
 Some restrictions go through a linked entity rather than a direct field:
 
-```json
-"entityFilters": [
-  { "DrugsIndications": { "MATCH": { "field": "indications", "value": "Breast cancer" } } }
-]
-```
-
-Supported entity names differ by service. The current Safety config routes
-`indications` through `DrugsIndications` and `targets` through `DrugsTargets`.
-The PK and RTB configs currently emit their configured fields directly. Stage 3
-is responsible for routing a field's filter into `entityFilters` vs the
-top-level `query` when required.
+The PK service does not use `entityFilters` in v0.1. All PK field filters are
+emitted directly into the top-level `query`. Stage 3 is responsible for routing
+a field's filter into `entityFilters` vs the top-level `query` when required by
+the service configuration.
 
 ## Facets and display columns
 
-- `facets`: allow-listed per service (Safety: `drugs, species, sources, effects,
-  route, doseType, documentYear`). Used when the question asks for lists /
-  "which" / categories.
+- `facets`: allow-listed for PK (`drugs`, `species`, `sources`, `route`,
+  `documentYear`, `parameters`, `studyGroup`, `concomitants`, `tissueSpecific`,
+  `metabolitesEnantiomers`). Used when the question asks for lists / "which" /
+  categories.
 - `displayColumns`: only when the user explicitly asks for specific output
   columns; otherwise omit. Uses response-item field names (see
   [inputs/fields.csv](../../inputs/fields.csv)).
 
-## Service variations
+## PK-specific invariants
 
-The three services share this shape but differ in fields, facet allow-lists, and
-invariants. The RTB/CrossFire service uses a different surface syntax
-(`where_clause` strings like `DAT.VTYPE='AUC' AND DAT.BSPECIE='rat'`) but the
-same underlying idea — a conjunction of `(operator, field, value)` filters. The
-service-specific invariants (e.g. PK always pins `concomitants` to Fasted-or-
-empty and defaults `tissueSpecific`) are applied in
-[../03-proposed-design/stage-3-aggregation.md](../03-proposed-design/stage-3-aggregation.md).
+PK always pins certain fields unless the user query already supplies them:
+`concomitants` is `Fasted` or empty, `tissueSpecific` is `Not tissue-specific`,
+and `metabolitesEnantiomers` is `Not metabolites/enantiomers`. These are applied
+in [../03-proposed-design/stage-3-aggregation.md](../03-proposed-design/stage-3-aggregation.md).

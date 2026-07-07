@@ -7,97 +7,53 @@ traded one opaque box for four. So evaluation here is **per-step first**: every
 stage has a typed contract and an expected output we can score in isolation, and
 only then do we roll the steps up to an end-to-end number.
 
-Two SME gold datasets support this, at different granularities:
+The gold dataset is the **`PK_Query` sheet of [`docs/PPPK.xlsx`](../PPPK.xlsx)**:
+47 SME PK questions, each with an expected result count. The workbook also
+includes a PK parameter taxonomy (`Parameter_PK_Taxo_new`) and a content-issues
+log (`PP_PK_content`).
 
-- **Per-step expected outputs — [`docs/sme_stage_cases.csv`](../sme_stage_cases.csv)**
-  *(see [Status](#status)).* One
-  column per pipeline step, so each stage's output can be diffed directly against
-  what the SME expected at that step. This is the primary reference for per-step
-  evaluation.
-- **Per-field expected values — [`inputs/sme_expected_cases.csv`](../../inputs/sme_expected_cases.csv)**
-  *(the original SME set).* One column per *field*, ideal for scoring Stage 2's
-  per-field value selection (precision/recall over resolved labels).
+## The gold dataset (`docs/PPPK.xlsx` → `PK_Query` sheet)
 
-The two are complementary: the per-field set scores *what value did each field
-get*; the per-step set scores *what did each stage output* — entities, components,
-subqueries, the boolean tree, and the final query.
+Each row in the `PK_Query` sheet records:
 
-Both datasets must stay covered by the generated technical plan and evaluation
-criteria. The per-step file is not a replacement for the per-field file:
-`inputs/sme_expected_cases.csv` must still be loaded and scored for per-field
-value accuracy, while `docs/sme_stage_cases.csv` scores stage outputs and final
-machine-query structure.
+- `Quety number` — sequential case identifier;
+- `Query` — the natural-language question;
+- `Expected Count` — the expected `countTotal` from the PharmaPendium PK API.
 
-## The per-step gold dataset (`docs/sme_stage_cases.csv`)
+The count-based harness (`oppp eval`) runs each query through the full pipeline
+and compares the API `countTotal` against `Expected Count`. Per-step evaluation
+scores each stage's output against the same questions using the comparators
+described below.
 
-One row per SME question; one column per step of the pipeline. Each column holds
-the **expected output of that step** in a compact, human-readable shorthand, so a
-stage's actual output can be compared to it.
+## The per-field contract
 
-| Column | Step | What the cell records |
-|--------|------|------------------------|
-| `nl query` | input | The raw natural-language question. |
-| `counts` | end-to-end | Expected end-to-end result count. For closed-filter-only cases this is the API `countTotal`; for cases with runtime post-filters it is the final post-filtered datapoint count, while the API `count_total` is reported separately when available. |
-| `termite` | Stage 0 — enhance | Expected recognized entities as `TYPE:Label` pairs, with notes (e.g. *fuzzy on misspelled 'suntinib'*, *NOT recognized by TERMite — falls back to CSV fuzzy*, *MIS-TYPED by NER*). |
-| `decompose` | Stage 1 — decompose | Expected components as `field[type]:"fragment"` (e.g. `drugs[filter]:"Sunitinib"; effects[question]:"ADRs"`), with boolean hints like `(OR)`. |
-| `translate` | Stage 2 — translate | Expected per-field closed-set selections: API-layer machine subqueries for input closed-set fields and runtime post-filter selections for open-set fields (`MATCH drugsFuzzy=["Sunitinib*"]; POST-FILTER parameterComment="Maternal toxicity"; facet:effects`), with grounding/expansion notes (`(+salt Sunitinib Malate)`, `[neutropenia rollup, MedDRA]`, `[PT terms under "Hepatic and hepatobiliary disorders NEC"]`). |
-| `aggregate` | Stage 3 — aggregate | Expected API-layer boolean structure + output options + runtime post-filter metadata (`AND[ drugsFuzzy=[…], species="Human" ] \| facets=[effects]` / `\| postFilters=[parameterComment="Maternal toxicity"]`). |
-| `machine query` | final | The fully rendered API-layer machine-query JSON payload. Runtime post-filters are not embedded in the API `query`; they are represented in `translate` and `aggregate`. |
+The evaluator scores per-field Stage-2 output against these PK fields:
 
-Because the columns line up with the stages, each stage's evaluator reads exactly
-one column as its reference — there is no need to re-derive a stage's expectation
-from the final query. Rows with runtime/open-set filters keep the closed-filter
-API payload in `machine query` and put the post-filter expectation in
-`translate`/`aggregate`.
-
-The shorthand notation is SME intent in a compact form. The comparators parse the
-parts that are canonical enough to score deterministically; free-text nuances are
-sent to the typed judge when needed.
-
-## The per-field gold set (`inputs/sme_expected_cases.csv`)
-
-[inputs/sme_expected_cases.csv](../../inputs/sme_expected_cases.csv) — 24 SME
-questions, with one column per **field** rather than per step. Each row gives:
-
-- `question` — the NL input;
-- `s` — the expected number of results (an end-to-end sanity check);
-- `query_type` — the retrieval pattern (e.g. "Drug Name + Species → ADRs");
-- one column per field with the **expected value(s)** (`drugsFuzzy, indications,
-  targets, species, effects, parameterComment, toxicityParameter, doseType,
-  route, ages, sex, studyGroup, isPreclinical, concomitants`);
-- `comment` / `mapping_comment` — SME rationale and where the legacy system failed.
-
-Because the expected output is already per-field, we can score each field
-independently — exactly matching the Stage-2 output contract. (See
-[../02-domain-inputs/csv-catalog.md](../02-domain-inputs/csv-catalog.md) for the
-full column layout.)
-
-The evaluator treats these columns as the per-field contract:
+The evaluator uses these columns as the per-field contract:
 
 | CSV column | Logical field | Notes |
 |------------|---------------|-------|
 | `drugsFuzzy` | `drugs` | Compare after removing only API wildcard decoration such as a trailing `*`. |
-| `indications` | `indications` | Entity-routed closed-set field. |
-| `targets` | `targets` | Entity-routed/runtime field when fetched linked values are available. |
 | `species` | `species` | Includes class/member expansions. |
-| `effects` | `effects` | Includes MedDRA/family expansions. |
-| `parameterComment` | `parameterComment` | Runtime/open field; compare against the post-filter selected subset when rows are available. |
-| `toxicityParameter` | `toxicityParameter` | Closed-set toxicity endpoint. |
-| `doseType` | `doseType` | Closed-set dose regimen/type. |
 | `route` | `route` | Closed-set route. |
-| `ages` | `ages` | Runtime/open field for Safety age text. |
-| `sex` | `sex` | Inline enum. |
+| `parameter` | `parameter` | Runtime/open PK parameter field; compare against post-filter selected subset when rows are available. |
+| `parameterDisplay` | `parameterDisplay` | Runtime/open display label; compare against post-filter subset when rows are available. |
 | `studyGroup` | `studyGroup` | Runtime/open field; synonym-equivalent fetched strings may use the typed judge. |
+| `age` | `age` | Runtime/open field for PK age text. |
+| `dose` | `dose` | Runtime/open numeric/unit field. |
+| `duration` | `duration` | Runtime/open field for study duration. |
+| `sex` | `sex` | Inline enum. |
+| `concomitants` | `concomitants` | Enum/invariant field. |
+| `tissueSpecific` | `tissueSpecific` | Enum/invariant field. |
+| `metabolitesEnantiomers` | `metabolitesEnantiomers` | Enum/invariant field. |
 | `isPreclinical` | `isPreclinical` | Boolean. |
-| `concomitants` | `concomitants` | PK enum/invariant field. |
+| `documentSource` | `documentSource` | Closed-set source field. |
+| `documentYear` | `documentYear` | Closed-set year/range field. |
 
-Cells may contain multiple expected values separated by semicolons, commas, or
-explicit `AND`/`OR` wording. `Empty`, `None`, `N/A`, and blank cells mean the
-field is not expected to constrain that case. Input closed-set fields are scored
-against Stage-2A machine subqueries. Runtime/open fields are scored against
-Stage-2B post-filter selections when row execution is available; when rows are
-not available, the evaluator records the runtime-field score as unavailable
-rather than treating the missing post-filter as a correct empty set.
+Input closed-set fields are scored against Stage-2A machine subqueries. Runtime/open
+fields are scored against Stage-2C post-filter selections when row execution is
+available; when rows are not available, the evaluator records the runtime-field score
+as unavailable rather than treating the missing post-filter as a correct empty set.
 
 ## Per-step evaluation (the core design)
 
@@ -162,8 +118,8 @@ set:
   fetched candidate sets).
 
 This layer is mandatory even when the end-to-end harness is count-based: the
-evaluator must verify that `inputs/sme_expected_cases.csv` is loaded and that
-Stage-2 resolved values can be compared against its per-field cells.
+evaluator must verify that `docs/PPPK.xlsx` is loaded and that Stage-2 resolved
+values can be compared against the expected per-field values for each question.
 
 ### 2. Decomposition quality (Stage 1)
 
@@ -175,12 +131,10 @@ Stage-2 resolved values can be compared against its per-field cells.
 
 ### 3. Hierarchy / expansion correctness
 
-Targeted on the cases the legacy system failed:
+Targeted on the cases requiring hierarchy expansion:
 
-- class → members (Q8, Q23, Q24), species class (Q6, Q23), preclinical set
-  (Q7, Q16), MedDRA effect rollups (Q2, Q4, Q5, Q22).
-- Metric: did the expanded set equal the SME's expected expansion (the `translate`
-  column)?
+- species class → members (e.g. "Rodent" → Rat, Mouse, …), drug class → members.
+- Metric: did the expanded set equal the expected expansion for the case?
 
 ### 4. End-to-end
 
@@ -196,19 +150,17 @@ Targeted on the cases the legacy system failed:
 ## Suggested harness
 
 ```
-for case in sme_stage_cases.csv:               # one row per question, one column per step
-    out = pipeline.run(case.nl_query, service) # keep every intermediate artifact
-    score step 0 vs case.termite               # set match (+ tolerated fallbacks)
-    score step 1 vs case.decompose             # routing/type/boolean exact; fragment via judge
-    score step 2 vs case.translate             # input/runtime closed-set F1; judge only for semantic free-text ties
-    score step 3 vs case.aggregate             # structural; judge tie-break
-    execute/fetch when requested vs case.counts # API count or post-filtered row count
-report: per-step table + per-stage rollup + diff vs legacy baseline
+for case in PPPK.xlsx[PK_Query]:              # one row per question
+    out = pipeline.run(case.Query, service)   # keep every intermediate artifact
+    score step 0 — TERMite entity recognition
+    score step 1 — routing/type/boolean exact; fragment via judge
+    score step 2 — input/runtime closed-set F1; judge only for semantic free-text ties
+    score step 3 — structural; judge tie-break
+    execute when requested vs case.Expected Count  # API countTotal
+report: per-step table + per-stage rollup
 ```
 
-Run the **legacy translator** over the same questions first to get a baseline, so
-every redesign claim ("fewer invented values", "correct class expansion") is
-backed by a number. Each stage is independently invokable (see
+Each stage is independently invokable (see
 [../06-implementation/tech-stack.md](../06-implementation/tech-stack.md) →
 *Isolation for evaluation*), so a step can be scored without running the rest.
 
@@ -219,35 +171,27 @@ expand "Monkeys" to the full monkey species set (its `translate` cell) and resol
 the `Monoclonal antibodies` class node. Because steps are scored independently, a
 fix to species expansion cannot silently break drug resolution.
 
-The resolved regression set currently includes:
+Representative regression cases include:
 
-- **Q7** — retrieve both Human and preclinical records as
-  `OR(isPreclinical=true, species=Human)`.
-- **Q12** — route "maternal toxicity" to the runtime/open field
-  `parameterComment`.
-- **Q18** — treat maximum tolerated dose / MTD as `toxicityParameter="MTD"`, not
-  as a dosing-regimen filter.
-- **Q20** — narrow "positive Ames Test" to the Ames Test assay/finding, not to an
-  amniotic or broad mutagenicity over-match.
-- **Q23** — resolve `Monoclonal antibodies`, expand nephritis, and restrict
-  "Monkeys" to monkey species members.
-- **Q24** — resolve ADC to `Antibody-Drug Conjugate (ADC)` and keep the default
-  Human interpretation.
-- **Q25** — resolve Columvi to Glofitamab.
+- **Species class expansion** — "Rodent" must expand to all rodent species members via the species hierarchy.
+- **Drug fuzzy match** — misspellings such as "suntinib" must resolve to `Sunitinib` via fuzzy lookup, not be dropped.
+- **Open-set parameter** — "AUC or Cmax" must route to the `parameter` field as an OR group, not collapse to a single value.
+- **PK invariants** — `concomitants`, `tissueSpecific`, and `metabolitesEnantiomers` defaults must be applied unless the query explicitly overrides them.
 
 Generated implementation tasks and evaluation criteria must cover the same case
 list so implementers and evaluators do not work from different regression sets.
 
 ## Status
 
-- **The per-step dataset is compact SME intent.** [`docs/sme_stage_cases.csv`](../sme_stage_cases.csv)
-  is parsed by [eval/per_step.py](../../src/oppp/eval/per_step.py), which scores
-  TERMite labels, decomposition routing/type pairs, translated field names, and
-  final machine-query structure.
+- **The gold dataset is `docs/PPPK.xlsx`.** The `PK_Query` sheet (47 PK questions
+  with expected counts) is the primary evaluation reference. The workbook is
+  read by [eval/harness.py](../../src/oppp/eval/harness.py).
 - **The CLI harness is count-based.** `oppp eval` runs
   [eval/harness.py](../../src/oppp/eval/harness.py): translate → execute when
-  requested → compare `countTotal` to the `counts` column, with CSV/XLSX report
-  export.
+  requested → compare `countTotal` to `Expected Count`, with CSV/XLSX report export.
+- **Per-step comparators.** [eval/per_step.py](../../src/oppp/eval/per_step.py)
+  scores TERMite labels, decomposition routing/type pairs, translated field names, and
+  final machine-query structure.
 - **The typed judge is implemented.** [eval/judge.py](../../src/oppp/eval/judge.py)
   exposes `LLMJudge` and `JudgeVerdict` for fragment, open-pattern, and structure
   tie-breaks. Tests inject a fake client so the judge contract stays hermetic.
@@ -255,6 +199,6 @@ list so implementers and evaluators do not work from different regression sets.
   fields present on typed contracts such as enhanced-query annotations,
   subqueries, row execution results, runtime closed sets, and post-filter results,
   not only the broad behavior those contracts enable.
-- **Coverage is Safety-centric.** The current SME sets focus on Safety questions;
-  PK and RTB service configs exist, and their broader evaluation coverage is
-  represented by targeted service tests.
+- **Coverage is PK-focused.** The gold set targets PK questions on the
+  PharmaPendium API; evaluation coverage is complemented by targeted service
+  configuration tests.

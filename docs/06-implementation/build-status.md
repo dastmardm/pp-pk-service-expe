@@ -12,14 +12,14 @@ them.
 |------|--------|-------|
 | Pydantic contracts | [models.py](../../src/oppp/models.py) | `EnhancedQuery`, `Component` (`type` filter/question + `reason`), `MachineSubquery`, `MachineQuery`, grounding, validation. |
 | Pipeline runner | [pipeline.py](../../src/oppp/pipeline.py) | Fixed stage order with typed intermediate artifacts. |
-| Taxonomy grounding | [taxonomy/index.py](../../src/oppp/taxonomy/index.py) | CSV load, exact + fuzzy (RapidFuzz) lookup, singularization, class labels, candidate windows, MedDRA family expansion, and taxonomy membership checks. |
+| Taxonomy grounding | [taxonomy/index.py](../../src/oppp/taxonomy/index.py) | CSV load, exact + fuzzy (RapidFuzz) lookup, singularization, class labels, candidate windows, hierarchy expansion, and taxonomy membership checks. |
 | Misspelling normalizer | [normalize/](../../src/oppp/normalize/) | Fuzzy closed-set normalization plus conservative open-set cleanup. |
 | Stage -1 — expand | [stages/expand.py](../../src/oppp/stages/expand.py) | LLM rewrite for clarity and abbreviation expansion, preserving the original query. |
 | Stage 0 — enhance | [stages/enhance.py](../../src/oppp/stages/enhance.py) | Required SciBite TERMite NER records preferred labels plus public synonyms. |
 | Stage 1 — decompose | [stages/decompose.py](../../src/oppp/stages/decompose.py) | LLM structured output, seeded by TERMite annotations and kept **vocab-free** for value selection. |
 | Stage 2 — translate | [stages/translate.py](../../src/oppp/stages/translate.py) | closed-set grounding + class/effect expansion, enum, boolean, year→RANGE, LLM term selection, LLM synonym/closed-window fallback, and direct open-field `MATCH`/`REGEX` translation. |
 | Stage 3 — aggregate | [stages/aggregate.py](../../src/oppp/stages/aggregate.py) | dropped-filter handling, API constraint budget collapse, boolean tree, entityFilters routing, facets/displayColumns, validation, service invariants, and zero-count open-filter probing. |
-| Service config | [services/](../../src/oppp/services/) | Safety, PK, and RTB field maps, buckets, facet allow-lists, TERMite type maps, invariants, and RTB `where_clause` serializer. |
+| Service config | [services/](../../src/oppp/services/) | PK field map, buckets, facet allow-list, TERMite type map, and service invariants. |
 | Pipeline | [pipeline.py](../../src/oppp/pipeline.py) | sequential runner + LangGraph graph over the same fixed stages. |
 | Execution | [execute.py](../../src/oppp/execute.py) | POST machine query to the PP API and read `data.countTotal`; full rows are not fetched. |
 | Evaluation | [eval/](../../src/oppp/eval/) | count-based harness, per-step comparators, gold-vs-agent filter diff, typed LLM judge, CSV/XLSX report export. |
@@ -38,9 +38,9 @@ oppp run "What are the ADRs of Sunitinib in human"
 
 # isolate a single stage (the design's per-step isolation)
 oppp enhance "ADRs of Columvi in human"                     # Stage 0 TERMite
-oppp decompose "NOAEL for sunitinib in rats"                 # Stage 1
+oppp decompose "AUC of sunitinib in human after oral"        # Stage 1
 oppp field drugs "suntinib"                                  # Stage 2 on one fragment
-oppp aggregate "neutropenia or thrombocytopenia in human"    # Stage 3
+oppp aggregate "AUC or Cmax of sunitinib in rat"             # Stage 3
 oppp lookup species Rodent --expand                          # grounding layer
 
 # evaluate against the gold set by expected count (column s)
@@ -95,9 +95,7 @@ they can affect the machine query.
 - **Open-set filters are guarded by probes.** `parameterComment`, `studyGroup`,
   `ages`, `dose`, and similar fields are emitted as direct `MATCH`/`REGEX`
   constraints. Live runs may drop a filter whose isolated count is confirmed `0`.
-- **`targets` has no input closed set in `inputs/`.** The current Safety path
-  routes it through `DrugsTargets` and uses a TERMite preferred label when
-  available; entity-routed filters are not zero-count probed.
+- **`parameter` and `parameterDisplay` have no input closed set in `inputs/`.** These open-set fields are translated as direct `MATCH` constraints in v0.1 and may be guarded by zero-count probing.
 - **DSPy optimization modules are not present in `src/oppp/`.** The pipeline uses
   Pydantic structured outputs and fixed stage contracts; prompt optimization remains a
   convention described in [tech-stack.md](tech-stack.md).

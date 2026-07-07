@@ -21,11 +21,10 @@ question box, and a **per-stage output** area that fills in after a run.
 
 ### 1. Question picker (top)
 
-A list of the SME gold-set questions
-([inputs/sme_expected_cases.csv](../../inputs/sme_expected_cases.csv)) is shown
-above the query box. Picking one (by `query_number` / `question`) loads it into
-the query box; pressing **Translate** runs the agent against it. A free-text box
-stays available for arbitrary questions.
+A list of the gold-set questions from [`docs/PPPK.xlsx`](../PPPK.xlsx) (`PK_Query`
+sheet) is shown above the query box. Picking one (by query number / question) loads
+it into the query box; pressing **Translate** runs the agent against it. A free-text
+box stays available for arbitrary questions.
 
 ### 2. Run controls
 
@@ -35,7 +34,7 @@ of the run, and no stage can be bypassed or replaced.
 
 | Control | Purpose | CLI equivalent |
 |---------|---------|----------------|
-| Service | Choose the PharmaPendium service surface (`safety`, `pk`, `rtb`). | `--service` |
+| Service | The PharmaPendium PK service surface. | `--service pk` |
 | Execute | POST the valid final query to the PharmaPendium API for a live count. | `--execute` / `--no-execute` |
 
 Turning **Execute** on posts the final query to the PharmaPendium API for a live

@@ -6,8 +6,7 @@
 
 A user asks something like:
 
-> *"What are the drugs causing neutropenia or thrombocytopenia in human, at
-> which dose, dosing regimen and route?"*
+> *"What is the AUC of sunitinib in human after oral administration?"*
 
 and we must produce a structured request that the PharmaPendium search API can
 execute.
@@ -20,7 +19,7 @@ exactly three things:
 | Part | Example | Notes |
 |------|---------|-------|
 | **operator** | `MATCH`, `OR`, `AND`, `NOT`, `REGEX`, `RANGE`, `DATE_RANGE`, `EMPTY`, `PROXIMITY` | how to compare |
-| **field name** | `species`, `effects`, `route`, `documentYear` | which column |
+| **field name** | `species`, `parameter`, `route`, `documentYear` | which column |
 | **value** | `"Human"`, `["Rat","Mouse"]`, `2020` | what to match |
 
 These filters are then composed into a nested boolean tree (the API's `query`
@@ -36,39 +35,20 @@ the value(s), then combine them.**
 The redesign hinges on one observation: not all fields are the same.
 
 1. **Closed-set fields** — fields whose complete set of legal values is known
-   before query execution, either from CSV taxonomies (`drugs`, `effects`,
-   `indications`, `species`, `route`, `sources`, `toxicityParameter`,
-   `doseType`, `documentYear`) or from inline enums/booleans. These values are
-   selected by grounding against the set, and hierarchy in the CSVs can be used
-   for class or rollup expansion.
+   before query execution, either from CSV taxonomies (`drugs`, `species`,
+   `route`, `sources`, `documentYear`) or from inline enums/booleans (`sex`,
+   `concomitants`, `tissueSpecific`, `metabolitesEnantiomers`, `isPreclinical`).
+   These values are selected by grounding against the set, and hierarchy in the
+   CSVs can be used for class or rollup expansion.
 
 2. **Open-set fields** — fields whose value space is not known before query
-   execution (`studyGroup`, `parameterComment`, `parameterDisplay`, free-text
-   `dose`, target values without a local taxonomy, ...). These filters are
-   deferred until the closed-set query fetches datapoints. The unique fetched
-   values for the field become a runtime closed set, and the same translator
-   selects a valid subset for post-filtering.
+   execution (`parameter`, `parameterDisplay`, `studyGroup`, `age`, `dose`,
+   `duration`). These filters are deferred until the closed-set query fetches
+   datapoints. The unique fetched values for the field become a runtime closed
+   set, and the same translator selects a valid subset for post-filtering.
 
 See [../02-domain-inputs/field-taxonomy.md](../02-domain-inputs/field-taxonomy.md)
 for the full classification.
-
-## What's wrong with how we do it today
-
-Today a **single giant prompt** (per service: Safety, PK, RTB) asks one LLM call
-to read the whole question and emit the entire machine query in one shot. That
-approach:
-
-- relies 100% on the LLM, with no grounding against the CSV taxonomies, so it
-  invents field values that don't exist in the vocabulary;
-- crams every rule for every field into one unmaintainable prompt;
-- cannot be tested or improved field-by-field;
-- mishandles hierarchy (drug classes, species classes, MedDRA effect rollups)
-  because the model only sees a flat label, not the taxonomy.
-
-The concrete failures are catalogued in
-[../01-current-system/pain-points.md](../01-current-system/pain-points.md),
-drawn directly from the SME gold set in
-[inputs/sme_expected_cases.csv](../../inputs/sme_expected_cases.csv).
 
 ## The new shape (one line)
 
