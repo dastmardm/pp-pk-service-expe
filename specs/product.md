@@ -3,22 +3,17 @@
 ## Sources
 - `docs/README.md`
 - `docs/index.md`
-- `docs/agent-dag.drawio`
-- `docs/agent-dag.png`
-- `docs/sme_stage_cases.csv`
-- `docs/00-overview/glossary.md`
 - `docs/00-overview/problem-statement.md`
-- `docs/01-current-system/legacy-architecture.md`
-- `docs/01-current-system/pain-points.md`
+- `docs/00-overview/glossary.md`
 - `docs/02-domain-inputs/csv-catalog.md`
 - `docs/02-domain-inputs/field-taxonomy.md`
 - `docs/02-domain-inputs/machine-query-schema.md`
 - `docs/03-proposed-design/architecture.md`
-- `docs/03-proposed-design/grounding-and-tool-calling.md`
-- `docs/03-proposed-design/misspelling-strategy.md`
 - `docs/03-proposed-design/stage-1-decomposition.md`
 - `docs/03-proposed-design/stage-2-subquery-translation.md`
 - `docs/03-proposed-design/stage-3-aggregation.md`
+- `docs/03-proposed-design/grounding-and-tool-calling.md`
+- `docs/03-proposed-design/misspelling-strategy.md`
 - `docs/04-examples/worked-examples.md`
 - `docs/05-evaluation/gold-set-and-metrics.md`
 - `docs/06-implementation/build-status.md`
@@ -27,108 +22,71 @@
 - `docs/06-implementation/tech-stack.md`
 
 ## Purpose
-The product converts a natural-language PharmaPendium question into the machine
-query and filtered datapoints needed to answer it. It replaces the legacy
-single-prompt translator with a fixed, auditable pipeline that separates
-question expansion, entity recognition, decomposition, grounded translation,
-aggregation, execution, and post-filtering.
+The product converts a natural-language PK question into the machine query the PharmaPendium PK API executes. It replaces the legacy single-prompt translator with a fixed, auditable pipeline that separates query expansion, entity recognition, field decomposition, grounded translation, aggregation, count execution, and post-filtering.
 
-The central product rule is: a filter value must be grounded before it can narrow
-results. Input fields whose possible values are already known are translated
-against their closed sets. Fields whose values are not known before retrieval are
-deferred until datapoints have been fetched; the unique fetched values then become
-runtime closed sets, and the same translation rules decide the post-filter.
+The central product rule: a filter value must come from a closed set before it can narrow results. Fields whose possible values are known before query execution are translated against those closed sets. Fields whose value space is not known until datapoints are fetched are deferred; the unique fetched values become runtime closed sets, and the same grounding translator selects the post-filter subset.
+
+The v0.1 package implements Stage -1 through Stage 3, count execution, and the per-step evaluation harness. Full row fetching and runtime post-filtering are the documented intended path once row retrieval is available; in v0.1, open-set fields are emitted as direct `MATCH`/`REGEX` constraints with optional zero-count probe guards in live runs.
 
 ## Core Capabilities
-- Accept a natural-language question for Safety, PK, or RTB and produce the
-  corresponding machine-query surface for that service.
-- Preserve the original question while producing a faithful expansion that
-  clarifies abbreviations and wording without adding or removing intent.
-- Always run TERMite entity recognition before decomposition. TERMite supplies
-  labels, entity types, and synonyms that seed later stages; it is not optional.
-- Decompose the enhanced question into single-field components, each marked as a
-  retrieval filter or a requested output/question.
-- Translate closed-set filters by exact matching, fuzzy matching, LLM pool
-  enrichment, exact/fuzzy retry, and final LLM selection from the closed set.
-- Treat any empty, missing, or out-of-set translation as invalid. Invalid input
-  closed-set filters are recorded but do not narrow the API query.
-- Support domain grounding behavior for drug classes, species groups, effect
-  families, route/source/parameter taxonomies, booleans, enums, and curated
-  preclinical/non-clinical concepts.
-- Aggregate valid input closed-set filters into a structurally valid first API
-  query with service invariants, entity filters, facets, and display columns.
-- Fetch datapoints, derive runtime closed sets for deferred open-set fields,
-  translate those runtime fields, and apply valid post-filters.
-- Keep stage outputs inspectable through fixed stage commands and the UI without
-  exposing alternative stage methods or no-op bypasses.
-- Evaluate quality per step, per field, and end to end against SME gold sets.
+- Accept a natural-language PK question and produce the structured machine query for the PharmaPendium PK API.
+- Stage -1: produce a faithful expansion that clarifies abbreviations and wording without adding or removing intent, while preserving the original question.
+- Stage 0: run TERMite NER over the decomposed per-field fragments to annotate entities with preferred labels and types. TERMite is required; missing TERMite config is a blocking error for full runs.
+- Stage 1: decompose the expanded question into single-field components, each marked as a retrieval filter or a requested output, without consulting controlled vocabularies.
+- Stage 2A: translate input closed-set filter components against CSV taxonomies, inline enums, and boolean domains using the documented resolution order.
+- Stage 2B (row-level design): for large closed-set fields deferred past Stage 2A, derive a narrowed value list from early-contributor fetched datapoints and translate against that list; repeat until convergence.
+- Stage 2C (row-level design): for open-set fields, translate against unique values observed in the final fetched datapoints and apply the selected subset as post-filters.
+- Stage 3: aggregate valid Stage 2A subqueries into a structurally valid API query with service invariants, boolean grouping, facets, and display columns; execute for `countTotal`.
+- Reject any translation result that contains values outside the field's closed set; record invalid translations in the audit trail without narrowing the query.
+- Keep stage outputs independently inspectable via fixed CLI commands and the Streamlit UI without exposing alternative stage implementations.
+- Evaluate quality per step, per field, and end to end against the SME gold set in `docs/PPPK.xlsx`.
 
 ## Key Actors
 | Actor | Role |
 |-------|------|
-| Analyst | Asks the natural-language question and consumes the filtered evidence. |
-| Subject-matter expert | Provides gold questions, expected mappings, counts, and notes on legacy failures. |
-| Developer / evaluator | Runs fixed stages, inspects traces, updates tests, and evaluates regressions. |
-| PharmaPendium search service | Executes machine queries and returns counts or datapoints. |
-| TERMite entity recognizer | Supplies required entity labels, types, and synonyms before decomposition. |
-| Language model | Performs faithful expansion, vocab-free decomposition, translation enrichment/selection, aggregation planning, and semantic judging where needed. |
+| Analyst | Asks the natural-language PK question and consumes the count and filtered results. |
+| Subject-matter expert | Provides gold questions and expected result counts in `docs/PPPK.xlsx`. |
+| Developer / evaluator | Runs fixed stage commands, inspects traces, updates tests, and evaluates regressions. |
+| PharmaPendium PK API | Executes machine queries at `/v1/pk/search/advanced` and returns `countTotal` or datapoints. |
+| TERMite entity recognizer | Supplies required entity labels, types, and synonyms for Stage 0. |
+| Language model | Performs faithful Stage -1 expansion, vocab-free Stage 1 decomposition, Stage 2 translation enrichment/selection, Stage 3 aggregation planning, and LLM-as-judge semantic scoring. |
 
 ## Data Flow
-1. The raw question enters the fixed pipeline.
-2. Stage -1 expands the question faithfully and preserves the original.
-3. Stage 0 runs TERMite and attaches recognized entity annotations.
-4. Stage 1 emits one component per field concept, preserving filter/question
-   roles and boolean hints without choosing taxonomy values.
-5. Stage 2A translates input closed-set filter components against known
-   vocabularies, inline enums, and booleans.
-6. Stage 3 aggregates valid Stage 2A filters into the first API query and fetches
-   datapoints.
-7. Stage 2B translates deferred open-set filters against unique values observed
-   in those datapoints.
-8. Stage 3 applies valid runtime post-filters and returns the final filtered
-   datapoints plus audit metadata.
+1. The raw PK question enters the fixed pipeline.
+2. Stage -1 produces a faithful expanded query and preserves the original text.
+3. Stage 1 decomposes the expanded question into single-field components (no taxonomy lookup).
+4. Stage 0 runs TERMite over the per-field fragments and annotates entity labels and types.
+5. Stage 2A translates input closed-set filter components (CSV-backed fields, enums, booleans) against their known value sets.
+6. Stage 3A assembles valid Stage 2A subqueries into the first API query, applies PK service invariants, and executes for `countTotal` (or datapoints when row fetch is available).
+7. Stage 2B (row-level design): derives runtime narrowed sets from Stage 3A datapoints for large closed-set fields and translates new contributor subqueries.
+8. Stage 3B (row-level design): assembles all contributor subqueries into the final API query and fetches final datapoints.
+9. Stage 2C (row-level design): translates open-set filters against unique values in Stage 3B datapoints and post-filters rows.
+10. The pipeline returns a typed result with every intermediate artifact plus issues.
 
 ## Integration Surface
-- Safety, PK, and RTB share the same pipeline shape but differ in fields,
-  buckets, facets, invariants, entity routing, and output serialization.
-- Closed-set vocabularies come from the documented input CSV taxonomies, inline
-  enum values, and boolean domains.
-- Open-set fields become runtime closed sets only after datapoints are fetched.
-- TERMite annotations help route and ground entities, but CSV and runtime closed
-  sets remain the authority for emitted values.
-- The per-field SME gold set and the per-step SME gold set are required
-  evaluation references.
+- The pipeline targets the PK service on the PharmaPendium API (`/v1/pk/search/advanced`).
+- Closed-set vocabularies come from five taxonomy CSVs (`drugs.csv`, `species.csv`, `route.csv`, `sources.csv`, `document_year.csv`), inline enum values (`sex`, `concomitants`, `tissueSpecific`, `metabolitesEnantiomers`), and booleans (`isPreclinical`).
+- Open-set fields (`parameter`, `parameterDisplay`, `studyGroup`, `age`, `dose`, `duration`) become runtime closed sets only after datapoints are fetched.
+- TERMite annotations seed routing and translation grounding but do not override closed-set authority.
+- The evaluation gold set is the `PK_Query` sheet of `docs/PPPK.xlsx` (47 questions with expected counts). The `Parameter_PK_Taxo_new` sheet provides PK parameter taxonomy context.
 
 ## Operational Model
-- The production path has no user-selectable stage methods and no no-op bypass.
-- TERMite credentials and model credentials are required for production runs that
-  invoke the full pipeline.
-- Stage commands remain available for inspection, but each command runs the fixed
-  method for that stage.
-- Local tests may use injected fakes or fixtures to stay deterministic, but those
-  fakes are not product methods and must not be exposed as stage choices.
-- Live execution can call the PharmaPendium API. Count retrieval remains useful
-  for evaluation and debugging, while row retrieval is required for runtime
-  closed-set post-filtering.
-- The interactive UI is a debug surface for the same fixed pipeline: it shows
-  expansion, TERMite annotations, decomposition, translations, aggregation,
-  execution, runtime closed sets, post-filters, and issues.
+- The production path has no user-selectable stage methods and no no-op bypasses. TERMite and LLM credentials are required for full pipeline runs.
+- CLI commands (`oppp run`, `oppp enhance`, `oppp decompose`, `oppp field`, `oppp aggregate`, `oppp lookup`, `oppp eval`, `oppp dag`) expose only service, input, execution, and output controls.
+- The Streamlit UI (`streamlit run src/oppp/ui/app.py`) is a debug surface over the same fixed pipeline; it shows every stage output without stage backend selectors.
+- Offline tests stay hermetic by injecting fakes and fixtures; fakes are not public product methods.
+- Live execution posts to the PharmaPendium PK API. Count retrieval supports evaluation; row retrieval (when available) enables runtime post-filtering.
 
 ## Constraints and Non-Goals
-- Closed-set filters must never emit values outside their closed set.
-- Runtime post-filters must never emit values outside the fetched runtime closed
-  set.
-- Invalid translations must be visible in the audit trail and ignored downstream.
-- Boolean intent must stay explicit both within a field and across fields.
-- Stage 1 must segment and route; value normalization and grounding belong later.
-- The normalizer policy is fixed by field/bucket and is not a selectable stage.
-- The product consumes vocabularies and gold sets; it does not curate them.
-- The product produces machine queries and filtered datapoints; it is not a
-  general conversational assistant or a record summarizer.
-- Count metrics are tolerance-banded because live database counts can drift.
+- Closed-set filter values must never be emitted outside their closed set.
+- Invalid translations must appear in the audit trail and be excluded from API queries and post-filters.
+- Boolean intent (AND/OR/NOT) must be explicit in data, not implied by prose.
+- Stage 1 must segment and route without consulting vocabularies.
+- The normalizer policy is fixed per field/bucket and is not a selectable stage or runtime option.
+- This product targets the PK service only. Safety and RTB service configuration may remain in the codebase for future use but are not active product scope in v0.1.
+- The product consumes vocabularies and the gold set; it does not curate them.
+- Live result counts can drift as the database updates; count metrics are tolerance-banded.
+- The product is not a general conversational assistant and does not summarize records.
 
 ## Open Questions
-None at product level after the documented clarification pass. The remaining work
-is implementation alignment: the current package still exposes old stage options,
-no-op paths, count-only execution, and probe-based open-field guards that must be
-replaced or confined so the documented fixed pipeline is the product behavior.
+None. All product-design facts are settled in the documented v0.1 scope above.

@@ -1,117 +1,93 @@
 # Requirements
 
 ## Functional Requirements
+
 | ID | Priority | Statement |
 |----|----------|-----------|
-| REQ-001 | MUST | The full pipeline accepts a natural-language question plus service name and returns a typed result containing original query, expansion, TERMite enhancement, decomposition, input translations, first machine query, execution metadata, runtime closed sets, runtime translations, post-filter metadata, final datapoints/count, and issues. |
-| REQ-002 | MUST | Stage -1 uses the configured LLM to produce a faithful expanded query while preserving the exact original query. It must not silently degrade to a no-op pass-through product method. |
-| REQ-003 | MUST | Stage 0 invokes TERMite for every full pipeline run and stage inspection; missing TERMite configuration or toolkit support produces a blocking configuration error. |
-| REQ-004 | MUST | Stage 1 uses LLM structured output to emit `Component`s with `field`, `nl_fragment`, `type`, `reason`, `source`, and optional boolean group, and it must not consult taxonomies or choose canonical values. |
-| REQ-005 | MUST | The public pipeline, CLI, UI, and evaluation entry points do not expose selectable stage methods, normalizer choices, or no-op bypasses. |
-| REQ-006 | MUST | Only `type=filter` components enter translation; `type=question` components inform facets, display columns, and answer/reporting metadata. |
-| REQ-007 | MUST | Input closed-set fields translate by the documented resolution order: exact match, fuzzy match, LLM pool enrichment with exact/fuzzy retry, LLM closed-set selection, membership assertion/retry with feedback, then invalid. |
+| REQ-001 | MUST | The full pipeline accepts a natural-language PK question and returns a typed `PipelineResult` containing: original query, expansion, TERMite-enhanced annotations, decomposition components, Stage-2A machine subqueries, first machine query, execution metadata (`countTotal`), and issues. When row fetch is available, the result additionally contains row execution output, runtime closed sets, runtime translations, post-filter metadata, filtered datapoints, and final filtered count. |
+| REQ-002 | MUST | Stage -1 uses the configured LLM to produce a faithful `ExpandedQuery` while preserving `original`. It must not silently degrade to a no-op passthrough for full pipeline runs. |
+| REQ-003 | MUST | Stage 0 invokes TERMite for every full pipeline run and every `oppp enhance` command. Missing TERMite configuration or toolkit is a blocking configuration error, not permission to continue with an empty `EnhancedQuery`. |
+| REQ-004 | MUST | Stage 1 uses LLM structured output to emit `Component`s with `field`, `nl_fragment`, `type` (exactly `filter` or `question`), `reason`, `source`, and optional `boolean_group`. It must not consult taxonomies or choose canonical values. |
+| REQ-005 | MUST | The annotation reconciliation pass deterministically promotes retrieval-defining PK parameters (TERMite type `PARAMETER`) from `question` to `filter` when TERMite recognized the entity, and resolves routing ambiguities using the TERMite type-to-field map. |
+| REQ-006 | MUST | Only `type=filter` components enter Stage 2 translation. `type=question` components inform facets, `displayColumns`, and post-retrieval output metadata only. |
+| REQ-007 | MUST | Input closed-set fields translate via the documented resolution order: (1) exact match, (2) fuzzy match, (3) LLM pool enrichment + exact/fuzzy retry, (4) LLM selection from closed set, (5) membership assertion/retry with feedback, (6) invalid. |
 | REQ-008 | MUST | A closed-set translation result is always a subset of the field's closed set. `[]`, `None`, or out-of-set-only candidates mark the translation invalid. |
-| REQ-009 | MUST | Invalid input closed-set translations are recorded and excluded from the API query, entity filters, facets, display columns, and runtime post-filtering. |
-| REQ-010 | MUST | The fixed normalizer policy corrects CSV-backed closed-set fragments conservatively, preserves valid class labels, and keeps open-set cleanup conservative until runtime values exist. |
-| REQ-011 | MUST | Hierarchy handling supports drug class labels, exact species class labels, colloquial species member lists such as "Monkeys", effect families, assay-result qualifier stripping for positive Ames Test style phrases, curated preclinical/non-clinical handling, and brand/synonym resolution such as Columvi to Glofitamab. |
-| REQ-012 | MUST | Stage 3 aggregates only valid input closed-set subqueries into a structurally valid first API query with explicit boolean groups, entity filters, service invariants, facets, and display columns. |
-| REQ-013 | MUST | Execution supports existing count retrieval and row/datapoint retrieval for the validated first API query. |
-| REQ-014 | MUST | For each deferred open-set filter, the pipeline derives a runtime closed set from unique non-empty fetched datapoint values for that field. |
-| REQ-015 | MUST | Runtime open-set translation reuses the closed-set translator contract and may return only a subset of the fetched runtime closed set. |
-| REQ-016 | MUST | Valid runtime translations post-filter datapoints; invalid runtime translations are recorded and do not narrow datapoints. |
-| REQ-017 | MUST | Count-only execution and count proximity evaluation remain available, but probe-based open-field guards must not replace row-level runtime post-filtering when rows are available. |
-| REQ-018 | MUST | Safety, PK, and RTB service differences remain in `ServiceConfig`/`FieldSpec` data, not forked stage code. |
-| REQ-019 | MUST | CLI commands expose full runs and isolated fixed stages, including row/post-filter output, without accepting stage method or normalizer selection flags. |
-| REQ-020 | MUST | The Streamlit UI displays Stage -1 through Stage 3, execution, runtime closed sets, runtime selections, invalid runtime filters, and final filtered datapoint count without stage backend selectors. |
-| REQ-021 | MUST | `oppp dag` and any generated flow artifact reflect the draw.io-backed fixed pipeline and do not advertise pluggable stage backends. |
-| REQ-022 | MUST | Evaluation reads `docs/sme_stage_cases.csv`, validates per-step outputs, validates per-field gold values, validates final machine-query structure, and keeps count proximity metrics. |
-| REQ-023 | MUST | Regression coverage includes resolved SME cases for Q7, Q12, Q18, Q20, Q23, Q24, and Q25. |
-| REQ-024 | MUST | Offline tests run with injected fakes/fixtures and make no network, LLM, or TERMite calls; test fakes are not public product methods. |
-| REQ-025 | MUST | Credentials are read lazily only when the fixed stage that needs them is invoked, and `.env` or real credential files are never committed. |
-| REQ-026 | MUST | Row-fetch options allow bounded fetches for debugging and evaluation, and row-fetch failures return structured issues while preserving the count-only path. |
-| REQ-027 | SHOULD | Free-text comparator tie-breaks use the typed LLM judge when deterministic scoring cannot decide semantic equivalence. |
+| REQ-009 | MUST | Invalid input closed-set translations are recorded in `PipelineResult.issues` and excluded from the API query, facets, display columns, and post-filter set. |
+| REQ-010 | MUST | The fixed normalizer corrects CSV-backed closed-set fragments via fuzzy matching, preserves valid class labels, and keeps open-set field cleanup conservative until runtime values exist. The normalizer policy is not selectable at runtime. |
+| REQ-011 | MUST | Hierarchy handling supports: drug class label → API server-side subtree resolution; exact species class label → server-side resolution; colloquial species groups without exact class label (e.g. "Monkeys") → member species expansion; document source → FDA/EMA parent label. A specific leaf is never widened. |
+| REQ-012 | MUST | Stage 3A aggregates only valid Stage-2A subqueries into a structurally valid first API machine query, applying boolean grouping, PK service invariants (`concomitants` Fasted-or-empty, `tissueSpecific` Not-tissue-specific, `metabolitesEnantiomers` Not-metabolites/enantiomers), facets, and display columns. |
+| REQ-013 | MUST | Count execution (`execute_count`) POSTs the validated `MachineQuery` to the PK service URL and returns `{ok, count_total, status?, error?}`. |
+| REQ-014 | MUST | Row execution (`execute_rows`) paginates the PK API to collect datapoints into a normalized `RowExecutionResult`. Pagination failure produces `ok=false` with a structured issue while leaving count-only execution usable. |
+| REQ-015 | MUST | For each deferred open-set filter field, the pipeline derives a `RuntimeClosedSet` from sorted unique non-empty values for that field in the fetched datapoints. |
+| REQ-016 | MUST | Runtime open-set translation reuses the `CONTRACT-CLOSED-SET-TRANSLATION` contract over the runtime closed set and emits only a subset of the fetched values. |
+| REQ-017 | MUST | Valid runtime translations post-filter datapoints; invalid runtime translations are recorded and leave datapoints unchanged. |
+| REQ-018 | MUST | Count-only execution and count proximity evaluation remain usable independently of row fetch. Probe-based open-filter guards (`drop_empty_open_filters`) are available as a v0.1 live-run guard but must not be treated as the row-mode runtime post-filtering path. |
+| REQ-019 | MUST | PK service configuration (`src/oppp/services/pk.py`) encodes field buckets, `EARLY_CONTRIBUTOR_THRESHOLD` (default 500), taxonomy paths, facet allow-list, PK invariants, and search URL. Stage code must not contain PK-specific field maps. |
+| REQ-020 | MUST | CLI commands (`oppp run`, `oppp enhance`, `oppp decompose`, `oppp field`, `oppp aggregate`, `oppp lookup`, `oppp eval`, `oppp dag`, `oppp services`) expose only service, input, execution, and output controls. No `--enhancer`, `--decomposer`, `--translator`, `--aggregator`, `--normalizer`, or equivalent method-selection flags. |
+| REQ-021 | MUST | The Streamlit UI displays Stage -1 through Stage 3, execution count, and (when rows are available) runtime closed sets, runtime selections, invalid runtime filters, and filtered count. No stage backend selector widgets. |
+| REQ-022 | MUST | `oppp dag` and any exported flow text reflect the draw.io-backed fixed pipeline path and contain no pluggable-backend legend or stage options. |
+| REQ-023 | MUST | The evaluation harness (`eval/harness.py`) loads `docs/PPPK.xlsx` → `PK_Query` sheet, runs each of the 47 queries through the full pipeline, compares `countTotal` to `Expected Count`, and reports `valid_rate`, `executed_rate`, `exact_count`, and `within_<tol>`. |
+| REQ-024 | MUST | Per-step comparators (`eval/per_step.py`) score Stage 0 TERMite entity (type, label) pairs by set precision/recall, Stage 1 routing/type classification by exact match, Stage 1 NL fragments by LLM-as-judge semantic equivalence, Stage 2 translated field names, and Stage 3 machine-query structure by structural compare plus LLM judge tie-break. |
+| REQ-025 | MUST | Regression coverage includes at minimum: species class expansion (e.g. "Rodent" → all rodent species), drug fuzzy match (e.g. "suntinib" → Sunitinib), open-set parameter routing ("AUC or Cmax" → `parameter` OR group), and PK invariant application (concomitants/tissueSpecific/metabolitesEnantiomers defaults). |
+| REQ-026 | MUST | Offline tests run with injected fakes, fixtures, or monkeypatched clients and make no network, LLM, or TERMite calls. Test fakes are not public product methods. |
+| REQ-027 | MUST | Credentials are read lazily only when the fixed stage that needs them is invoked. `.env` and real credential files are never committed. `.env.example` is keys-only. |
+| REQ-028 | SHOULD | Free-text comparator tie-breaks use the typed `LLMJudge` (`eval/judge.py`) when deterministic scoring cannot decide semantic equivalence. Judge verdicts are typed (`match|partial|miss` + reason) and auditable. |
 
 ## Non-Functional Requirements
+
 | ID | Statement |
 |----|-----------|
-| NFR-001 | `python3 -m compileall src/oppp`, `ruff check src tests`, `ruff format --check src tests`, and `pytest -q` pass before implementation work is considered complete. |
+| NFR-001 | `python3 -m compileall src/oppp`, `ruff check src tests`, `ruff format --check src tests`, and `pytest -q` all pass before implementation work is merged. |
 | NFR-002 | The offline test suite passes with no `.env`, no model credentials, no TERMite credentials, and no network access. |
-| NFR-003 | LLM, TERMite, UI, diagram, and report dependencies are imported lazily so deterministic imports of `oppp` and core model modules do not require optional packages or credentials. |
-| NFR-004 | Row-fetch failures leave count-only execution usable and report an issue rather than crashing the whole pipeline. |
-| NFR-005 | Public command/help text contains no advertised `noop`, backend, normalizer, decomposer, enhancer, translator, or aggregator method options. |
+| NFR-003 | LLM, TERMite, UI (`streamlit`), DAG rendering (`matplotlib`), and report (`openpyxl`) dependencies are imported lazily so `import oppp` and `from oppp.models import *` do not require optional packages or credentials. |
+| NFR-004 | Row-fetch failures leave count-only execution usable; `execute_rows` returns a structured `RowExecutionResult` with `ok=false` and an error message rather than raising an unhandled exception. |
+| NFR-005 | Public CLI help text and `oppp services` output contain no advertised `noop`, backend, normalizer, decomposer, enhancer, translator, or aggregator method option names. |
 
 ## Constraints
-- TERMite and model credentials are required for full production pipeline runs.
-- Controlled vocabularies and gold sets are provided inputs; implementation code
-  consumes them but does not curate them.
-- Live counts can drift; count metrics are tolerance-banded.
-- Tests must stay hermetic by faking external collaborators, not by exposing
-  alternate product methods.
-- The PharmaPendium API response shape for row datapoints must be discovered and
-  handled in the execution layer.
-- Core execution must not require a new mandatory HTTP dependency.
+- TERMite and LLM model credentials are required for full production pipeline runs.
+- The controlled vocabularies (`inputs/*.csv`) and the gold set (`docs/PPPK.xlsx`) are provided inputs; the implementation consumes them and does not curate them.
+- Live `countTotal` values can drift as the PharmaPendium database updates; count proximity metrics use a configurable tolerance band.
+- Tests must stay hermetic by faking external collaborators, not by exposing alternate product methods.
+- The PharmaPendium API response shape for datapoint rows must be discovered and handled in `execute.py`; if rows are unavailable for the endpoint, `execute_rows` returns a typed unavailable result.
+- Core execution must not require a new mandatory HTTP dependency beyond `urllib.request`.
 
 ## Non-Goals
 - No general conversational answering or record summarization.
 - No vocabulary or gold-set curation by the translator.
 - No database, queue, or migration system.
 - No user-facing experiment framework for swapping stage implementations.
-- No no-op product path for TERMite, expansion, decomposition, translation,
-  aggregation, or normalization.
+- No no-op product path for any stage (TERMite, expansion, decomposition, translation, aggregation, normalization).
+- Safety and RTB service pipelines are not active product scope in v0.1 (service config files may remain for future activation).
 
 ## Acceptance Criteria
-- REQ-001 is satisfied when `run_pipeline` returns all listed typed artifacts in
-  full row mode and returns structured issues for unavailable execution pieces.
-- REQ-002 is satisfied when expansion preserves `original`, records LLM source,
-  and tests prove missing LLM support is reported rather than exposed as a no-op
-  stage method.
-- REQ-003 is satisfied when full runs invoke TERMite and fail with a clear
-  configuration error if TERMite settings/toolkit are missing.
-- REQ-004 is satisfied when the decomposer emits the required component shape,
-  has no taxonomy lookup dependency, and test fakes are injected through private
-  fixtures rather than public method flags.
-- REQ-005 is satisfied when pipeline signatures, CLI help, UI controls, and eval
-  configuration have no stage method or normalizer selectors.
-- REQ-006 is satisfied when only filter components produce translations and
-  question components appear only in output/facet/display behavior.
-- REQ-007 is satisfied when closed-set translator tests cover exact, fuzzy, LLM
-  enrichment retry, LLM closed-set selection, membership feedback retry, and
-  invalid fallback.
-- REQ-008 is satisfied when tests prove emitted input and runtime selections are
-  subsets of their closed sets and out-of-set-only returns are invalid.
-- REQ-009 is satisfied when invalid input closed-set translations are visible in
-  issues and absent from the first API query and post-filter set.
-- REQ-010 is satisfied when normalizer tests prove fixed closed-set typo
-  correction, valid class preservation, and conservative open-set cleanup.
-- REQ-011 is satisfied when tests cover Q18 MTD, Q20 Ames Test, Q23 Monkeys, Q24
-  ADC, Q25 Columvi, preclinical handling, and class/family expansion.
-- REQ-012 is satisfied when Stage 3 validates one top-level query, correct AND/OR
-  grouping, entity routing, service invariants, facets, and display columns.
-- REQ-013 is satisfied when mocked count and row API responses produce typed
-  count and datapoint execution results.
-- REQ-014 is satisfied when mocked datapoints derive sorted unique runtime values
-  for deferred open fields such as `parameterComment`.
-- REQ-015 is satisfied when runtime translation uses the same closed-set
-  resolution and membership assertion over fetched runtime values.
-- REQ-016 is satisfied when valid runtime selections filter datapoints and
-  invalid selections leave datapoints unchanged with a warning.
-- REQ-017 is satisfied when count-only execution/evaluation still works and row
-  mode uses runtime post-filtering instead of zero-count probes.
-- REQ-018 is satisfied when service tests verify Safety/PK/RTB configs and no
-  stage module owns service-specific field maps.
-- REQ-019 is satisfied when CLI commands run the fixed methods, show runtime
-  metadata, and reject/omit old method-selection flags.
-- REQ-020 is satisfied when UI tests or code inspection show runtime panels and
-  no backend selector widgets.
-- REQ-021 is satisfied when diagram generation or exported flow text matches
-  `docs/agent-dag.drawio` and contains no pluggable-backend legend.
-- REQ-022 is satisfied when evaluation loads both SME gold sources and reports
-  per-step, per-field, machine-query, and count metrics.
-- REQ-023 is satisfied when regression tests explicitly cover Q7, Q12, Q18, Q20,
-  Q23, Q24, and Q25.
-- REQ-024 is satisfied when the full Quality Gates pass without `.env`, network,
-  model credentials, or TERMite credentials.
-- REQ-025 is satisfied when config loads secrets only at invocation, `.gitignore`
-  excludes real env files, and `.env.example` contains keys only.
-- REQ-026 is satisfied when row execution supports bounded fetch options and
-  structured failure issues while count-only execution remains usable.
+
+| REQ | Criterion |
+|-----|-----------|
+| REQ-001 | `run_pipeline` returns all listed typed artifacts in count mode; in row mode it additionally returns `row_execution`, `runtime_closed_sets`, `runtime_translations`, `filtered_datapoints`, `final_filtered_count`; unavailable row execution returns a structured issue without crashing count mode. |
+| REQ-002 | Expansion preserves `original` in `ExpandedQuery`, records `source=llm`, and tests prove missing LLM config produces a structured issue rather than a silent passthrough. |
+| REQ-003 | Full `oppp run` invokes TERMite; missing `TERMITE_HOME` produces a clear blocking configuration error; no enhancement without TERMite for full runs. |
+| REQ-004 | Decomposer emits required `Component` shape; unit test proves no taxonomy CSV is loaded during decomposition; fakes are injected through `conftest.py` fixtures. |
+| REQ-005 | Annotation reconciliation unit test: `PARAMETER`-typed TERMite annotation promotes a `question` component to `filter` and resolves field routing conflicts. |
+| REQ-006 | Only `filter` components appear in the Stage-2A translation input; `question` components appear only in facet/displayColumn derivation. |
+| REQ-007 | Closed-set translator tests cover: exact match, fuzzy match, LLM enrichment retry, LLM closed-set selection, membership feedback retry, and invalid fallback (six cases minimum). |
+| REQ-008 | Test proves emitted input and runtime selections are proper subsets of their closed sets; out-of-set-only returns are marked invalid. |
+| REQ-009 | Invalid input translations appear in `PipelineResult.issues` and the Stage-3A machine query contains no invalid field filter. |
+| REQ-010 | Normalizer tests prove: fuzzy correction for a closed-set typo, class label preservation, and conservative open-set passthrough. |
+| REQ-011 | Tests cover at minimum: "Rodent" → rodent member species (colloquial group expansion), "Sunitinib" drug exact match, drug class label resolution. |
+| REQ-012 | Stage-3A structural test: exactly one top-level `AND` or `OR`; PK invariants present; invalid subqueries absent; facets from allow-list. |
+| REQ-013 | Mocked count response yields typed `ExecutionResult` with `ok=true`, `count_total=N`; mocked error yields `ok=false` with `error`. |
+| REQ-014 | Mocked paginated row response yields `RowExecutionResult` with normalized `datapoints`; mocked row error yields `ok=false` with issue while count path still works. |
+| REQ-015 | Mocked `datapoints` with known field values yield a `RuntimeClosedSet` that is sorted, unique, and non-empty. |
+| REQ-016 | Runtime translation test: selected values are a subset of the runtime closed set; out-of-runtime-set proposals are rejected. |
+| REQ-017 | Post-filter test: valid selection removes non-matching datapoints; invalid selection leaves datapoints unchanged and adds a warning to issues. |
+| REQ-018 | Count-only `oppp eval` works without row fetch enabled; `probe_open_filters=True` drops confirmed zero-count open filters but does not replace post-filtering in row mode. |
+| REQ-019 | `src/oppp/services/pk.py` contains all PK field specs; grep for `species` or `drugs` or `route` inside `stages/translate.py` or `stages/aggregate.py` returns no hardcoded field names. |
+| REQ-020 | `oppp run --help` output contains no `--enhancer`, `--decomposer`, `--translator`, `--aggregator`, or `--normalizer` flags. |
+| REQ-021 | Streamlit `app.py` code inspection: no `st.selectbox` or similar widget for stage backend selection; runtime panels shown when row data is available. |
+| REQ-022 | `oppp dag` output or `dag.py` text contains `Stage -1`, `Stage 0`, `Stage 1`, `Stage 2A`, `Stage 3A`, `Stage 2B`, `Stage 3B`, `Stage 2C` and contains no `--enhancer` or backend registry. |
+| REQ-023 | `eval/harness.py` loads `docs/PPPK.xlsx` via openpyxl, reads `PK_Query` sheet, iterates 47 rows, and produces `valid_rate`, `executed_rate`, `exact_count`, `within_<tol>` metrics. |
+| REQ-024 | `eval/per_step.py` exports functions for Stage 0 set P/R, Stage 1 field/type exact score, Stage 1 fragment judge call, Stage 2 field name score, Stage 3 structural compare. |
+| REQ-025 | `tests/test_stages.py` includes test cases: "Rodent" species expansion, "suntinib" fuzzy drug resolution, "AUC or Cmax" OR-group routing, PK invariants applied without user override. |
+| REQ-026 | `pytest -q` passes with no `.env`; `conftest.py` provides fake LLM client and fake TERMite client fixtures; no test imports live LLM or TERMite modules unconditionally. |
+| REQ-027 | `config.py` reads secrets lazily; `.gitignore` excludes `.env` and `*.env`; `.env.example` contains only key names with no values. |
+| REQ-028 | `eval/judge.py` exports `LLMJudge` and `JudgeVerdict`; tests inject a fake client; judge is called only for fragment, open-pattern, and structure tie-break scoring steps. |
