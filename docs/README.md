@@ -44,7 +44,7 @@ bypasses or replacement methods.
 | Stage | Job | Production method | Run alone |
 |-------|-----|-------------------|-----------|
 | -1 Expand | clarify the query and spell out abbreviations without changing meaning | LLM expansion | full pipeline only |
-| 0 Enhance | annotate entities in the raw query | TERMite NER | `oppp enhance` |
+| 0 Enhance | annotate entities in the decomposed per-field fragments | TERMite NER | `oppp enhance` |
 | 1 Decompose | split into single-field components — **no vocab, no guessing** | LLM decomposition seeded by TERMite annotations | `oppp decompose` |
 | 2 Translate | translate fields against input or runtime closed sets | grounded closed-set tool translation | `oppp field` |
 | 3 Aggregate | assemble and validate the API query; live runs may execute it for `countTotal` and probe open-set filters | LLM aggregation with deterministic validation | `oppp aggregate` |
@@ -111,10 +111,11 @@ oppp eval --tolerance 0.10 --show-cases
 ## One-paragraph summary
 
 A user asks a question in natural language. Stage -1 may rewrite it into a
-clearer form while preserving every entity and filter. The required **TERMite
-enhancer** annotates recognized entities up front. An LLM **decomposer** then
+clearer form while preserving every entity and filter. An LLM **decomposer** then
 splits the question into single-field components using the user's own words; it
-only segments, and does not resolve, normalize, or consult any vocabulary. Each
+only segments, and does not resolve, normalize, or consult any vocabulary. The
+required **TERMite enhancer** then annotates entities in the decomposed per-field
+fragments, producing preferred labels and types that seed Stage 2 translation. Each
 component is **translated independently** against a known closed set. For fields
 whose legal values are available as CSV taxonomies or inline enums (drugs,
 species, route, documentYear, sex, concomitants, ...), the value is grounded before the

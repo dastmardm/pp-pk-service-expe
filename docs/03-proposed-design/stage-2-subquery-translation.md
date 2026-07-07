@@ -174,13 +174,10 @@ The v0.1 translator does not expose a generic
 `translate(field, pool, runtime_closed_set)` entry point. Open fields are handled
 by `_translate_open` before aggregation:
 
-- `studyGroup` and `ages` emit `REGEX` constraints; `studyGroup` expands a small
+- `studyGroup` and `age` emit `REGEX` constraints; `studyGroup` expands a small
   built-in synonym set for hepatic and renal impairment.
-- Plain free-text fields such as `parameterComment` strip leading relational
-  connective text before emitting `MATCH`.
-- Entity-routed open fields such as `targets` emit the corresponding TERMite
-  preferred label when TERMite recognized that surface, otherwise the user
-  fragment remains in the pool until runtime grounding can validate it.
+- Plain free-text fields such as `parameter` and `parameterDisplay` emit `MATCH`
+  constraints.
 - Live runs can call `drop_empty_open_filters` before aggregation to remove an
   open-set filter whose isolated API count is confirmed as `0`.
 
@@ -188,10 +185,10 @@ Example:
 
 ```json
 {
-  "field": "parameterComment",
-  "pool": ["maternal toxicity", "maternal toxic effect"],
-  "runtime_closed_set": ["Maternal toxicity", "Paternal toxicity", "Embryo-fetal toxicity"],
-  "selected": ["Maternal toxicity"]
+  "field": "studyGroup",
+  "pool": ["hepatic impairment", "liver impairment", "HI"],
+  "runtime_closed_set": ["Mild hepatic impairment", "Moderate hepatic impairment", "Severe hepatic impairment"],
+  "selected": ["Mild hepatic impairment", "Moderate hepatic impairment", "Severe hepatic impairment"]
 }
 ```
 

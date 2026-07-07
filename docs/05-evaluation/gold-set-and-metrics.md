@@ -29,8 +29,6 @@ described below.
 
 The evaluator scores per-field Stage-2 output against these PK fields:
 
-The evaluator uses these columns as the per-field contract:
-
 | CSV column | Logical field | Notes |
 |------------|---------------|-------|
 | `drugsFuzzy` | `drugs` | Compare after removing only API wildcard decoration such as a trailing `*`. |
@@ -57,20 +55,23 @@ as unavailable rather than treating the missing post-filter as a correct empty s
 
 ## Per-step evaluation (the core design)
 
-Each step is scored against its own column with the comparator that fits its
-output shape. Some are exact / set comparisons; **some require an LLM-as-judge**
-because the output is free-text or has many equally-correct surface forms.
+Each step produces a typed artifact that can be scored independently. The primary
+gold reference is `PPPK.xlsx` (`PK_Query` sheet), which provides the question and
+the expected `countTotal`. Per-step scoring uses the pipeline's intermediate
+artifacts — decomposition components, translated subqueries, aggregated boolean
+tree — compared against the expected end-to-end count and any manually verified
+stage outputs.
 
-| Step | Gold column | Output shape | Comparator |
-|------|-------------|--------------|------------|
-| 0 — enhance | `termite` | set of `TYPE:Label` entities | **Set match** on (type, label) pairs → precision/recall. Tolerate the documented fallbacks (TERMite-miss → CSV fuzzy). |
-| 1 — decompose (routing) | `decompose` | `field` + `type` per component | **Exact** on field-routing and filter-vs-question type; **set** on which fields appear (missing / spurious). |
-| 1 — decompose (fragment) | `decompose` | the NL span per component | **LLM-as-judge**: spans are free text ("rats or mice", "at which dose"); judge semantic equivalence to the gold fragment. |
-| 1 — decompose (boolean) | `decompose` | `(OR)` / `(AND)` hints | **Exact** on the per-field boolean hint. |
-| 2 — translate (input closed set) | `translate` | resolved preferred-label set | **Set P/R/F1** over labels, after hierarchy expansion — deterministic. |
-| 2 — translate (runtime closed set) | `translate` | selected subset of fetched field values | **Set P/R/F1** over fetched values when canonical; **LLM-as-judge** only when the gold value is free-text and several fetched strings are semantically equivalent. |
-| 3 — aggregate (structure) | `aggregate` | boolean tree + facets / displayColumns | **Structural** compare of the normalized tree; **LLM-as-judge** tie-break when two trees are logically equivalent but shaped differently. |
-| final | `machine query` / `counts` | API JSON payload plus optional post-filtered rows | **Schema validity** + structural diff vs `machine query`; **count proximity** vs `counts` after runtime post-filters when present (tolerance band — see End-to-end below). |
+| Step | What is scored | Comparator |
+|------|---------------|------------|
+| 0 — enhance | TERMite recognized entities (`TYPE:Label` pairs) | **Set match** on (type, label) pairs → precision/recall. Tolerate documented fallbacks (TERMite-miss → CSV fuzzy). |
+| 1 — decompose (routing) | `field` + `type` per component | **Exact** on field-routing and filter-vs-question type; **set** on which fields appear (missing / spurious). |
+| 1 — decompose (fragment) | the NL span per component | **LLM-as-judge**: spans are free text; judge scores semantic equivalence. |
+| 1 — decompose (boolean) | `(OR)` / `(AND)` hints | **Exact** on the per-field boolean hint. |
+| 2 — translate (input closed set) | resolved preferred-label set | **Set P/R/F1** over labels, after hierarchy expansion — deterministic. |
+| 2 — translate (runtime closed set) | selected subset of fetched field values | **Set P/R/F1** over fetched values when canonical; **LLM-as-judge** for semantically equivalent free-text values. |
+| 3 — aggregate | boolean tree + facets / displayColumns | **Structural** compare of the normalized tree; **LLM-as-judge** tie-break for logically equivalent but differently shaped trees. |
+| final | API JSON payload + count | **Schema validity** + **count proximity** vs `Expected Count`; tolerance band — see End-to-end below. |
 
 This pins a failure to a single step: a wrong final count becomes traceable to a
 mis-routed field in Stage 1, a bad expansion in Stage 2, or a wrong boolean in
@@ -80,7 +81,7 @@ Stage 3 — instead of "the query was wrong somewhere".
 
 Some steps emit outputs that have **no single correct string**, so a literal diff
 would report false failures. For these we use a constrained LLM-as-judge that
-takes *(the step's input, the gold cell, the actual output)* and returns a **typed
+takes *(the step's input, the expected output, the actual output)* and returns a **typed
 verdict** (`match | partial | miss` + a one-line reason), so judgements are
 auditable and themselves checkable:
 
@@ -102,8 +103,7 @@ judge is the exception for free-text steps, not the default.
 
 ## Metric layers (rollup)
 
-Per-step scores roll up into the layers below. Layers 1–3 read the per-step /
-per-field columns; layer 4 reads `counts`.
+Per-step scores roll up into the layers below. Layers 1–3 score intermediate pipeline artifacts; layer 4 reads `Expected Count` from `PPPK.xlsx`.
 
 ### 1. Per-field accuracy
 
@@ -140,11 +140,7 @@ Targeted on the cases requiring hierarchy expansion:
 
 - **Valid-query rate:** fraction that pass Stage-3 validation (a free win over the
   legacy regex-scrape).
-- **Result-count proximity:** compare actual API `countTotal` to the gold
-  `counts` for closed-filter-only cases. When runtime post-filters are present,
-  compare the final post-filtered datapoint count to `counts` and report the
-  upstream API `count_total` separately. Counts drift as the DB updates, so treat
-  proximity as a signal, not a hard gate.
+- **Result-count proximity:** compare actual API `countTotal` to `Expected Count` from `PPPK.xlsx`. When runtime post-filters are present, the upstream API `count_total` is reported separately. Counts drift as the DB updates, so treat proximity as a signal, not a hard gate.
 - **Executable rate:** fraction the API accepts without error.
 
 ## Suggested harness

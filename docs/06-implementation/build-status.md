@@ -17,7 +17,7 @@ them.
 | Stage -1 — expand | [stages/expand.py](../../src/oppp/stages/expand.py) | LLM rewrite for clarity and abbreviation expansion, preserving the original query. |
 | Stage 0 — enhance | [stages/enhance.py](../../src/oppp/stages/enhance.py) | Required SciBite TERMite NER records preferred labels plus public synonyms. |
 | Stage 1 — decompose | [stages/decompose.py](../../src/oppp/stages/decompose.py) | LLM structured output, seeded by TERMite annotations and kept **vocab-free** for value selection. |
-| Stage 2 — translate | [stages/translate.py](../../src/oppp/stages/translate.py) | closed-set grounding + class/effect expansion, enum, boolean, year→RANGE, LLM term selection, LLM synonym/closed-window fallback, and direct open-field `MATCH`/`REGEX` translation. |
+| Stage 2 — translate | [stages/translate.py](../../src/oppp/stages/translate.py) | closed-set grounding + class/hierarchy expansion, enum, boolean, year→RANGE, LLM term selection, LLM synonym/closed-window fallback, and direct open-field `MATCH`/`REGEX` translation. |
 | Stage 3 — aggregate | [stages/aggregate.py](../../src/oppp/stages/aggregate.py) | dropped-filter handling, API constraint budget collapse, boolean tree, entityFilters routing, facets/displayColumns, validation, service invariants, and zero-count open-filter probing. |
 | Service config | [services/](../../src/oppp/services/) | PK field map, buckets, facet allow-list, TERMite type map, and service invariants. |
 | Pipeline | [pipeline.py](../../src/oppp/pipeline.py) | sequential runner + LangGraph graph over the same fixed stages. |
@@ -60,7 +60,7 @@ execution model.
 
 Per [docs/05](../05-evaluation/gold-set-and-metrics.md), the harness scores by
 **result-count accuracy**: translate → execute → read `countTotal` → compare to
-the expected `s`. Reported: `valid_rate`, `executed_rate`, `exact_count`,
+the `Expected Count` column in `docs/PPPK.xlsx`. Reported: `valid_rate`, `executed_rate`, `exact_count`,
 `within_<tol>`.
 
 The evaluation harness keeps each stage's typed output so failures can be traced
@@ -92,8 +92,8 @@ they can affect the machine query.
 - **Row-level post-filtering is not wired.** Execution reads `countTotal` only,
   so runtime closed sets derived from fetched datapoints are represented in the
   design docs but not materialized by the v0.1 execution layer.
-- **Open-set filters are guarded by probes.** `parameterComment`, `studyGroup`,
-  `ages`, `dose`, and similar fields are emitted as direct `MATCH`/`REGEX`
+- **Open-set filters are guarded by probes.** `parameter`, `parameterDisplay`, `studyGroup`,
+  `age`, `dose`, `duration`, and similar fields are emitted as direct `MATCH`/`REGEX`
   constraints. Live runs may drop a filter whose isolated count is confirmed `0`.
 - **`parameter` and `parameterDisplay` have no input closed set in `inputs/`.** These open-set fields are translated as direct `MATCH` constraints in v0.1 and may be guarded by zero-count probing.
 - **DSPy optimization modules are not present in `src/oppp/`.** The pipeline uses

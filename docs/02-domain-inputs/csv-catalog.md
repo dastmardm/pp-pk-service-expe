@@ -28,7 +28,7 @@ and for ordering facet output.
 
 | File | Rows | Schema | Purpose |
 |------|------|--------|---------|
-| [fields.csv](../../inputs/fields.csv) | 66 | field_key,label | Master list of response/display fields with human labels (e.g. `effect` → "Adverse Effect / Toxicity"). Drives `displayColumns` and the field router. |
+| [fields.csv](../../inputs/fields.csv) | 66 | field_key,label | Master list of response/display fields with human labels (e.g. `parameter` → "PK Parameter"). Drives `displayColumns` and the field router. |
 | [query_criteria_fields.csv](../../inputs/query_criteria_fields.csv) | 17 | field,type | Request-side criteria and their types (`array<string>`, `array<integer>`, `boolean`, `SortColumn`, `Limitation`). Defines what the machine query may contain. |
 | [enums.csv](../../inputs/enums.csv) | 24 | schema,field,allowed_value | `FuzzyLookupFilter.taxonomy` — the taxonomies the back-end fuzzy-lookup can resolve. |
 
