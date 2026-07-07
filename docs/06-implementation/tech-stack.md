@@ -60,9 +60,8 @@ The per-step comparators in [eval/per_step.py](../../src/oppp/eval/per_step.py)
 score Stage 0 labels, Stage 1 routing/type pairs, Stage 2 emitted field names,
 and Stage 3 machine-query structure. The count harness in
 [eval/harness.py](../../src/oppp/eval/harness.py) scores `countTotal` proximity.
-The per-field gold set remains a separate evaluation input: evaluators must also
-load [inputs/sme_expected_cases.csv](../../inputs/sme_expected_cases.csv) when
-scoring resolved field values.
+The gold query set is [`docs/PPPK.xlsx`](../PPPK.xlsx) (`PK_Query` sheet).
+Evaluators load it when scoring resolved field values and end-to-end counts.
 
 ## Structured Output
 

@@ -3,8 +3,7 @@
 Each trace runs an SME gold-set question through the core decomposition,
 translation, and aggregation stages. Stage -1 expansion and Stage 0 enhancement
 are omitted where they do not change the example. Values match
-the expected per-field mappings in
-[inputs/sme_expected_cases.csv](../../inputs/sme_expected_cases.csv).
+the gold queries in [docs/PPPK.xlsx](../PPPK.xlsx) (`PK_Query` sheet).
 Species expansions are abbreviated with `…`.
 
 Examples that mention runtime closed-set post-filtering show the row-level design

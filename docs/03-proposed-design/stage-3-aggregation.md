@@ -76,7 +76,7 @@ These live in per-service invariants and are unit-tested in isolation.
   `concomitants`, `tissueSpecific`, and `metabolitesEnantiomers`.
 - **`displayColumns`** - when the user explicitly asks for specific output
   columns, add them from [fields.csv](../../inputs/fields.csv), e.g. "at which
-  dose, regimen and route" -> `["drug","dose","doseType","route"]`.
+  dose, regimen and route" -> `["drug","dose","route"]`.
 - `sortColumns` and `leafOnly` exist on the `MachineQuery` model, but v0.1 does
   not derive them from user intent.
 

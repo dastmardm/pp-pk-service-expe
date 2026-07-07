@@ -30,12 +30,12 @@ Install the extras required by the surfaces being used:
 Common commands:
 
 ```bash
-oppp run "What are the ADRs of Sunitinib in human"
+oppp run "AUC of Sunitinib in human after oral"
 oppp run "<question>" --no-execute
-oppp enhance "ADRs of Columvi in human"
-oppp decompose "ADRs of Sunitinib in human"
+oppp enhance "AUC of Sunitinib in human after oral"
+oppp decompose "AUC of Sunitinib in human after oral"
 oppp field drugs "suntinib"
-oppp aggregate "neutropenia or thrombocytopenia in human"
+oppp aggregate "AUC or Cmax of sunitinib in human"
 oppp lookup species Rodent --expand
 oppp services
 oppp eval --show-cases

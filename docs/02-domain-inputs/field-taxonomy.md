@@ -69,7 +69,7 @@ recorded so the final answer can explain that the field could not be grounded.
 
 The v0.1 execution layer reads `countTotal` and does not fetch rows, so the
 runtime closed-set post-filter path is not materialized in code. The implemented
-open-set safety mechanism is the zero-count probe described above.
+the live guard for open-set fields is the zero-count probe described above.
 
 Typical open-set fields:
 

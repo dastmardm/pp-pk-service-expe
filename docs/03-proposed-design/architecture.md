@@ -5,7 +5,7 @@
 ```
                           ┌───────────────────────────────────────┐
    NL query  ───────────▶ │  STAGE -1 — EXPAND                    │
- "ADRs of sunitinib       │  LLM expansion                         │
+ "AUC of sunitinib        │  LLM expansion                         │
   in human?"              │  → clearer query, same entities        │
                           └───────────────────────────────────────┘
                                           │

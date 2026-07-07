@@ -34,10 +34,10 @@ them.
 uv venv && uv pip install -e '.[dev]'        # or: python -m venv .venv && .venv/bin/pip install -e '.[dev]'
 
 # full pipeline on one question
-oppp run "What are the ADRs of Sunitinib in human"
+oppp run "AUC of Sunitinib in human after oral administration"
 
 # isolate a single stage (the design's per-step isolation)
-oppp enhance "ADRs of Columvi in human"                     # Stage 0 TERMite
+oppp enhance "AUC of Sunitinib in human after oral"          # Stage 0 TERMite
 oppp decompose "AUC of sunitinib in human after oral"        # Stage 1
 oppp field drugs "suntinib"                                  # Stage 2 on one fragment
 oppp aggregate "AUC or Cmax of sunitinib in rat"             # Stage 3

@@ -36,7 +36,7 @@ A list of items like:
     **answer after the data is retrieved** — i.e. post-retrieval analysis over
     the result set (and the signal Stage 3 uses to decide facets / display
     columns). It describes *what we want to learn from the records*, not how to
-    narrow them. E.g. "at which dose…" or "what are the ADRs" are `question`s,
+    narrow them. E.g. "at which dose…" or "what is the AUC" are `question`s,
     not filters.
 - **reason** — a one-sentence natural-language justification for why this
   fragment maps to this field and this `type`. Keep it to a single sentence;
