@@ -2,123 +2,116 @@
 
 ## Core Principles
 
-### CONST-1 — The stage path is fixed
-**Rule.** The public pipeline, CLI, UI, and evaluation harness MUST run the documented fixed sequence: LLM expansion → LLM decomposition → TERMite enhancement → input closed-set translation (Stage 2A) → Stage 3A aggregation and execution → runtime narrowing (Stage 2B) → final aggregation and execution (Stage 3B) → open-set post-filtering (Stage 2C). They MUST NOT expose selectable stage methods, normalizer choices, or no-op bypasses.
-**Why.** The product is an auditable workflow, not a menu of interchangeable agents.
-**Breaks if violated.** A run can silently skip required grounding or use an undocumented method.
+### CONST-1 — Product intent starts in `docs/`
+**Rule.** Changes to product behavior, evaluation scope, field policy, or pipeline semantics MUST originate in `docs/` and flow through `/mdtechnical` before implementation. Contributors and AI assistants MUST NOT introduce new behavior directly in source, tests, or generated specs.
+**Why.** The repository is governed by a docs-first pipeline; specs and code are projections of ratified human-facing intent.
+**Breaks if violated.** Implementation can drift away from the product contract and downstream evaluation will no longer trace to the source of truth.
 
-### CONST-2 — TERMite is mandatory
-**Rule.** Stage 0 MUST call TERMite for every full pipeline run and fixed stage inspection command. Missing TERMite credentials or toolkit support is a blocking configuration error, not permission to continue with an empty enhancement.
-**Why.** Stage 0 runs over the per-field fragments produced by Stage 1. TERMite supplies preferred labels, entity types, and synonyms that the post-Stage-1 `reconcile_with_annotations` pass uses to adjust routing (e.g. promoting a PK parameter from `question` to `filter`), and that seed Stage 2 translation pools. Absent TERMite, brand names, scientific names, and retrieval-defining PK parameters can be silently lost before translation.
-**Breaks if violated.** Brand names, scientific names, and retrieval-defining PK parameters can be silently lost before translation.
+### CONST-2 — The PK staged pipeline order is fixed
+**Rule.** The production PK path, CLI execution path, UI execution path, and evaluation harness MUST run the staged sequence: expansion -> decomposition -> field-scoped TERMite enrichment -> early small-closed translation -> aggregate/count -> strict `1000` count gate -> row filtering or staged non-early translation -> final row count. The system MUST NOT move TERMite before decomposition, translate all filters before the early count, or replace the staged count gate with a single aggregate call.
+**Why.** The documented product depends on using cheap, field-safe early filters before deciding whether local row filtering is possible.
+**Breaks if violated.** Counts can be narrowed by the wrong fields, row filtering can be skipped, and evaluation can report a count from a path the product does not define.
 
-### CONST-3 — Closed sets are authoritative
-**Rule.** A closed-set translation MUST emit only values that are members of the field's provided closed set. `[]` or `None` means invalid. An invalid translation MUST NOT narrow API queries, post-filters, facets, or display columns.
-**Why.** The redesign exists precisely because invented values produced wrong or empty queries.
-**Breaks if violated.** The system reintroduces the legacy hallucinated-filter failure mode.
+### CONST-3 — Field metadata is the authority for buckets and early eligibility
+**Rule.** PK field bucket definitions MUST live in service metadata, not scattered stage code. `EARLY_CONTRIBUTOR_THRESHOLD` MUST be exactly `1000`. The early small-closed fields are `species`, `routes`, `documentSource`, and `documentYear`; `drugs` is closed but not early; `studyGroups` is the documented plural field name.
+**Why.** Bucket policy decides execution order and must be auditable from one service configuration boundary.
+**Breaks if violated.** A worker can accidentally treat high-cardinality fields as early, miss documented fields, or emit unsupported field names.
 
-### CONST-4 — Open fields become runtime closed sets
-**Rule.** An open-set filter (`parameter`, `parameterDisplay`, `studyGroup`, `age`, `dose`, `duration`) MUST be deferred until datapoints are fetched. The unique fetched values become the runtime closed set, and the same closed-set translation contract selects the post-filter subset.
-**Why.** Open fields cannot be safely grounded before the data reveals their actual value space.
-**Breaks if violated.** Free-text guesses can zero valid results or retain invalid matches without an audit trail.
+### CONST-4 — Decomposition and TERMite stay field-scoped
+**Rule.** Decomposition MUST emit typed components with `field`, `nl_fragment`, `type`, `reason`, `source`, and optional boolean grouping metadata before TERMite runs. TERMite enrichment MUST use each component's selected `field` as context and the component's `nl_fragment` as text; `reason` is audit metadata and MUST NOT be enriched as the query fragment.
+**Why.** Routing and entity recognition are separate stages; field-scoped enrichment prevents global entity matches from rewriting the user's intent.
+**Breaks if violated.** TERMite annotations can attach to the wrong field or every same-type fragment can inherit the first recognized annotation.
 
-### CONST-5 — Stage 1 routes only
-**Rule.** The decomposer MUST segment and route the user's own words into field components. It MUST NOT normalize, ground, expand, or consult controlled vocabularies.
-**Why.** Routing and value selection are separate, independently testable concerns.
-**Breaks if violated.** The pipeline collapses back into a monolithic translator.
+### CONST-5 — Translation and aggregation are staged, valid, and replayable
+**Rule.** Translation MUST support deterministic staged selection: early small-closed components first, then non-early components only when the count remains `>= 1000`. Aggregation MUST be callable after each staged translation set, preserve boolean grouping, apply PK invariants, validate allowed fields/facets, enforce the query budget, and surface issues without hiding the staged path.
+**Why.** The pipeline must be able to explain every API count attempt and every filter that remains pending.
+**Breaks if violated.** The final count becomes irreproducible and invalid filters can silently affect API payloads.
 
-### CONST-6 — Typed contracts at every boundary
-**Rule.** Stage boundaries, execution results, runtime closed sets, and post-filter results MUST be represented by typed Pydantic contracts. Final machine queries MUST be structurally validated before being treated as successful.
-**Why.** Typed boundaries eliminate fragile free-text parsing and enable per-step evaluation.
-**Breaks if violated.** Malformed payloads and ambiguous traces reach downstream stages.
+### CONST-6 — The `1000` row gate has strict semantics
+**Rule.** A staged API count `< 1000` MUST trigger row retrieval and local filtering of all remaining filters. A count `>= 1000` MUST trigger another deterministic non-early translation stage, unless every filter has already been translated, in which case the final API count is the final row count.
+**Why.** The product contract distinguishes the row-filter path from the full API-count path by an exact threshold.
+**Breaks if violated.** Boundary cases at `1000` will take the wrong path and expected-count evaluation can no longer be trusted.
 
-### CONST-7 — Boolean intent is explicit
-**Rule.** Within-field boolean groups and cross-field boolean assembly MUST be represented in data (as `boolean_group` objects and `AND`/`OR`/`NOT` tree nodes), not implied by prose.
-**Why.** SME cases distinguish OR and AND within a field; the API boolean tree must reflect that distinction exactly.
-**Breaks if violated.** Retrieval breadth changes invisibly, especially for multi-value gold cases.
+### CONST-7 — `final_row_count` is the shared result contract
+**Rule.** CLI, UI, tests, and evaluation MUST report `PipelineResult.final_row_count` as the product result. `countTotal` from a staged attempt may be used as the final count only when all filters have been translated into the API query. Row-filter runs MUST also record execution mode, fetched rows, filtered rows, filter issues, and staged count attempts.
+**Why.** The same question can finish by local row filtering or by a final API count; public surfaces need one canonical count field.
+**Breaks if violated.** Evaluation may compare an intermediate `countTotal` instead of the count produced by the completed pipeline.
 
-### CONST-8 — Normalization policy is fixed
-**Rule.** Misspelling and cleanup behavior MUST follow the documented field/bucket policy (fuzzy closed-set correction for closed fields, conservative cleanup for open fields, drug-specific normalizer for drug fields). It MUST NOT be exposed as a selectable stage or `noop` option.
-**Why.** Normalization is part of deterministic translation safety, not a runtime experiment.
-**Breaks if violated.** Closed-set matching can drift between runs; open-set filters can be handled by undocumented rules.
+### CONST-8 — Evaluation is exact-count only
+**Rule.** Scored evaluation MUST read `docs/PPPK.xlsx`, sheet `PK_Query`, columns `Quety number`, `Query`, and `Expected Count`, then compare `final_row_count == Expected Count`. No other sheet, tolerance band, per-step qualitative score, or label-level metric may be part of the scored PK evaluation.
+**Why.** The product's success measure is exact final row count for the documented PK query sheet.
+**Breaks if violated.** The project can appear successful through auxiliary metrics while failing the only ratified acceptance signal.
 
-### CONST-9 — Hierarchy is reusable grounding logic
-**Rule.** Class labels (drug class → API-resolved subtree), exact species class labels (server-resolved), colloquial species groups without exact class labels (expanded to member species), and source hierarchy (document → FDA/EMA parent) MUST be handled by shared taxonomy/runtime grounding helpers in `taxonomy/index.py`, not by one-off prompt text.
-**Why.** The same parent/child semantics recur across drugs, species, and sources.
-**Breaks if violated.** Fixes for one field do not generalize and class breadth regresses.
+### CONST-9 — Typed contracts guard every boundary
+**Rule.** Stage inputs and outputs, service fields, machine queries, execution results, row-filter results, and evaluation rows MUST use typed contracts. `MachineQuery.to_payload()` MUST normalize the boolean tree into the PK advanced search payload before execution.
+**Why.** Typed boundaries make the staged pipeline inspectable and prevent fragile free-text parsing from leaking into execution.
+**Breaks if violated.** Malformed payloads, missing result fields, and ambiguous stage artifacts can reach CLI, UI, or evaluation.
 
-### CONST-10 — Service differences are in configuration
-**Rule.** PK field buckets, taxonomies, entity routing, facets, invariants, and serializers MUST live in `ServiceConfig`/`FieldSpec` data objects. Shared stage code MUST NOT fork per service.
-**Why.** The pipeline shape is common; only the configuration differs.
-**Breaks if violated.** Stage logic becomes duplicated and inconsistent across services.
+### CONST-10 — External systems are lazy and testable
+**Rule.** PharmaPendium, LLM, Portkey/OpenAI, and TERMite credentials MUST be read only when the stage that needs them runs. Offline tests MUST use fakes, fixtures, or monkeypatching and MUST NOT require network, model, TERMite, or PharmaPendium access.
+**Why.** Local development and CI must validate the contracts without secrets or live services.
+**Breaks if violated.** Imports and tests become environment-dependent, and secrets are more likely to leak.
 
-### CONST-11 — Tests are hermetic through fakes, not product bypasses
-**Rule.** Offline tests MUST avoid network, LLM, and TERMite calls by injecting fakes, fixtures, or monkeypatched clients through `conftest.py`. They MUST NOT preserve public no-op or alternate stage methods as the testing mechanism.
-**Why.** The product path must stay fixed while local test feedback remains cheap and deterministic.
-**Breaks if violated.** Test convenience leaks into production behavior.
+### CONST-11 — Observability is part of the architecture
+**Rule.** The pipeline MUST retain expanded text, decomposition reasons, per-component TERMite annotations, translated subqueries, staged API attempts, execution mode, row-filter counts, and validation/execution issues in the runtime result.
+**Why.** Count mismatches need to be diagnosable at the stage where they were introduced.
+**Breaks if violated.** Maintainers cannot tell whether an error came from expansion, routing, enrichment, translation, aggregation, execution, or local filtering.
 
-### CONST-12 — Evaluation is per-step first
-**Rule.** Each stage's output MUST be independently scorable against its expected output; `Expected Count` from `docs/PPPK.xlsx` is the end-to-end signal, not the only metric.
-**Why.** Decomposition only helps if failures can be attributed to the stage that caused them.
-**Breaks if violated.** The project trades one opaque box for several opaque boxes.
-
-### CONST-13 — Secrets are lazy and never committed
-**Rule.** Credentials MUST be read only when the stage that needs them is invoked. `.env` and real credential files MUST never be committed. `.env.example` is keys-only.
-**Why.** Imports and offline tests must remain safe; VCS must not leak credentials.
-**Breaks if violated.** Secret exposure and broken offline imports.
-
-### CONST-14 — Quality gates pass before merge
-**Rule.** No implementation change merges unless the quality gates below pass (or a documented docs/spec-only exception applies).
-**Why.** The package must stay importable, lint-clean, formatted, and tested.
-**Breaks if violated.** Regressions accumulate outside the spec pipeline.
+### CONST-12 — Quality gates pass before merge
+**Rule.** No implementation change may merge unless the quality gates below pass, except for a documented docs/spec-only change that does not alter runnable code.
+**Why.** The package must remain importable, lint-clean, formatted, and covered by hermetic tests while the staged pipeline changes.
+**Breaks if violated.** Regressions can accumulate outside the spec pipeline and block later evaluation.
 
 ## Technology Stack
 
 | Layer | Technology | Version/Notes | Prohibited alternatives |
-|-------|------------|---------------|-------------------------|
-| Language | Python | 3.11+ | Rewriting in another language |
-| Package/build | `pyproject.toml`, hatchling, uv/pip | Existing layout | Ad-hoc setup scripts |
-| Stage orchestration | Fixed Python calls in `pipeline.py` | No public stage backend selection | Stage registries or runtime method options |
-| Typed contracts | Pydantic | v2, `src/oppp/models.py` | Untyped stage-boundary dicts |
-| Service config | Dataclasses (`ServiceConfig`/`FieldSpec`) | `src/oppp/services/` | Service-specific forks in shared stages |
-| Entity recognition | SciBite TERMite toolkit | Required Stage 0 invocation | No-op enhancement or optional TERMite in full runs |
-| LLM integration | LangChain/OpenAI-compatible structured output via Portkey | Lazy `llm` extra, `oppp.llm` factory | Free-text LLM output at stage boundaries |
-| Grounding | CSV/runtime closed sets, taxonomy indexes, RapidFuzz, LLM enrichment/selection | `taxonomy/index.py` | Prompt-only value generation |
-| Runtime filtering | Row execution + runtime closed-set post-filtering | Per-field `PostFilterResult` | Direct open-field hard filters as row-mode substitute |
-| Fuzzy matching | RapidFuzz | CSV and runtime closed-set lookup | Bespoke fuzzy matching in core paths |
-| Normalization | Fixed field/bucket policy | Closed-set fuzzy correction; conservative open-set cleanup | Runtime normalizer selection |
-| HTTP core | `urllib.request` | Count and row execution | Mandatory third-party HTTP client in core |
-| CLI | Typer | `src/oppp/cli.py` | Hand-rolled CLI parser |
-| UI | Streamlit | Lazy `ui` extra, `src/oppp/ui/app.py` | UI code in core stages |
-| Diagram | draw.io XML + PNG | `docs/agent-dag.drawio` as editable source | Registry-derived pluggable-backend diagram |
-| Reports | openpyxl | Lazy `report` extra | Mandatory spreadsheet dependency |
-| Lint/format | Ruff | `ruff check`, `ruff format --check` | Mixed linters/formatters |
-| Tests | pytest | Offline default suite with fakes in `conftest.py` | Networked default tests |
+| --- | --- | --- | --- |
+| Language | Python | `>=3.11` | Rewriting the package in another language |
+| Package/build | Existing `pyproject.toml` package model | Preserve the current `src/oppp` package layout | Ad-hoc build scripts or a second package layout |
+| Core architecture | Existing `oppp` registries and module boundaries | `models.py`, `services/`, `stages/`, `pipeline.py`, `execute.py`, `eval/`, `cli.py`, `ui/` | Parallel PK-only pipeline stack |
+| Typed contracts | Pydantic | Serializable stage, query, execution, and evaluation models | Untyped dictionaries at stage boundaries |
+| CLI | Typer | `oppp run`, stage/debug commands, `oppp eval` | Hand-rolled CLI parser |
+| UI | Streamlit | Optional UI extra; debug surface mirrors production stages | UI-only execution logic |
+| Field matching | RapidFuzz plus service vocabularies | Used for closed-set and runtime-set matching | Prompt-only value selection |
+| Environment loading | python-dotenv and environment variables | Secrets stay outside committed files | Hardcoded credentials |
+| LLM support | LangChain/OpenAI/Portkey packages as configured in `pyproject.toml` | Optional/lazy model stages | Mandatory model import at package import time |
+| Graph/agent support | LangGraph/DSPy packages as configured in `pyproject.toml` | Optional extras only | Required runtime dependency for the PK pipeline |
+| Entity enrichment | SciBite TERMite service/toolkit | Field-scoped component enrichment | Global pre-decomposition TERMite rewrite |
+| PK search integration | PharmaPendium `/v1/pk/search/advanced` | Count and row retrieval through `execute.py` | New service process or database |
+| Visualization | matplotlib | Optional DAG/visualization support | Mandatory visualization dependency |
+| Reports/workbooks | openpyxl | Required for XLSX evaluation/report support | Treating CSV or other sheets as the scored source |
+| Lint/format | Ruff | `ruff check`, `ruff format --check` | Multiple competing linters/formatters |
+| Tests | pytest | Offline suite with fakes by default | Networked default tests |
 
 ## Development Workflow
 
 ### Quality Gates
-All four must pass before any implementation change is merged:
+
 1. `python3 -m compileall src/oppp`
 2. `ruff check src tests`
 3. `ruff format --check src tests`
 4. `pytest -q`
 
 ### Adding a New Component
-1. Start by updating `docs/`; product behavior changes never originate in code.
-2. Define or reuse the typed Pydantic contract first.
-3. Wire the component into the fixed pipeline path without adding a user-selectable method.
-4. Keep any model, TERMite, UI, report, or network dependency lazy at import time.
-5. Add hermetic tests using fakes or fixtures in `conftest.py`, plus one integration test if the component changes cross-stage behavior.
-6. Add or update per-step evaluation coverage where the output has a gold reference.
+
+1. Update `docs/` first when the change affects behavior, evaluation scope, fields, or quality requirements.
+2. Define or extend the typed contract in the existing boundary that owns the data.
+3. Wire the component into the fixed PK staged path without adding a user-selectable alternate production path.
+4. Keep optional model, TERMite, UI, visualization, and report dependencies lazy.
+5. Add hermetic tests with fake services or fixtures for the changed boundary.
+6. Confirm CLI, UI, and evaluation still report `final_row_count` and execution mode consistently.
 
 ### Schema / Data Contract Changes
-1. Update the Pydantic model or service dataclass.
-2. Update `specs/technical.md` contract table.
-3. Update `specs/requirements.md` and `specs/evaluation.md` coverage.
-4. Run the Quality Gates.
+
+1. Update the owning Pydantic model, service dataclass, or payload serializer.
+2. Update staged pipeline orchestration and all public surfaces that expose the contract.
+3. Update tests that assert the contract shape and staged behavior.
+4. Update evaluation criteria through the docs-first spec pipeline when the contract changes product behavior.
+5. Run the Quality Gates.
 
 ## Governance
-- Product intent changes start in `docs/` and flow through `/mdtechnical`.
-- Constitution changes are versioned: MAJOR for reversed principles, MINOR for added principles, PATCH for clarifications.
-- `/mdevaluation` audits these principles through `specs/evaluation.md`; a principle without an evaluation criterion is incomplete.
+
+- Constitution changes are versioned as MAJOR for reversed or removed principles, MINOR for added principles, and PATCH for clarifications.
+- Every contributor and AI assistant must comply with the current constitution before changing implementation files.
+- A downstream evaluation gap that reveals missing intent is resolved by editing `docs/` and rerunning `/mdtechnical`, not by patching specs or code directly.
+- `/mdevaluation` must be able to audit these principles through `specs/evaluation.md`; an unauditable principle is incomplete.

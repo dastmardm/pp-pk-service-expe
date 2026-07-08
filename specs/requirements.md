@@ -3,91 +3,91 @@
 ## Functional Requirements
 
 | ID | Priority | Statement |
-|----|----------|-----------|
-| REQ-001 | MUST | The full pipeline accepts a natural-language PK question and returns a typed `PipelineResult` containing: original query, expansion, decomposition components, TERMite-enhanced annotations (Stage 0 runs after Stage 1 but before Stage 2), Stage-2A machine subqueries, first machine query, execution metadata (`countTotal`), and issues. The field order in `PipelineResult` does not imply stage execution order; the actual order is: Stage -1 expand → Stage 1 decompose → Stage 0 TERMite enhance → annotation reconciliation → Stage 2A translate → Stage 3A aggregate/execute. When row fetch is available, the result additionally contains row execution output, runtime closed sets, runtime translations, post-filter metadata, filtered datapoints, and final filtered count. |
-| REQ-002 | MUST | Stage -1 uses the configured LLM to produce a faithful `ExpandedQuery` while preserving `original`. It must not silently degrade to a no-op passthrough for full pipeline runs. |
-| REQ-003 | MUST | Stage 0 invokes TERMite for every full pipeline run and every `oppp enhance` command. Missing TERMite configuration or toolkit is a blocking configuration error, not permission to continue with an empty `EnhancedQuery`. |
-| REQ-004 | MUST | Stage 1 uses LLM structured output to emit `Component`s with `field`, `nl_fragment`, `type` (exactly `filter` or `question`), `reason`, `source`, and optional `boolean_group`. It must not consult taxonomies or choose canonical values. |
-| REQ-005 | MUST | The annotation reconciliation pass deterministically promotes retrieval-defining PK parameters (TERMite type `PARAMETER`) from `question` to `filter` when TERMite recognized the entity, and resolves routing ambiguities using the TERMite type-to-field map. |
-| REQ-006 | MUST | Only `type=filter` components enter Stage 2 translation. `type=question` components inform facets, `displayColumns`, and post-retrieval output metadata only. |
-| REQ-007 | MUST | Input closed-set fields translate via the documented resolution order: (1) exact match, (2) fuzzy match, (3) LLM pool enrichment + exact/fuzzy retry, (4) LLM selection from closed set, (5) membership assertion/retry with feedback, (6) invalid. |
-| REQ-008 | MUST | A closed-set translation result is always a subset of the field's closed set. `[]`, `None`, or out-of-set-only candidates mark the translation invalid. |
-| REQ-009 | MUST | Invalid input closed-set translations are recorded in `PipelineResult.issues` and excluded from the API query, facets, display columns, and post-filter set. |
-| REQ-010 | MUST | The fixed normalizer corrects CSV-backed closed-set fragments via fuzzy matching, preserves valid class labels, and keeps open-set field cleanup conservative until runtime values exist. The normalizer policy is not selectable at runtime. |
-| REQ-011 | MUST | Hierarchy handling supports: drug class label → API server-side subtree resolution; exact species class label → server-side resolution; colloquial species groups without exact class label (e.g. "Monkeys") → member species expansion; document source → FDA/EMA parent label. A specific leaf is never widened. |
-| REQ-012 | MUST | Stage 3A aggregates only valid Stage-2A subqueries into a structurally valid first API machine query, applying boolean grouping, PK service invariants (`concomitants` Fasted-or-empty, `tissueSpecific` Not-tissue-specific, `metabolitesEnantiomers` Not-metabolites/enantiomers), facets, and display columns. |
-| REQ-013 | MUST | Count execution (`execute_count`) POSTs the validated `MachineQuery` to the PK service URL and returns `ExecutionResult{ok, count_total?, status?, error?}`. `ok=true` indicates the API returned a valid response; `count_total` is absent only when the API response contains no count. |
-| REQ-014 | MUST | Row execution (`execute_rows`) paginates the PK API to collect datapoints into a normalized `RowExecutionResult`. Pagination failure produces `ok=false` with a structured issue while leaving count-only execution usable. |
-| REQ-015 | MUST | For each deferred open-set filter field, the pipeline derives a `RuntimeClosedSet` from sorted unique non-empty values for that field in the fetched datapoints. |
-| REQ-016 | MUST | Runtime open-set translation reuses the `CONTRACT-CLOSED-SET-TRANSLATION` contract over the runtime closed set and emits only a subset of the fetched values. |
-| REQ-017 | MUST | Valid runtime translations post-filter datapoints; invalid runtime translations are recorded and leave datapoints unchanged. |
-| REQ-018 | MUST | Count-only execution and count proximity evaluation remain usable independently of row fetch. Probe-based open-filter guards (`drop_empty_open_filters`) are available as a v0.1 live-run guard but must not be treated as the row-mode runtime post-filtering path. |
-| REQ-019 | MUST | PK service configuration (`src/oppp/services/pk.py`) encodes field buckets, `EARLY_CONTRIBUTOR_THRESHOLD` (default 500), taxonomy paths, facet allow-list, PK invariants, and search URL. Stage code must not contain PK-specific field maps. |
-| REQ-020 | MUST | CLI commands (`oppp run`, `oppp enhance`, `oppp decompose`, `oppp field`, `oppp aggregate`, `oppp lookup`, `oppp eval`, `oppp dag`, `oppp services`) expose only service, input, execution, and output controls. No `--enhancer`, `--decomposer`, `--translator`, `--aggregator`, `--normalizer`, or equivalent method-selection flags. The `oppp services` command outputs at minimum the name and search URL of each registered service (e.g. the PK service name and `/v1/pk/search/advanced`). |
-| REQ-021 | MUST | The Streamlit UI displays Stage -1 through Stage 3, execution count, and (when rows are available) runtime closed sets, runtime selections, invalid runtime filters, and filtered count. No stage backend selector widgets. |
-| REQ-022 | MUST | `oppp dag` and any exported flow text reflect the draw.io-backed fixed pipeline path (eight stage labels: Stage -1, Stage 0, Stage 1, Stage 2A, Stage 3A, Stage 2B, Stage 3B, Stage 2C) and contain no pluggable-backend legend or stage options. |
-| REQ-023 | MUST | The evaluation harness (`eval/harness.py`) loads `docs/PPPK.xlsx` → `PK_Query` sheet, runs each of the 47 queries through the full pipeline, compares `countTotal` to `Expected Count`, and reports `valid_rate`, `executed_rate`, `exact_count`, and `within_<tol>`. |
-| REQ-024 | MUST | Per-step comparators (`eval/per_step.py`) score Stage 0 TERMite entity (type, label) pairs by set precision/recall, Stage 1 routing/type classification by exact match, Stage 1 NL fragments by LLM-as-judge semantic equivalence, Stage 2 translated field names, and Stage 3 machine-query structure by structural compare plus LLM judge tie-break. |
-| REQ-025 | MUST | Regression coverage includes at minimum: species class expansion (e.g. "Rodent" → all rodent species), drug fuzzy match (e.g. "suntinib" → Sunitinib), open-set parameter routing ("AUC or Cmax" → `parameter` OR group), and PK invariant application (concomitants/tissueSpecific/metabolitesEnantiomers defaults). |
-| REQ-026 | MUST | Offline tests run with injected fakes, fixtures, or monkeypatched clients and make no network, LLM, or TERMite calls. Test fakes are not public product methods. |
-| REQ-027 | MUST | Credentials are read lazily only when the fixed stage that needs them is invoked. `.env` and real credential files are never committed. `.env.example` is keys-only. |
-| REQ-028 | SHOULD | Free-text comparator tie-breaks use the typed `LLMJudge` (`eval/judge.py`) when deterministic scoring cannot decide semantic equivalence. Judge verdicts are typed (`match|partial|miss` + reason) and auditable. |
+| --- | --- | --- |
+| REQ-001 | MUST | The production PK pipeline accepts a natural-language PK question and executes the fixed staged order: expansion -> decomposition -> field-scoped TERMite enrichment -> early small-closed translation -> aggregate/count -> `1000` count gate -> row filtering or staged non-early translation -> final row count. |
+| REQ-002 | MUST | Expansion preserves the original question and produces expanded text that becomes the only text input to decomposition. |
+| REQ-003 | MUST | Decomposition emits typed components containing `field`, `nl_fragment`, `type`, `reason`, `source`, and optional boolean grouping metadata, without depending on TERMite hints or controlled-vocabulary translation. |
+| REQ-004 | MUST | TERMite enrichment runs after decomposition for each component, using that component's `field` as context and `nl_fragment` as the text to enrich; annotations remain bound to the originating component. |
+| REQ-005 | MUST | PK service metadata classifies fields into `small_closed`, `closed`, `open`, `enum`, and `boolean` buckets with `EARLY_CONTRIBUTOR_THRESHOLD = 1000`. |
+| REQ-006 | MUST | The small closed / early fields are exactly `species`, `routes`, `documentSource`, and `documentYear`; `drugs` is closed but not early because its value count is greater than `1000`. |
+| REQ-007 | MUST | The documented PK field spelling is `studyGroups`; existing singular `studyGroup` usage is migrated or explicitly aliased so generated queries, facets, row filtering, tests, CLI output, and UI output use the plural spelling. |
+| REQ-008 | MUST | The first translation stage translates all and only early small-closed filter components, preserving boolean grouping metadata needed by aggregation. |
+| REQ-009 | MUST | Translation supports deterministic staged selection for non-early closed, enum, boolean, and open fields when the count remains `>= 1000`, while recording which components remain pending for possible local row filtering. |
+| REQ-010 | MUST | Aggregation is callable after every staged translation set and produces a structurally valid PK advanced search machine query that preserves boolean grouping, applies PK invariant constraints, validates field names and facets, enforces the query constraint budget, and records issues. |
+| REQ-011 | MUST | `MachineQuery.to_payload()` emits the `/v1/pk/search/advanced` payload with `query`, `entityFilters`, `facets`, `sortColumns`, `displayColumns`, `leafOnly`, `mixtureExpansion`, and `limitation`, with field leaves normalized into boolean nodes before execution. |
+| REQ-012 | MUST | Every staged API count attempt is executed through `execute_count`, records the machine query and returned `countTotal`, and remains visible in `PipelineResult`. |
+| REQ-013 | MUST | A staged count `< 1000` triggers `execute_rows` for that staged query and then applies all remaining untranslated filters locally against the fetched datapoints. |
+| REQ-014 | MUST | A staged count `>= 1000` triggers another deterministic non-early translation stage when pending filters remain; when no pending filters remain, the final API `countTotal` becomes `final_row_count`. |
+| REQ-015 | MUST | Local row filtering supports at least `drugs`, `parameter`, `parameterDisplay`, `studyGroups`, `age`, `dose`, `duration`, `sex`, `isPreclinical`, `concomitants`, `tissueSpecific`, and `metabolitesEnantiomers`. |
+| REQ-016 | MUST | Row filter output records input row count, locally applied filters, output row count, and warnings or errors for filters that cannot be applied locally. |
+| REQ-017 | MUST | `PipelineResult` exposes expanded query, decomposition, field-scoped TERMite annotations, translated subqueries, staged API attempts, per-attempt `countTotal`, execution mode (`row_filter` or `full_api_count`), fetched rows when used, final filtered rows when used, `final_row_count`, validation issues, and execution issues. |
+| REQ-018 | MUST | CLI command `oppp run --execute` runs the staged count/row path and displays `final_row_count` plus execution mode; debug commands label the stages as expand, decompose, field-scoped TERMite enrichment, staged translation, and aggregate/count/row-filter. |
+| REQ-019 | MUST | The Streamlit UI displays the same stage order as the production pipeline and shows decomposition reasons, per-component TERMite annotations, staged count attempts, execution mode, final row count, and row-filter counts when available. |
+| REQ-020 | MUST | The evaluation harness reads only `docs/PPPK.xlsx`, sheet `PK_Query`, columns `Quety number`, `Query`, and `Expected Count`, runs each query through the production staged PK pipeline, and scores only exact equality of `final_row_count` and `Expected Count`. |
+| REQ-021 | MUST | Scored evaluation requires execution of the staged pipeline; `execute=False` may remain only as an offline validity/debug mode and must not produce scored exact-count results. |
+| REQ-022 | MUST | Evaluation report exports align with count-only scoring and include query number, question, expected count, final row count, execution mode, exact match, issues, and execution error. |
+| REQ-023 | MUST | Configuration and secrets remain behind `src/oppp/config.py`; PharmaPendium, OpenAI/Portkey, and TERMite credentials are read lazily only when the stage that needs them runs. |
+| REQ-024 | MUST | Offline tests use deterministic or fake backends and do not require network access, PharmaPendium credentials, LLM credentials, TERMite credentials, or optional UI/report/graph packages. |
+| REQ-025 | MUST | The implementation uses existing `oppp` package boundaries (`models.py`, `services/`, `stages/`, `pipeline.py`, `execute.py`, `eval/`, `cli.py`, and `ui/`) and does not introduce a second PK-only pipeline stack, service process, or database. |
+| REQ-026 | SHOULD | CSV/XLSX report exports, stage inspection commands, and offline debug output remain available when they do not alter count-only scoring semantics. |
 
 ## Non-Functional Requirements
 
 | ID | Statement |
-|----|-----------|
-| NFR-001 | `python3 -m compileall src/oppp`, `ruff check src tests`, `ruff format --check src tests`, and `pytest -q` all pass before implementation work is merged. |
-| NFR-002 | The offline test suite passes with no `.env`, no model credentials, no TERMite credentials, and no network access. |
-| NFR-003 | LLM, TERMite, UI (`streamlit`), DAG rendering (`matplotlib`), and report (`openpyxl`) dependencies are imported lazily so `import oppp` and `from oppp.models import *` do not require optional packages or credentials. |
-| NFR-004 | Row-fetch failures leave count-only execution usable; `execute_rows` returns a structured `RowExecutionResult` with `ok=false` and an error message rather than raising an unhandled exception. |
-| NFR-005 | Public CLI help text and `oppp services` output contain no advertised `noop`, backend, normalizer, decomposer, enhancer, translator, or aggregator method option names. |
+| --- | --- |
+| NFR-001 | `python3 -m compileall src/oppp`, `ruff check src tests`, `ruff format --check src tests`, and `pytest -q` pass before implementation changes are merged. |
+| NFR-002 | `import oppp` and `from oppp.models import *` succeed without `.env`, PharmaPendium credentials, LLM credentials, TERMite credentials, Streamlit, matplotlib, or openpyxl. |
+| NFR-003 | The offline test suite completes with no network access and no live external-service credentials. |
+| NFR-004 | The strict row gate uses the single value `1000`; tests cover counts `999`, `1000`, and `1001`. |
+| NFR-005 | Row retrieval or local-filter failure returns structured execution issues without crashing count-only staged execution. |
+| NFR-006 | The final count used by evaluation is always exposed as `PipelineResult.final_row_count`; public surfaces do not require consumers to infer the final value from staged `countTotal` entries. |
 
 ## Constraints
-- TERMite and LLM model credentials are required for full production pipeline runs.
-- The controlled vocabularies (`inputs/*.csv`) and the gold set (`docs/PPPK.xlsx`) are provided inputs; the implementation consumes them and does not curate them. The 47-row count cited in REQ-023 and evaluation criteria reflects the `PK_Query` sheet as of v0.1 spec authoring; evaluation should read the actual row count from the XLSX rather than asserting exactly 47 as a hard constant.
-- Live `countTotal` values can drift as the PharmaPendium database updates; count proximity metrics use a configurable tolerance band.
-- Tests must stay hermetic by faking external collaborators, not by exposing alternate product methods.
-- The PharmaPendium API response shape for datapoint rows must be discovered and handled in `execute.py`; if rows are unavailable for the endpoint, `execute_rows` returns a typed unavailable result.
-- Core execution must not require a new mandatory HTTP dependency beyond `urllib.request`.
+
+- Product and behavior changes must start in `docs/` and be propagated through the spec pipeline.
+- The main external endpoint is `/v1/pk/search/advanced`.
+- The gold evaluation workbook is `docs/PPPK.xlsx`; the only scored sheet is `PK_Query`.
+- Evaluation uses exact count matching against `Expected Count`; tolerance bands and alternate sheets are out of scope.
+- The PK row gate is exactly `1000`; `< 1000` means row filtering, and `>= 1000` means staged non-early translation unless all filters are already translated.
+- The existing package targets Python `>=3.11` and retains its `pyproject.toml` packaging model.
+- Runtime credentials are supplied through environment variables or `.env`, never through committed files.
+- No new service process, queue, migration system, or database is required.
 
 ## Non-Goals
-- No general conversational answering or record summarization.
-- No vocabulary or gold-set curation by the translator.
-- No database, queue, or migration system.
-- No user-facing experiment framework for swapping stage implementations.
-- No no-op product path for any stage (TERMite, expansion, decomposition, translation, aggregation, normalization).
-- Safety and RTB service pipelines are not active product scope in v0.1 (service config files may remain for future activation).
+
+- The system does not answer PK questions in prose.
+- The system does not score per-step qualitative labels, tolerance bands, or workbook sheets other than `PK_Query`.
+- The system does not curate the gold workbook or PharmaPendium vocabularies as part of translation.
+- The system does not expose user-selectable production alternatives for the fixed PK staged path.
+- The system does not run TERMite as a global pre-decomposition rewrite.
+- Safety, RTB, or other non-PK service pipelines are not active scope for this requirements set.
 
 ## Acceptance Criteria
 
 | REQ | Criterion |
-|-----|-----------|
-| REQ-001 | `run_pipeline` returns all listed typed artifacts in count mode; in row mode it additionally returns `row_execution`, `runtime_closed_sets`, `runtime_translations`, `filtered_datapoints`, `final_filtered_count`; unavailable row execution returns a structured issue without crashing count mode. |
-| REQ-002 | Expansion preserves `original` in `ExpandedQuery`, records `source=llm`, and tests prove missing LLM config produces a structured issue rather than a silent passthrough. |
-| REQ-003 | Full `oppp run` invokes TERMite; missing `TERMITE_HOME` produces a clear blocking configuration error; no enhancement without TERMite for full runs. |
-| REQ-004 | Decomposer emits required `Component` shape; unit test proves no taxonomy CSV is loaded during decomposition; fakes are injected through `conftest.py` fixtures. |
-| REQ-005 | Annotation reconciliation unit test: `PARAMETER`-typed TERMite annotation promotes a `question` component to `filter` and resolves field routing conflicts. |
-| REQ-006 | Only `filter` components appear in the Stage-2A translation input; `question` components appear only in facet/displayColumn derivation. |
-| REQ-007 | Closed-set translator tests cover: exact match, fuzzy match, LLM enrichment retry, LLM closed-set selection, membership feedback retry, and invalid fallback (six cases minimum). |
-| REQ-008 | Test proves emitted input and runtime selections are proper subsets of their closed sets; out-of-set-only returns are marked invalid. |
-| REQ-009 | Invalid input translations appear in `PipelineResult.issues` and the Stage-3A machine query contains no invalid field filter. |
-| REQ-010 | Normalizer tests prove: fuzzy correction for a closed-set typo, class label preservation, and conservative open-set passthrough. |
-| REQ-011 | Tests cover at minimum: "Rodent" → rodent member species (colloquial group expansion), "Sunitinib" drug exact match, drug class label resolution. |
-| REQ-012 | Stage-3A structural test: exactly one top-level `AND` or `OR`; PK invariants present; invalid subqueries absent; facets from allow-list. |
-| REQ-013 | Mocked count response yields typed `ExecutionResult` with `ok=true`, `count_total=N`; mocked error yields `ok=false` with `error`. |
-| REQ-014 | Mocked paginated row response yields `RowExecutionResult` with normalized `datapoints`; mocked row error yields `ok=false` with issue while count path still works. |
-| REQ-015 | Mocked `datapoints` with known field values yield a `RuntimeClosedSet` that is sorted, unique, and non-empty. |
-| REQ-016 | Runtime translation test: selected values are a subset of the runtime closed set; out-of-runtime-set proposals are rejected. |
-| REQ-017 | Post-filter test: valid selection removes non-matching datapoints; invalid selection leaves datapoints unchanged and adds a warning to issues. |
-| REQ-018 | Count-only `oppp eval` works without row fetch enabled; `probe_open_filters=True` drops confirmed zero-count open filters but does not replace post-filtering in row mode. |
-| REQ-019 | `src/oppp/services/pk.py` contains all PK field specs; grep for `species` or `drugs` or `route` inside `stages/translate.py` or `stages/aggregate.py` returns no hardcoded field names. |
-| REQ-020 | `oppp run --help` output contains no `--enhancer`, `--decomposer`, `--translator`, `--aggregator`, or `--normalizer` flags. `oppp services` produces output that includes the PK service name and search URL. |
-| REQ-021 | Streamlit `app.py` code inspection: no `st.selectbox` or similar widget for stage backend selection; runtime panels shown when row data is available. |
-| REQ-022 | `oppp dag` output or `dag.py` text contains all eight stage labels (`Stage -1`, `Stage 0`, `Stage 1`, `Stage 2A`, `Stage 3A`, `Stage 2B`, `Stage 3B`, `Stage 2C`) and contains no `--enhancer` or backend registry. |
-| REQ-023 | `eval/harness.py` loads `docs/PPPK.xlsx` via openpyxl, reads `PK_Query` sheet, iterates 47 rows, and produces `valid_rate`, `executed_rate`, `exact_count`, `within_<tol>` metrics. |
-| REQ-024 | `eval/per_step.py` exports functions for Stage 0 set P/R, Stage 1 field/type exact score, Stage 1 fragment judge call, Stage 2 field name score, Stage 3 structural compare. |
-| REQ-025 | `tests/test_stages.py` includes test cases: "Rodent" species expansion, "suntinib" fuzzy drug resolution, "AUC or Cmax" OR-group routing, PK invariants applied without user override. |
-| REQ-026 | `pytest -q` passes with no `.env`; `conftest.py` provides fake LLM client and fake TERMite client fixtures; no test imports live LLM or TERMite modules unconditionally. |
-| REQ-027 | `config.py` reads secrets lazily; `.gitignore` excludes `.env` and `*.env`; `.env.example` contains only key names with no values. |
-| REQ-028 | `eval/judge.py` exports `LLMJudge` and `JudgeVerdict`; tests inject a fake client; judge is called only for fragment, open-pattern, and structure tie-break scoring steps. |
+| --- | --- |
+| REQ-001 | A pipeline integration test records stage events in the required order and proves no API count is attempted before expansion, decomposition, field-scoped TERMite enrichment, early translation, and aggregation complete. |
+| REQ-002 | Expansion tests show the original question is preserved and the expanded text is passed to decomposition. |
+| REQ-003 | Decomposition tests assert every component has `field`, `nl_fragment`, `type`, `reason`, `source`, and optional boolean grouping, and that decomposition can run with fake LLM output before TERMite is invoked. |
+| REQ-004 | TERMite tests use two components with different fields and prove each call receives that component's field and `nl_fragment`, not the global query or `reason`. |
+| REQ-005 | PK service metadata exposes all five bucket values and a test asserts `EARLY_CONTRIBUTOR_THRESHOLD == 1000`. |
+| REQ-006 | PK metadata tests assert `species`, `routes`, `documentSource`, and `documentYear` are `small_closed`, while `drugs` is `closed` and absent from the first early translation set. |
+| REQ-007 | A compatibility test proves singular `studyGroup` input, if accepted, resolves to the documented `studyGroups` field in generated queries and row filtering. |
+| REQ-008 | A staged translation test proves the first translation batch contains every early component and no non-early component. |
+| REQ-009 | A staged translation test with a `>= 1000` early count proves pending non-early components are translated in deterministic order and tracked as no longer pending. |
+| REQ-010 | Aggregation tests assert boolean grouping is preserved, PK invariants are present, invalid fields/facets are reported, and the staged attempt is not hidden. |
+| REQ-011 | Payload tests assert `MachineQuery.to_payload()` includes the required top-level keys and normalizes field constraints inside boolean nodes. |
+| REQ-012 | Execution tests with a fake count backend assert each staged attempt records the query and returned `countTotal` in `PipelineResult`. |
+| REQ-013 | A fake count of `999` triggers row fetch and local filtering of pending filters. |
+| REQ-014 | Fake counts of `1000` and `1001` trigger non-early translation when pending filters remain, and use final API `countTotal` only after all filters are translated. |
+| REQ-015 | Row-filter tests cover each required local-filter field at least once. |
+| REQ-016 | Row-filter tests assert input count, applied filters, output count, and unsupported-filter warnings or errors are recorded. |
+| REQ-017 | `PipelineResult` serialization tests assert every required runtime field is present for both `row_filter` and `full_api_count` modes. |
+| REQ-018 | CLI tests assert `oppp run --execute` reports final row count and execution mode, and stage/help output uses the new stage labels without legacy stage numbering. |
+| REQ-019 | UI code or component tests assert the stage panels and runtime details are present and no UI-only execution path bypasses the production pipeline. |
+| REQ-020 | Evaluation harness tests create a temporary workbook with `PK_Query`, run fake staged pipeline results, and assert exact-match scoring uses only `final_row_count == Expected Count`. |
+| REQ-021 | Evaluation tests assert `execute=False` results are marked offline/debug and excluded from scored exact-count evaluation. |
+| REQ-022 | Report-export tests assert the required count-only columns are present and no tolerance or per-step score column is required for scored output. |
+| REQ-023 | Config tests assert importing package modules does not read secrets and that missing credentials fail only when the corresponding live stage is invoked. |
+| REQ-024 | The default `pytest -q` suite passes without network or external credentials by using fake clients/backends. |
+| REQ-025 | Code inspection or tests assert staged orchestration is implemented through the existing package modules and no second PK-only runner/service/database is introduced. |
