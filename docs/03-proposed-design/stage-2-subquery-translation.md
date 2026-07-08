@@ -2,20 +2,17 @@
 
 **Input:** filter components from Stage 1, each carrying one field and one NL
 fragment, with Stage 0 TERMite annotations applied.
-**Output:** valid machine subqueries for early-contributor and resolved large
-closed-set fields, plus validated post-filters for open-set fields resolved
-against fetched datapoints.
+**Output:** valid machine subqueries for closed-set and open-set fields.
 
 This stage is where the closed-set/open-set distinction is enforced. A
-translation is valid only when it chooses values from a known set. The set may be
-known before the first API call (`inputs/` CSVs and inline enums), derived from
-the unique values present in early-contributor fetched datapoints, or observed in
-the final fetched datapoints for open-set fields.
+closed-set translation is valid only when it chooses values from a known set. The
+set is known before the API call (`inputs/` CSVs and inline enums). Open-set
+translation emits direct API constraints because no local value set exists.
 
 Question components do not become filters. They are carried forward so Stage 3
 can choose facets or `displayColumns`.
 
-## Three translation passes
+## Translation passes
 
 The `EARLY_CONTRIBUTOR_THRESHOLD` (default 500) determines which fields are
 translated first. A field is an early contributor when its input closed-set
@@ -24,7 +21,7 @@ vocabulary size is below this threshold.
 ```
 Stage-1 filter components (with Stage-0 TERMite annotations)
         │
-        ├─ Pass A: early-contributor closed-set fields
+      ├─ Pass A: closed-set fields
         │     criterion: vocabulary size < EARLY_CONTRIBUTOR_THRESHOLD
         │     closed_set = CSV / enum / boolean values
         │     pool = NL fragment + TERMite labels + synonyms
@@ -32,33 +29,14 @@ Stage-1 filter components (with Stage-0 TERMite annotations)
         │     valid subset -> machine subquery
         │     [] / None    -> invalid, excluded downstream
         │
-        ├─ aggregate valid Pass-A subqueries (Stage 3A)
-        │     -> first API query
-        │     -> fetched datapoints
-        │
-        ├─ Pass B: runtime narrowing of large closed-set fields (iterative)
-        │     for each large closed-set field (≥ threshold):
-        │       runtime_closed_set = unique values for that field
-        │                            in fetched datapoints
-        │       if len(runtime_closed_set) < threshold:
-        │         translate_closed_set(pool, runtime_closed_set)
-        │         valid subset -> machine subquery (new contributor)
-        │     repeat until no new contributors found in a round
-        │
-        ├─ aggregate all contributor subqueries (Stage 3B)
-        │     -> final API query
-        │     -> final fetched datapoints
-        │
-        └─ Pass C: open-set fields
-              closed_set = unique values for that field in final fetched datapoints
-              pool = NL fragment + generated synonyms
-              translate_closed_set(pool, closed_set)
-              valid subset -> post-filter datapoints
-              [] / None    -> invalid, no downstream narrowing
+        └─ Pass B: open-set fields
+           no input closed_set
+           emit direct MATCH or REGEX constraint
+           live execution may run an isolated zero-count probe
 ```
 
-The same closed-set translator is used in all three passes. The differences are
-the source of the closed set and the point at which the pass runs.
+The closed-set translator is used for fields with known values. Open-set fields
+use a conservative direct-emission translator and optional probe guard.
 
 ## Closed-set translator
 
@@ -70,7 +48,7 @@ The translator is a tool over a closed set of entities. It starts with:
 
 It always returns a **sublist of `closed_set`**. Returning `[]` or `None` means
 translation failed. A failed translation is marked invalid and does not affect
-the API query, entity filters, post-filtering, facets, or display columns.
+   the API query, entity filters, facets, or display columns.
 
 Resolution order:
 
@@ -97,13 +75,11 @@ Resolution order:
 
 The final emitted value is always a valid subset of the available entities.
 
-In the v0.1 implementation, this membership assertion is enforced by
-re-grounding every LLM proposal against the CSV (`exact` first, then `fuzzy`) and
-dropping any proposal that cannot be verified. The synonym-mapping fallback makes
-several attempts to recover from empty model responses; the closed-set window
-selection path keeps only re-grounded rows.
+This membership assertion is enforced by re-grounding every LLM proposal against
+the CSV (`exact` first, then `fuzzy`) and dropping any proposal that cannot be
+verified. The LLM receives one retry with explicit membership feedback.
 
-## Early-contributor closed-set fields (Pass A)
+## Closed-set fields (Pass A)
 
 For fields backed by [inputs/](../../inputs/) taxonomies whose vocabulary is below
 `EARLY_CONTRIBUTOR_THRESHOLD`, the closed set is the CSV's preferred-label list.
@@ -135,44 +111,9 @@ Output example:
 { "MATCH": { "field": "species", "value": ["African green monkey", "Cynomolgus monkey", "Rhesus monkey"] } }
 ```
 
-## Runtime narrowing of large closed-set fields (Pass B)
+## Open-set fields (Pass B)
 
-Large closed-set fields (vocabulary ≥ `EARLY_CONTRIBUTOR_THRESHOLD`) are deferred
-until the early-contributor API query has returned datapoints. The unique values
-for each such field present in those datapoints form its runtime narrowed set:
-
-1. Collect the unique non-empty values for that field from the early-contributor
-   fetched datapoints.
-2. If the count of unique values is below `EARLY_CONTRIBUTOR_THRESHOLD`, the field
-   becomes a new contributor:
-   - Build a pool from the NL fragment, TERMite preferred labels, and synonyms.
-   - Run the closed-set translator against the narrowed value list.
-   - A valid translation produces a machine subquery included in the final API
-     query (Stage 3B).
-3. Repeat steps 1–2 for the datapoints returned by each successive API query until
-   no new fields cross the threshold in a round.
-4. Fields that never cross the threshold after all rounds remain unresolved as
-   contributors and are handled in Pass C.
-
-## Open-set post-filters (Pass C)
-
-Open-set fields and any large closed-set fields that could not be resolved as
-contributors are deferred until the final API query (Stage 3B) has fetched
-datapoints:
-
-1. Collect the unique non-empty values for that field from the final fetched
-   datapoints.
-2. Build a pool from the user's NL fragment and LLM-generated synonyms.
-3. Run the same closed-set translator against the runtime value list.
-4. Keep only datapoints whose field value is in the returned subset.
-
-This turns a field such as `parameter`, `parameterDisplay`, `studyGroup`, `age`,
-`dose`, or `duration` into a validated post-filter instead of a raw LLM value
-in the API query.
-
-The v0.1 translator does not expose a generic
-`translate(field, pool, runtime_closed_set)` entry point. Open fields are handled
-by `_translate_open` before aggregation:
+Open fields are handled by `_translate_open` before aggregation:
 
 - `studyGroup` and `age` emit `REGEX` constraints; `studyGroup` expands a small
   built-in synonym set for hepatic and renal impairment.
@@ -181,16 +122,8 @@ by `_translate_open` before aggregation:
 - Live runs can call `drop_empty_open_filters` before aggregation to remove an
   open-set filter whose isolated API count is confirmed as `0`.
 
-Example:
-
-```json
-{
-  "field": "studyGroup",
-  "pool": ["hepatic impairment", "liver impairment", "HI"],
-  "runtime_closed_set": ["Mild hepatic impairment", "Moderate hepatic impairment", "Severe hepatic impairment"],
-  "selected": ["Mild hepatic impairment", "Moderate hepatic impairment", "Severe hepatic impairment"]
-}
-```
+The open-set translator records the emitted constraint and any probe warning in
+the grounding trace.
 
 ## Per-field contract
 
@@ -202,30 +135,29 @@ translate(field, pool, closed_set, context) -> {
   field:    str,
   selected: [str],          # always a subset of closed_set
   valid:    bool,
-  phase:    "early_contributor" | "runtime_narrowed" | "runtime_open",
+   phase:    "closed_set" | "open_set",
   boolean_group?: { id, op: "AND" | "OR" },
   grounding?: { matched_ids: [...], expanded_from: "class"|"term"|"runtime"|null, confidence: 0..1 },
-  machine_subquery?: { operator, field, value },  # early_contributor and runtime_narrowed phases only
+   machine_subquery?: { operator, field, value },
   notes?:   str
 }
 ```
 
 `selected` is always a member subset of the provided closed set. For the
-`early_contributor` and `runtime_narrowed` phases, `machine_subquery` is derived
-from `selected` and the field's emission rules. For the `runtime_open` phase,
-`selected` is applied directly as a datapoint post-filter. `valid=false` means the
-translation returned `[]` or `None`, or every candidate failed membership
-validation.
+`closed_set` phase, `machine_subquery` is derived from `selected` and the field's
+emission rules. In the `open_set` phase, `machine_subquery` is the direct
+`MATCH` or `REGEX` constraint. `valid=false` means the translation returned `[]`
+or `None`, or every candidate failed membership validation.
 
 ## Failure handling
 
-- **Early-contributor field fails translation** -> exclude the constraint from the
+- **Closed-set field fails translation** -> exclude the constraint from the
   API query and record the invalid translation. A hard `MATCH` on an out-of-set
   value is never emitted because it would silently zero the query.
-- **Runtime-narrowed field fails translation** -> the field is not added as a
-  contributor; it may still be handled as a post-filter in Pass C.
-- **Open-set field fails post-filter translation** -> keep the fetched datapoints
-  from the final query and do not apply that post-filter.
+- **Open-set field fails translation** -> exclude the constraint from the API
+   query and record the invalid translation. If a live zero-count probe confirms
+   that an emitted open-set filter matches no records, drop that filter and record
+   a warning.
 - **LLM selects out-of-set candidates** -> reject the candidates, retry with
   feedback that it must choose exact items from the closed set, and keep only
   verified members.

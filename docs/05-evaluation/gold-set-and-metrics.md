@@ -7,12 +7,18 @@ traded one opaque box for four. So evaluation here is **per-step first**: every
 stage has a typed contract and an expected output we can score in isolation, and
 only then do we roll the steps up to an end-to-end number.
 
-The gold dataset is the **`PK_Query` sheet of [`docs/PPPK.xlsx`](../PPPK.xlsx)**:
+The gold dataset is the **`PK_Query` sheet of [`PPPK.xlsx`](../PPPK.xlsx)**:
 47 SME PK questions, each with an expected result count. The workbook also
 includes a PK parameter taxonomy (`Parameter_PK_Taxo_new`) and a content-issues
 log (`PP_PK_content`).
 
-## The gold dataset (`docs/PPPK.xlsx` → `PK_Query` sheet)
+| Sheet | Rows | Purpose |
+|-------|------|---------|
+| `PK_Query` | 47 cases | The SME gold query set for PK evaluation. Each row has a query number, the natural-language question, and the expected result count. Used as the primary evaluation reference by the count-based harness (`oppp eval`). |
+| `Parameter_PK_Taxo_new` | 111 entries | PK parameter taxonomy with abbreviations, definitions, and synonyms. Useful for open-set `parameter` field translation and evaluation. |
+| `PP_PK_content` | 34 entries | Known content issues and their expected solutions, linked to Jira tickets. |
+
+## The gold dataset (`PPPK.xlsx` → `PK_Query` sheet)
 
 Each row in the `PK_Query` sheet records:
 
@@ -34,9 +40,9 @@ The evaluator scores per-field Stage-2 output against these PK fields:
 | `drugsFuzzy` | `drugs` | Compare after removing only API wildcard decoration such as a trailing `*`. |
 | `species` | `species` | Includes class/member expansions. |
 | `route` | `routes` | Closed-set route; pipeline logical field `route`, API field `routes`. |
-| `parameter` | `parameter` | Runtime/open PK parameter field; compare against post-filter selected subset when rows are available. |
-| `parameterDisplay` | `parameterDisplay` | Runtime/open display label; compare against post-filter subset when rows are available. |
-| `studyGroup` | `studyGroup` | Runtime/open field; synonym-equivalent fetched strings may use the typed judge. |
+| `parameter` | `parameter` | Open PK parameter field emitted as a direct API constraint. |
+| `parameterDisplay` | `parameterDisplay` | Open display label emitted as a direct API constraint. |
+| `studyGroup` | `studyGroup` | Open field; synonym-equivalent strings may use the typed judge. |
 | `age` | `age` | Runtime/open field for PK age text. |
 | `dose` | `dose` | Runtime/open numeric/unit field. |
 | `duration` | `duration` | Runtime/open field for study duration. |
@@ -48,10 +54,9 @@ The evaluator scores per-field Stage-2 output against these PK fields:
 | `documentSource` | `documentSource` | Closed-set source field. |
 | `documentYear` | `documentYear` | Closed-set year/range field. |
 
-Input closed-set fields are scored against Stage-2A machine subqueries. Runtime/open
-fields are scored against Stage-2C post-filter selections when row execution is
-available; when rows are not available, the evaluator records the runtime-field score
-as unavailable rather than treating the missing post-filter as a correct empty set.
+Input closed-set fields are scored against Stage-2 machine subqueries. Open
+fields are scored against their direct `MATCH` or `REGEX` constraints and any
+recorded zero-count probe warnings.
 
 ## Per-step evaluation (the core design)
 
@@ -69,7 +74,7 @@ stage outputs.
 | 1 — decompose (fragment) | the NL span per component | **LLM-as-judge**: spans are free text; judge scores semantic equivalence. |
 | 1 — decompose (boolean) | `(OR)` / `(AND)` hints | **Exact** on the per-field boolean hint. |
 | 2 — translate (input closed set) | resolved preferred-label set | **Set P/R/F1** over labels, after hierarchy expansion — deterministic. |
-| 2 — translate (runtime closed set) | selected subset of fetched field values | **Set P/R/F1** over fetched values when canonical; **LLM-as-judge** for semantically equivalent free-text values. |
+| 2 — translate (open set) | direct `MATCH` or `REGEX` constraints plus probe warnings | **Exact/structural** comparison for emitted fields; **LLM-as-judge** for semantically equivalent free-text patterns. |
 | 3 — aggregate | boolean tree + facets / displayColumns | **Structural** compare of the normalized tree; **LLM-as-judge** tie-break for logically equivalent but differently shaped trees. |
 | final | API JSON payload + count | **Schema validity** + **count proximity** vs `Expected Count`; tolerance band — see End-to-end below. |
 
@@ -88,10 +93,10 @@ auditable and themselves checkable:
 - **Stage 1 fragments** — "rats or mice" vs "rats, mice", "at which dose" vs
   "dose" carry the same intent; the judge scores semantic equivalence, not string
   equality. (Field/type routing is still scored deterministically.)
-- **Stage 2 runtime closed-set post-filters** — a `studyGroup` value for
-  "hepatic impairment" is selected from fetched datapoint values. Exact set
-  scoring is used when the fetched value is canonical; the judge is used only to
-  compare semantically equivalent free-text values.
+- **Stage 2 open-set constraints** — a `studyGroup` pattern for "hepatic
+  impairment" may be represented with equivalent free-text patterns. Exact
+  comparison is used when the emitted value is canonical; the judge is used only
+  to compare semantically equivalent free-text values.
 - **Stage 3 structure (tie-break)** — when the actual boolean tree is logically
   equivalent to the gold one but nested differently, the judge confirms
   equivalence only after the cheap structural compare reports a difference.
@@ -113,12 +118,12 @@ set:
 - **Precision / recall / F1** over resolved preferred labels (handles the
   `;`-separated multi-value cells and expansions).
 - **Exact-set match** rate (did we get the whole field right?).
-- Track **input closed-set** vs **runtime closed-set** fields separately — they
-  fail differently (taxonomy grounding/expansion errors vs too-broad or too-empty
-  fetched candidate sets).
+- Track **closed-set** vs **open-set** fields separately — they fail differently
+  (taxonomy grounding/expansion errors vs too-broad or too-empty free-text
+  constraints).
 
 This layer is mandatory even when the end-to-end harness is count-based: the
-evaluator must verify that `docs/PPPK.xlsx` is loaded and that Stage-2 resolved
+evaluator must verify that `PPPK.xlsx` is loaded and that Stage-2 resolved
 values can be compared against the expected per-field values for each question.
 
 ### 2. Decomposition quality (Stage 1)
@@ -138,9 +143,8 @@ Targeted on the cases requiring hierarchy expansion:
 
 ### 4. End-to-end
 
-- **Valid-query rate:** fraction that pass Stage-3 validation (a free win over the
-  legacy regex-scrape).
-- **Result-count proximity:** compare actual API `countTotal` to `Expected Count` from `PPPK.xlsx`. When runtime post-filters are present, the upstream API `count_total` is reported separately. Counts drift as the DB updates, so treat proximity as a signal, not a hard gate.
+- **Valid-query rate:** fraction that pass Stage-3 validation.
+- **Result-count proximity:** compare actual API `countTotal` to `Expected Count` from `PPPK.xlsx`. Counts drift as the DB updates, so treat proximity as a signal, not a hard gate.
 - **Executable rate:** fraction the API accepts without error.
 
 ## Suggested harness
@@ -150,7 +154,7 @@ for case in PPPK.xlsx[PK_Query]:              # one row per question
     out = pipeline.run(case.Query, service)   # keep every intermediate artifact
     score step 0 — TERMite entity recognition
     score step 1 — routing/type/boolean exact; fragment via judge
-    score step 2 — input/runtime closed-set F1; judge only for semantic free-text ties
+    score step 2 — closed-set F1 and open-set constraint quality; judge only for semantic free-text ties
     score step 3 — structural; judge tie-break
     execute when requested vs case.Expected Count  # API countTotal
 report: per-step table + per-stage rollup
@@ -177,24 +181,3 @@ Representative regression cases include:
 Generated implementation tasks and evaluation criteria must cover the same case
 list so implementers and evaluators do not work from different regression sets.
 
-## Status
-
-- **The gold dataset is `docs/PPPK.xlsx`.** The `PK_Query` sheet (47 PK questions
-  with expected counts) is the primary evaluation reference. The workbook is
-  read by [eval/harness.py](../../src/oppp/eval/harness.py).
-- **The CLI harness is count-based.** `oppp eval` runs
-  [eval/harness.py](../../src/oppp/eval/harness.py): translate → execute when
-  requested → compare `countTotal` to `Expected Count`, with CSV/XLSX report export.
-- **Per-step comparators.** [eval/per_step.py](../../src/oppp/eval/per_step.py)
-  scores TERMite labels, decomposition routing/type pairs, translated field names, and
-  final machine-query structure.
-- **The typed judge is implemented.** [eval/judge.py](../../src/oppp/eval/judge.py)
-  exposes `LLMJudge` and `JudgeVerdict` for fragment, open-pattern, and structure
-  tie-breaks. Tests inject a fake client so the judge contract stays hermetic.
-- **Data-contract shape is evaluated explicitly.** Criteria should check the
-  fields present on typed contracts such as enhanced-query annotations,
-  subqueries, row execution results, runtime closed sets, and post-filter results,
-  not only the broad behavior those contracts enable.
-- **Coverage is PK-focused.** The gold set targets PK questions on the
-  PharmaPendium API; evaluation coverage is complemented by targeted service
-  configuration tests.

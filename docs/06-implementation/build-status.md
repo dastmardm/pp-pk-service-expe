@@ -1,8 +1,8 @@
-# Build status (v0.1)
+# Build status
 
-The redesign is implemented as the `oppp` package under [src/oppp/](../../src/oppp/).
+The translator is implemented as the `oppp` package under [src/oppp/](../../src/oppp/).
 The fixed production path runs LLM expansion, required TERMite enhancement, LLM
-decomposition, grounded translation, and LLM aggregation. LLM, TERMite,
+decomposition, grounded closed-set tool translation, and LLM aggregation. LLM, TERMite,
 orchestration, and UI dependencies are loaded lazily by the surfaces that need
 them.
 
@@ -20,7 +20,6 @@ them.
 | Stage 2 — translate | [stages/translate.py](../../src/oppp/stages/translate.py) | closed-set grounding + class/hierarchy expansion, enum, boolean, year→RANGE, LLM term selection, LLM synonym/closed-window fallback, and direct open-field `MATCH`/`REGEX` translation. |
 | Stage 3 — aggregate | [stages/aggregate.py](../../src/oppp/stages/aggregate.py) | dropped-filter handling, API constraint budget collapse, boolean tree, entityFilters routing, facets/displayColumns, validation, service invariants, and zero-count open-filter probing. |
 | Service config | [services/](../../src/oppp/services/) | PK field map, buckets, facet allow-list, TERMite type map, and service invariants. |
-| Pipeline | [pipeline.py](../../src/oppp/pipeline.py) | sequential runner + LangGraph graph over the same fixed stages. |
 | Execution | [execute.py](../../src/oppp/execute.py) | POST machine query to the PP API and read `data.countTotal`; full rows are not fetched. |
 | Evaluation | [eval/](../../src/oppp/eval/) | count-based harness, per-step comparators, gold-vs-agent filter diff, typed LLM judge, CSV/XLSX report export. |
 | CLI | [cli.py](../../src/oppp/cli.py) | `run`, `enhance`, `decompose`, `field`, `aggregate`, `lookup`, `services`, `dag`, `eval`. |
@@ -61,18 +60,33 @@ execution model.
 
 Per [docs/05](../05-evaluation/gold-set-and-metrics.md), the harness scores by
 **result-count accuracy**: translate → execute → read `countTotal` → compare to
-the `Expected Count` column in `docs/PPPK.xlsx`. Reported: `valid_rate`, `executed_rate`, `exact_count`,
+the `Expected Count` column in `PPPK.xlsx`. Reported: `valid_rate`, `executed_rate`, `exact_count`,
 `within_<tol>`.
 
 The evaluation harness keeps each stage's typed output so failures can be traced
-to TERMite recognition, decomposition, closed-set translation, aggregation, API
-execution, or row-level runtime closed-set post-filtering.
+to TERMite recognition, decomposition, closed-set translation, open-set direct
+constraints, aggregation, or API execution.
+
+The implementation includes these evaluation surfaces:
+
+- **Gold dataset.** [PPPK.xlsx](../PPPK.xlsx) `PK_Query` sheet with 47 PK
+  questions and expected counts, read by [eval/harness.py](../../src/oppp/eval/harness.py).
+- **CLI harness.** `oppp eval` runs translate -> execute when requested -> compare
+  `countTotal` to `Expected Count`, with CSV/XLSX report export.
+- **Per-step comparators.** [eval/per_step.py](../../src/oppp/eval/per_step.py)
+  scores TERMite labels, decomposition routing/type pairs, translated field names,
+  and final machine-query structure.
+- **Typed judge.** [eval/judge.py](../../src/oppp/eval/judge.py) exposes `LLMJudge`
+  and `JudgeVerdict` for fragment, open-pattern, and structure tie-breaks. Tests
+  inject a fake client so the judge contract stays hermetic.
+- **PK-focused coverage.** The gold set targets PK questions on the
+  PharmaPendium API; evaluation coverage is complemented by targeted service
+  configuration tests.
 
 ## Entity detection — recall fix
 
-Misspelled and synonym entities used to be dropped because detection was
-exact-match only and the misspelling normalizer lives in Stage 2 (it can only
-correct a fragment *already routed* to a field). Two fixes:
+Misspelled and synonym entities are handled before Stage 2 normalization by two
+entity-detection paths:
 
 - **Fuzzy taxonomy detection**: a second pass over unclaimed single tokens
   fuzzy-matches the taxonomies (`fuzz.ratio`, cutoff 82)
@@ -88,16 +102,12 @@ Synonyms absent from the CSVs (e.g. `homo sapiens`) are expected to come from
 TERMite labels or the LLM decomposition/translation path, then be grounded before
 they can affect the machine query.
 
-## Current limitations
+## Limitations
 
-- **Row-level post-filtering is not wired.** Execution reads `countTotal` only,
-  so runtime closed sets derived from fetched datapoints are represented in the
-  design docs but not materialized by the v0.1 execution layer.
 - **Open-set filters are guarded by probes.** `parameter`, `parameterDisplay`, `studyGroup`,
   `age`, `dose`, `duration`, and similar fields are emitted as direct `MATCH`/`REGEX`
   constraints. Live runs may drop a filter whose isolated count is confirmed `0`.
-- **`parameter` and `parameterDisplay` have no input closed set in `inputs/`.** These open-set fields are translated as direct `MATCH` constraints in v0.1 and may be guarded by zero-count probing.
+- **`parameter` and `parameterDisplay` have no input closed set in `inputs/`.** These open-set fields are translated as direct `MATCH` constraints and may be guarded by zero-count probing.
 - **DSPy optimization modules are not present in `src/oppp/`.** The pipeline uses
-  Pydantic structured outputs and fixed stage contracts; prompt optimization remains a
-  convention described in [tech-stack.md](tech-stack.md).
+  Pydantic structured outputs and fixed stage contracts.
 - LLM and TERMite integrations require their extras + `.env` credentials.

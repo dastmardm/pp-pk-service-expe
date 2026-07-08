@@ -1,17 +1,15 @@
 # Grounding & tool calling
 
 This is the mechanism that turns "trust the LLM" into "verify against a closed
-set". It applies to input closed-set fields now, and to runtime closed sets once
-row fetching supplies the fetched datapoint values described in
+set". It applies to input closed-set fields described in
 [../02-domain-inputs/field-taxonomy.md](../02-domain-inputs/field-taxonomy.md).
 
 ## The core move
 
 The translator never accepts a raw generated value for a closed-set filter. For
-input closed-set fields, each taxonomy CSV is exposed as a **lookup tool**. For
-runtime closed-set fields, the unique values from fetched datapoints become the
-lookup list. The model may help build search phrases or select from candidates;
-the tool decides *what legal values exist*.
+input closed-set fields, each taxonomy CSV is exposed as a **lookup tool**. The
+model may help build search phrases or select from candidates; the tool decides
+*what legal values exist*.
 
 ```
 LLM (Stage 2):  "I need a species value for the fragment 'monkeys'"
@@ -78,14 +76,11 @@ The `grounding` block on a translated filter stores
 
 ## Resolution order
 
-The same order applies to an input CSV and to a runtime list of fetched values.
-The only difference is the source of the closed set.
+The same order applies to every input closed set.
 
 1. **Build the pool.** Start with the normalized Stage-1 fragment. For
-   early-contributor and runtime-narrowed closed-set fields, add the Stage-0
-   TERMite preferred labels and synonyms that were annotated onto this fragment.
-   For open-set runtime fields, add LLM-generated synonyms only as pool items,
-   not as accepted values.
+   closed-set fields, add the Stage-0 TERMite preferred labels and synonyms that
+   were annotated onto this fragment.
 2. **Exact search.** Compare every pool item to every closed-set entity using
    case-insensitive exact matching. If exact matches are found, return those
    closed-set entities.
@@ -101,45 +96,23 @@ The only difference is the source of the closed set.
    matching rows using exact closed-set spellings. This handles cases where the
    right row exists but string matching cannot bridge the wording.
 6. **Membership assertion and retry.** Every LLM-selected candidate is checked
-   against the closed set. Out-of-set candidates are rejected, and the LLM is
-   retried with explicit feedback to choose exactly from the provided items.
+   against the closed set. Out-of-set candidates are rejected, and the LLM gets
+   one retry with explicit feedback to choose exactly from the provided items.
    Candidates that still fail membership validation are dropped.
 7. **Invalid translation.** If the selected list is `[]` or `None`, translation
-   fails. Input closed-set failures are excluded from the API query; runtime
-   closed-set failures do not post-filter the fetched datapoints.
+   fails. Input closed-set failures are excluded from the API query.
 
-The emitted value is therefore always a subset of the closed set. A raw phrase
-that cannot be grounded is never emitted as a hard `MATCH`, because it would
-silently zero an `AND` query or remove every datapoint in post-filtering.
+The emitted closed-set value is therefore always a subset of the closed set. A
+raw phrase that cannot be grounded is never emitted as a closed-set `MATCH`,
+because it would silently zero an `AND` query.
 
-### Runtime closed sets for large closed-set and open-set fields
+### Open-set filter probes
 
-The pipeline defers fields that cannot be fully resolved before the first API
-call. Two kinds of deferred fields exist:
-
-**Large closed-set fields** (vocabulary ≥ `EARLY_CONTRIBUTOR_THRESHOLD`, default
-500) are deferred until early-contributor datapoints are available:
-
-1. Translate and aggregate all valid early-contributor filters (Stage 2A / 3A).
-2. Execute the early-contributor API query and fetch datapoints.
-3. For each large closed-set field, collect its unique values from those datapoints.
-4. If the unique count is below the threshold, run the closed-set translator over
-   that narrowed list. A valid translation becomes a new contributor subquery.
-5. Repeat steps 2–4 until no new contributors are found (iterative convergence).
-6. Execute the final API query (Stage 3B) with all resolved contributor filters.
-
-**Open-set fields** (`parameter`, `parameterDisplay`, `studyGroup`, `age`,
-`dose`, `duration`) have no complete value list before the final API fetch:
-
-1. After Stage 3B fetches datapoints, collect the unique values for each open-set
-   field from those datapoints.
-2. Run the closed-set translator over that runtime list.
-3. Keep only datapoints whose field value is in the returned subset.
-
-The v0.1 code does not fetch rows. Its implemented guard for open-set fields is
-server-side count probing: open fields are translated as direct `MATCH` or
-`REGEX` constraints, and live runs may probe each one in isolation. A confirmed
-zero-count open filter is dropped with a warning; probe errors keep the filter.
+Open-set fields (`parameter`, `parameterDisplay`, `studyGroup`, `age`, `dose`,
+`duration`) have no complete input value list. The translator emits them as
+direct `MATCH` or `REGEX` constraints. Live runs can probe each open-set filter
+in isolation; a confirmed zero-count open filter is dropped with a warning, and
+probe errors keep the filter.
 
 ## Hierarchy expansion (the rollup engine)
 
@@ -165,7 +138,7 @@ by every hierarchical lookup tool.
 | Concern | Owner |
 |---------|-------|
 | Segment the full NL query into per-field fragments | Stage 1 |
-| Recognise entities in the decomposed per-field fragments, give preferred label + type | **TERMite** (Stage 0, after Stage 1) |
+| Recognise entities in the decomposed per-field fragments, give text/name + type | **TERMite** (Stage 0, after Stage 1) |
 | Map entity type → field (refine Stage 1 routing via annotation reconciliation) | Stage 1 post-annotation pass |
 | Confirm the label exists in the vocabulary; expand class/rollup; pick `id` | **CSV lookup tool** |
 | Decide operator & boolean shape | Stage 2 |
@@ -173,8 +146,8 @@ by every hierarchical lookup tool.
 TERMite is great at *finding* entities in focused text; operating on decomposed
 fragments (rather than the raw query) reduces type ambiguity and produces
 higher-confidence annotations. The CSVs remain authoritative about *what is
-legal* and *how things nest*. Using both removes the legacy single point of
-failure.
+legal* and *how things nest*. Using both keeps entity recognition separate from
+closed-set validation.
 
 ## Why not just put the CSV in the prompt?
 
@@ -193,7 +166,7 @@ RapidFuzz for fuzzy lookup. For large closed sets, the LLM closed-set fallback i
 given a focused candidate window rather than every row; every LLM proposal is
 re-grounded against the CSV before it can be emitted.
 
-CSV and runtime closed sets remain the authority for emitted values. TERMite is
-required for Stage 0 entity annotations, while the LLM supplies structured
-expansion and closed-set selection. Neither service may emit an unverified value
-directly into the machine query.
+CSV and inline closed sets remain the authority for emitted closed-set values.
+TERMite is required for Stage 0 entity annotations, while the LLM supplies
+structured expansion and closed-set selection. Neither service may emit an
+unverified closed-set value directly into the machine query.

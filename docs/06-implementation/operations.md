@@ -47,7 +47,7 @@ ruff check src tests
 ```
 
 The CLI `run` command uses the fixed production path: LLM expansion, TERMite
-enhancement, LLM decomposition, grounded tool translation, LLM aggregation,
+enhancement, LLM decomposition, grounded closed-set tool translation, LLM aggregation,
 fuzzy normalization, and API execution. Stage implementations are not selected
 with stage flags. Use `--no-execute` when the API call should be skipped;
 the pipeline stages still run in the same order.
@@ -86,4 +86,4 @@ evaluation harness uses it for result-count accuracy.
 When `probe_open_filters=true`, the pipeline asks the API for isolated counts of
 open-set filters before final aggregation. If an open-set filter's isolated count
 is confirmed as `0`, it is dropped and recorded as a warning. Probe failures keep
-the filter. The PK service has no entity-routed filters in v0.1.
+the filter. The PK service has no entity-routed filters.

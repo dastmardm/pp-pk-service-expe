@@ -44,43 +44,14 @@
                                           │
                                           ▼
         ╔═══════════════════════════════════════════════════════════════╗
-        ║ STAGE 3A — EARLY-CONTRIBUTOR AGGREGATION + FETCH              ║
-        ║ early-contributor subqueries → first API query → datapoints   ║
+        ║ STAGE 3 — AGGREGATION + EXECUTION                              ║
+        ║ valid subqueries → final API query → countTotal               ║
         ║   • combine into the boolean tree (AND across fields)         ║
-        ║   • preserve per-field & cross-field OR/AND/NOT               ║
-        ║   • route to entityFilters where required                     ║
+        ║   • preserve per-field OR/AND/NOT                             ║
+        ║   • route PK filters into the top-level query                 ║
         ║   • add facets / displayColumns                               ║
         ║   • apply service invariants (PK concomitants, etc.)          ║
-        ╚═══════════════════════════════════════════════════════════════╝
-                                          │
-                                          ▼
-        ╔═══════════════════════════════════════════════════════════════╗
-        ║ STAGE 2B — RUNTIME NARROWING OF LARGE CLOSED-SET FIELDS       ║
-        ║ fetched datapoints provide a narrowed value list for each     ║
-        ║ large closed-set field (≥ threshold items)                    ║
-        ║   • collect unique values per field from fetched datapoints   ║
-        ║   • any field whose unique count is now < threshold becomes   ║
-        ║     a new contributor and is translated against that list     ║
-        ║   • repeat iteratively until no new fields cross the          ║
-        ║     threshold in a round                                      ║
-        ║   • remaining large-closed-set and open-set fields are        ║
-        ║     post-filtered against the fetched datapoints              ║
-        ╚═══════════════════════════════════════════════════════════════╝
-                                          │
-                                          ▼
-        ╔═══════════════════════════════════════════════════════════════╗
-        ║ STAGE 3B — FINAL AGGREGATION + FETCH                          ║
-        ║ all resolved contributor subqueries → final API query         ║
-        ║ (same assembly rules as Stage 3A, now with all resolved       ║
-        ║  contributor filters included)                                ║
-        ╚═══════════════════════════════════════════════════════════════╝
-                                          │
-                                          ▼
-        ╔═══════════════════════════════════════════════════════════════╗
-        ║ STAGE 2C — OPEN-SET POST-FILTERS                              ║
-        ║ fetched datapoints provide unique values for open-set fields  ║
-        ║   "maternal toxicity" → select from fetched comments          ║
-        ║   valid subset → post-filter datapoints                       ║
+        ║   • optionally probe open-set filters for confirmed zeroes    ║
         ╚═══════════════════════════════════════════════════════════════╝
 ```
 
@@ -92,26 +63,19 @@ Stage -1 expansion clarifies abbreviations before decomposition. Stage 1 decompo
 |-------|---------------|--------------|
 | **1. Decomposition** | Split the expanded NL query into one NL fragment per field; route each fragment to a field. | Isolates "what is the user asking about?" from "how do I express it?". Small, cheap, testable. |
 | **0. TERMite enhancement** | Run NER over the decomposed per-field fragments; annotate entities, preferred labels, and entity types. | Targeting focused fragments reduces ambiguity; annotations seed Stage 2 translation with high-confidence preferred labels. |
-| **2A. Early-contributor translation** | Translate closed-set fields whose vocabulary is below `EARLY_CONTRIBUTOR_THRESHOLD` (default 500 items). | Small-vocabulary fields produce fast, accurate matches and narrow the result space before larger fields are evaluated. |
-| **3A. Early-contributor fetch** | Assemble early-contributor subqueries into the first API query and fetch datapoints. | Provides a real result sample whose unique field values drive iterative narrowing of large-vocabulary fields. |
-| **2B. Runtime narrowing** | For each large closed-set field (≥ threshold), collect unique values from the fetched datapoints and translate against that narrowed list. Any field whose runtime unique count falls below the threshold becomes a new contributor; repeat until convergence. | Reduces the effective vocabulary for expensive fields without upfront exhaustive closed-set search. |
-| **3B. Final fetch** | Assemble all resolved contributor subqueries into the final API query and fetch datapoints. | Retrieves the definitive result set incorporating every resolved field. |
-| **2C. Open-set post-filters** | For every deferred open-set field, collect unique values from the final fetched datapoints, translate against that runtime closed set, and post-filter rows. | Open-set fields have no complete value list before fetch; runtime grounding ensures every post-filter value is observed in the data. |
+| **2. Translation** | Translate closed-set fields against CSV, enum, or boolean values; emit open-set fields as direct `MATCH` or `REGEX` constraints. | Grounded values are validated before aggregation, and open-set filters can be guarded by optional zero-count probes. |
+| **3. Aggregation and execution** | Assemble valid subqueries into the final API query, apply service invariants, and execute for `countTotal` when requested. | The API payload is deterministic, typed, and auditable. |
 
-In the v0.1 implementation, [execute.py](../../src/oppp/execute.py) reads
-`countTotal` only; it does not fetch rows. Open-set filters are currently emitted
-as direct `MATCH`/`REGEX` constraints, with a server-side zero-count probe
-(`drop_empty_open_filters`) before aggregation in live runs. The early-contributor
-and runtime-narrowing paths above are the intended data-flow once row fetching
-is available.
-
-This is the inverse of the legacy design, where one prompt did all three at once.
+[execute.py](../../src/oppp/execute.py) reads `countTotal` and does not fetch full
+datapoint rows. Open-set filters are emitted as direct `MATCH`/`REGEX`
+constraints, with an optional server-side zero-count probe
+(`drop_empty_open_filters`) before aggregation in live runs.
 
 ## Design principles
 
-1. **Ground, don't generate.** Every filter value comes from a closed set: an
-   input CSV/enum/boolean set before the first API call, or the unique values in
-   fetched datapoints for open-set post-filtering.
+1. **Ground, don't generate.** Closed-set filter values come from an input
+  CSV/enum/boolean set before the API call. Open-set filters keep their direct
+  API constraint form and can be checked with isolated zero-count probes.
 2. **One field, one translator.** Every field has an isolated, testable unit.
    The same closed-set translator handles exact search, fuzzy search, LLM pool
    enrichment, and LLM selection from a known entity set.
@@ -144,7 +108,7 @@ The stage code is independent of the configuration object.
 - Species classes use the available [species.csv](../../inputs/species.csv)
   hierarchy: an exact class label resolves server-side; colloquial groups without
   an exact class label (e.g. "Monkeys") expand to their member species.
-- TERMite labels seed the translation pool; CSVs and runtime closed sets remain
-  the authority for what values may be emitted.
+- TERMite labels seed the translation pool; CSVs and inline closed sets remain
+  the authority for what closed-set values may be emitted.
 - Decomposition emits one component per concept, tagged with the same field and
   a shared boolean group when several concepts belong to one field.

@@ -3,12 +3,10 @@
 This is what the pipeline must ultimately produce. It is the request body the
 PharmaPendium PK search API (`/v1/pk/search/advanced`) accepts.
 
-The API payload represents the filter layer sent to the search API. In the
-row-level design, this is the input closed-set layer: filters whose values are
-already known from `inputs/` taxonomies, inline enums, or booleans; open-set
-filters are translated after row fetch and applied as post-filters. In v0.1,
-open-set filters can still appear in this payload as direct `MATCH` or `REGEX`
-constraints, guarded in live runs by isolated zero-count probes.
+The API payload represents the filter layer sent to the search API. Closed-set
+filters use values known from `inputs/` taxonomies, inline enums, or booleans.
+Open-set filters appear in this payload as direct `MATCH` or `REGEX` constraints
+and can be guarded in live runs by isolated zero-count probes.
 
 ## Top-level envelope
 
@@ -72,15 +70,15 @@ produces. The interior `AND`/`OR`/`NOT` nodes are the structure Stage 3 builds.
 }
 ```
 
-Note the AND across fields (drug ∧ species ∧ route). The `parameter` filter
-(AUC or Cmax) is deferred as an open-set field and applied as a post-filter
-after datapoints are fetched.
+Note the AND across fields (drug ∧ species ∧ route). The `parameter` request
+(AUC or Cmax) is an open-set field emitted as a direct API constraint when the
+user asks for it as a filter.
 
 ## Entity filters
 
 Some restrictions go through a linked entity rather than a direct field:
 
-The PK service does not use `entityFilters` in v0.1. All PK field filters are
+The PK service does not use `entityFilters`. All PK field filters are
 emitted directly into the top-level `query`. Stage 3 is responsible for routing
 a field's filter into `entityFilters` vs the top-level `query` when required by
 the service configuration.

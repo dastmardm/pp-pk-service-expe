@@ -32,7 +32,7 @@ the value(s), then combine them.**
 
 ## Two fundamentally different kinds of field
 
-The redesign hinges on one observation: not all fields are the same.
+The pipeline hinges on one observation: not all fields are the same.
 
 1. **Closed-set fields** — fields whose complete set of legal values is known
    before query execution, either from CSV taxonomies (`drugs`, `species`,
@@ -43,9 +43,9 @@ The redesign hinges on one observation: not all fields are the same.
 
 2. **Open-set fields** — fields whose value space is not known before query
    execution (`parameter`, `parameterDisplay`, `studyGroup`, `age`, `dose`,
-   `duration`). These filters are deferred until the closed-set query fetches
-   datapoints. The unique fetched values for the field become a runtime closed
-   set, and the same translator selects a valid subset for post-filtering.
+   `duration`). The translator emits these filters as direct `MATCH` or `REGEX`
+   constraints. Live execution can optionally guard them with isolated
+   zero-count probes.
 
 See [../02-domain-inputs/field-taxonomy.md](../02-domain-inputs/field-taxonomy.md)
 for the full classification.
@@ -53,13 +53,11 @@ for the full classification.
 ## The new shape (one line)
 
 > NL query -> **many single-field NL subqueries** -> **closed-set translations**
-> for fields with known values -> **aggregate and fetch datapoints** -> **runtime
-> closed-set translations** for deferred open-set fields -> **post-filter**.
+> for fields with known values plus direct open-set constraints -> **aggregate**
+> -> **validate and optionally execute for `countTotal`**.
 
-The implemented v0.1 package includes Stage -1 query expansion before
-decomposition and currently executes API calls for `countTotal`; full row fetch
-and runtime closed-set post-filtering remain represented as the row-level design
-path.
+The package includes Stage -1 query expansion before decomposition and executes
+API calls for `countTotal`. It does not fetch full datapoint rows.
 
 The full pipeline is in
 [../03-proposed-design/architecture.md](../03-proposed-design/architecture.md).

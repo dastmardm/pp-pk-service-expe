@@ -171,8 +171,8 @@ Supports food-effect, drug-interaction, and comparative-exposure queries.
 | `limitation` | `Limitation` | Pagination. |
 | `leaf` | `boolean` | End terms only. |
 
-The pipeline targets this service exclusively in v0.1. Service invariants applied
-by Stage 3 (unless the query already contains the field):
+The pipeline targets the PK service. Service invariants applied by Stage 3
+unless the query already contains the field:
 
 - `concomitants` defaults to `Fasted`-or-empty.
 - `tissueSpecific` defaults to `Not tissue-specific`.

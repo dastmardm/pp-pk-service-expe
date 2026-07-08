@@ -3,12 +3,11 @@
 Each trace runs an SME gold-set question through the core decomposition,
 translation, and aggregation stages. Stage -1 expansion and Stage 0 enhancement
 are omitted where they do not change the example. Values match
-the gold queries in [docs/PPPK.xlsx](../PPPK.xlsx) (`PK_Query` sheet).
+the gold queries in [PPPK.xlsx](../PPPK.xlsx) (`PK_Query` sheet).
 Species expansions are abbreviated with `…`.
 
-Examples that mention runtime closed-set post-filtering show the row-level design
-path. In v0.1, open-set fields are emitted as direct `MATCH`/`REGEX` constraints
-and may be guarded by zero-count probes during live execution.
+Open-set fields are emitted as direct `MATCH`/`REGEX` constraints and may be
+guarded by zero-count probes during live execution.
 
 ---
 
@@ -28,9 +27,8 @@ Shows a basic PK query with closed-set filtering and an open-set PK parameter.
 ]
 ```
 
-> The annotation reconciliation pass promotes `parameter` from `question` to
-> `filter` because AUC names the kind of PK record sought, not just a reported
-> output column.
+> The JSON shows the post-reconciliation state: `parameter` is a `filter` because
+> AUC names the kind of PK record sought, not just a reported output column.
 
 **Stage 2 — per-field translation**
 
@@ -39,7 +37,7 @@ Shows a basic PK query with closed-set filtering and an open-set PK parameter.
 | drugs | early contributor | `lookup_drugs("Sunitinib")` → Sunitinib (+ salt Sunitinib Malate); use fuzzy | `MATCH drugsFuzzy = ["Sunitinib*"]` |
 | species | early contributor | `lookup_species("human")` → Human | `MATCH species = "Human"` |
 | route | early contributor | `lookup_route("oral")` → Oral | `MATCH routes = "Oral"` |
-| parameter | runtime closed set | deferred until early-contributor datapoints are fetched |
+| parameter | open set | `MATCH parameter = "AUC"` with optional zero-count probe |
 
 **Stage 3 — aggregation (with PK invariants)**
 
@@ -62,17 +60,15 @@ Shows a basic PK query with closed-set filtering and an open-set PK parameter.
 }
 ```
 
-After the API returns datapoints, the unique `parameter` values are collected.
-The translator selects `["AUC"]` (or the full preferred label) from that runtime
-closed set; Stage 3 post-filters the datapoints to rows where `parameter` is in
-the selected subset.
+Live execution can probe the `parameter` filter in isolation. A confirmed
+zero-count probe drops the filter and records a warning; probe errors keep the
+filter.
 
 ---
 
 ## Example B — "Cmax of Cabozantinib in adults with hepatic impairment after oral administration"
 
-Shows runtime closed-set fields needing synonym selection plus **service
-invariants**.
+Shows open-set fields needing synonym handling plus **service invariants**.
 
 **Stage 2** highlights:
 
@@ -81,17 +77,17 @@ invariants**.
 | drugs | early contributor | `MATCH drugsFuzzy = "Cabozantinib*"` |
 | species | early contributor | `MATCH species = "Human"` |
 | route | early contributor | `MATCH routes = "Oral"` |
-| parameter | runtime closed set | selected from fetched `parameter` values, e.g. `["Cmax"]` |
-| studyGroup | runtime closed set | selected from fetched `studyGroup` values matching hepatic impairment synonyms |
-| age | runtime closed set | selected from fetched `age` values, e.g. `["Adult"]` |
+| parameter | open set | `MATCH parameter = "Cmax"` |
+| studyGroup | open set | `REGEX studyGroup` matching hepatic impairment synonyms |
+| age | open set | `REGEX age = "adult"` |
 
 **Stage 3** injects the PK **invariants** automatically into the closed-filter
 query:
 `metabolitesEnantiomers = "Not metabolites/enantiomers"`, `tissueSpecific =
 "Not tissue-specific"`, and the `concomitants` Fasted-or-empty OR block — none of
-which the user said, but all of which the PK service always requires. After
-fetching datapoints, the runtime closed-set translator selects the `parameter`,
-`studyGroup`, and `age` post-filter values from the fetched rows.
+which the user said, but all of which the PK service always requires. Live
+execution can probe the open-set `parameter`, `studyGroup`, and `age` filters in
+isolation before final aggregation.
 
 ---
 
@@ -121,7 +117,7 @@ invariant.
 | species | early contributor | `MATCH species = "Rat"` |
 | route | early contributor | `MATCH routes = "Oral"` |
 | concomitants | early contributor | `MATCH concomitants = "Fasted"` (user stated; invariant not added again) |
-| parameter | runtime closed set | selected from fetched `parameter` values, e.g. `["t½"]` or `["Half-life"]` |
+| parameter | open set | `MATCH parameter = "half-life"` with optional zero-count probe |
 
 **Stage 3**
 

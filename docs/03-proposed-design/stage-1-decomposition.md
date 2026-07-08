@@ -8,9 +8,8 @@ Stage 2 translation begins.
 ## Goal
 
 Turn one complex question into many tiny questions, each about exactly one field.
-The legacy system never does this — it hands the whole question to one prompt.
-Here we want the model to do only the easy semantic job first: *"which parts of
-this sentence are about which field?"*
+The model does the semantic routing job first: *"which parts of this sentence
+are about which field?"*
 
 ## Output shape
 
@@ -60,8 +59,8 @@ The boolean hint is a structured `boolean_group` object:
   values. It may span fields only when the user's retrieval intent explicitly
   asks for alternatives across fields.
 - A component with no `boolean_group` joins the rest of the query through the
-  Stage-3 top-level operator, which defaults to `AND` unless the aggregation plan
-  records a different explicit user intent.
+  Stage-3 top-level `AND` operator. Field-level groups are flattened into that
+  top-level `AND`; nested cross-field boolean intent is not represented.
 - Negation is not encoded in Stage 1 unless the user explicitly excludes a value;
   Stage 3 represents that with a single-child `NOT` node.
 
@@ -87,9 +86,10 @@ The boolean hint is a structured `boolean_group` object:
    output). Otherwise the carrier phrase fuzzy-grounds to a nonsense drug and
    zeroes the query.
 2. **Stage 0 TERMite annotation.** After decomposition, each per-field NL
-   fragment is passed to the TERMite NER service. TERMite annotations carry a type
-   that maps to a PK field: `DRUG->drugs`, `SPECIES->species`, `ROUTE->routes`,
-   `PARAMETER->parameter`, `AGE->age`. Fragments that receive a TERMite hit have
+  fragment is passed to the TERMite NER service. TERMite annotations carry text
+  or a preferred name plus a type that maps to a PK field: `DRUG->drugs`,
+  `SPECIES->species`, `ROUTE->routes`, `PARAMETER->parameter`, `AGE->age`.
+  Fragments that receive a TERMite hit have
    their `source` updated to `termite:<TYPE>`, providing high-confidence preferred
    labels that seed Stage 2 translation.
 3. **Annotation reconciliation (deterministic, post-annotation).** A small

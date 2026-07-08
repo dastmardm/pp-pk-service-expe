@@ -7,11 +7,10 @@ its legal values come from.
 - **Closed-set fields** have a complete value set before query execution. The set
   comes from an `inputs/` taxonomy CSV, an inline enum, or a boolean domain. Stage
   2 may only emit values that are members of that set.
-- **Open-set fields** do not have a complete value set in `inputs/`. The row-level
-  design defers them until fetched datapoints provide a runtime closed set for
-  post-filtering. In v0.1, these fields are translated directly to `MATCH` or
-  `REGEX` constraints and live runs may drop a filter only when an isolated API
-  count probe confirms that it matches no records.
+- **Open-set fields** do not have a complete value set in `inputs/`. These
+  fields are translated directly to `MATCH` or `REGEX` constraints. Live runs can
+  optionally drop a filter only when an isolated API count probe confirms that it
+  matches no records.
 
 A **filterable field** is any field Stage 1 may emit as a `type=filter`
 component. Fields requested only as outputs become facets or `displayColumns`;
@@ -49,38 +48,24 @@ are a useful cross-check for server-side fuzzy lookup support, but this document
 uses the local `inputs/` value sets as the definition of what can be translated
 before the first API call.
 
-## Runtime closed sets
+## Open-set handling
 
-Open-set fields become closed only after the first query has returned
-datapoints. For each open-set filter field, the pipeline collects the unique
-non-empty values present in the fetched datapoints for that field. That unique
-list becomes the field's runtime closed set:
-
-```
-open-set field fragment + fetched unique values
-        -> closed-set translation
-        -> valid subset of fetched values
-        -> post-filter the datapoints
-```
-
-If translation over the runtime closed set returns `[]` or `None`, the open-set
-filter is invalid and does not narrow the datapoints. The invalid translation is
-recorded so the final answer can explain that the field could not be grounded.
-
-The v0.1 execution layer reads `countTotal` and does not fetch rows, so the
-runtime closed-set post-filter path is not materialized in code. The live guard
-for open-set fields is the zero-count probe described above.
+Open-set fields have no complete local value set. The translator emits them as
+direct API constraints and records their open-set provenance in the grounding
+trace. When live execution enables zero-count probing, each open-set filter can
+be executed in isolation; a confirmed zero-count filter is dropped with a
+warning, and probe errors keep the filter.
 
 Typical open-set fields:
 
-| Field | Why open before fetch | Runtime closed set |
-|-------|-----------------------|--------------------|
-| `parameter` | no local PK parameter value set in `inputs/` | unique PK parameter values in fetched datapoints |
-| `parameterDisplay` | no local value set in `inputs/` | unique display values in fetched datapoints |
-| `studyGroup` | free text needing synonym handling, e.g. hepatic impairment | unique study-group strings in the fetched datapoints |
-| `age` | free text or category-like record values | unique age strings in the fetched datapoints |
-| `dose` | free numeric/unit text as stored in records | unique dose strings in the fetched datapoints |
-| `duration` | free text stored in records | unique duration strings in the fetched datapoints |
+| Field | Why open | API constraint style |
+|-------|----------|----------------------|
+| `parameter` | no local PK parameter value set in `inputs/` | direct `MATCH` or `REGEX` |
+| `parameterDisplay` | no local value set in `inputs/` | direct `MATCH` or `REGEX` |
+| `studyGroup` | free text needing synonym handling, e.g. hepatic impairment | direct `MATCH` or `REGEX` |
+| `age` | free text or category-like record values | direct `MATCH` or `REGEX` |
+| `dose` | free numeric/unit text as stored in records | direct `MATCH` or `REGEX` |
+| `duration` | free text stored in records | direct `MATCH` or `REGEX` |
 
 ## Service field map
 
@@ -102,12 +87,12 @@ PK emits JSON machine queries:
 | `route` (logical) | closed | `route.csv` | `routes` (API filter field) | facet/display `route` |
 | `documentSource` | closed | `sources.csv` | `documentSource` (API field) | facet `sources`, display `source` |
 | `documentYear` | closed | `document_year.csv` | `documentYear` | facet/display `documentYear` |
-| `parameter` | open | fetched PK values | post-filter field `parameter` | facet `parameters`, display `parameter` |
-| `parameterDisplay` | open | fetched PK values | post-filter field `parameterDisplay` | none |
-| `studyGroup` | open | fetched datapoint values | post-filter field `studyGroup` | facet `studyGroup` |
-| `age` | open | fetched datapoint values | post-filter field `age` | none |
-| `dose` | open | fetched datapoint values | post-filter field `dose` | display `dose` |
-| `duration` | open | fetched datapoint values | post-filter field `duration` | none |
+| `parameter` | open | none | direct API field `parameter` | facet `parameters`, display `parameter` |
+| `parameterDisplay` | open | none | direct API field `parameterDisplay` | none |
+| `studyGroup` | open | none | direct API field `studyGroup` | facet `studyGroup` |
+| `age` | open | none | direct API field `age` | none |
+| `dose` | open | none | direct API field `dose` | display `dose` |
+| `duration` | open | none | direct API field `duration` | none |
 | `sex` | enum | `Male`, `Female`, `Both` | `sex` | none |
 | `concomitants` | enum | `Fed`, `Fasted` | `concomitants` | facet `concomitants` |
 | `tissueSpecific` | enum | `Tissue-specific`, `Not tissue-specific` | `tissueSpecific` | facet `tissueSpecific` |
@@ -124,19 +109,12 @@ the field: `concomitants` is `Fasted` or empty, `tissueSpecific` is
 ```
 Does the field have a complete value set in inputs/ or an inline enum/boolean?
 ├─ yes -> CLOSED SET:
-│        Is the vocabulary size < EARLY_CONTRIBUTOR_THRESHOLD (default 500)?
-│        ├─ yes -> EARLY CONTRIBUTOR (Pass A):
-│        │        translate before the first API call; include in Stage 3A query.
-│        └─ no  -> LARGE CLOSED SET (Pass B):
-│                 defer until early-contributor datapoints are fetched;
-│                 if the unique value count in those datapoints is < threshold,
-│                 translate against the narrowed list and add as a new contributor;
-│                 iterate until convergence; include resolved fields in Stage 3B query.
-└─ no  -> OPEN SET (Pass C):
-         defer until Stage 3B datapoints are fetched;
-         derive the unique values from those datapoints as the runtime closed set;
-         translate against that set and post-filter rows.
-         v0.1 translates directly and may apply zero-count probes instead.
+│        translate against that closed set;
+│        use candidate windows for large vocabularies when needed;
+│        include valid translations in the Stage 3 query.
+└─ no  -> OPEN SET:
+         translate directly to MATCH or REGEX;
+         optionally apply zero-count probes during live execution.
 ```
 
 The complete response-side field list is in

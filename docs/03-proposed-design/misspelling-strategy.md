@@ -3,8 +3,8 @@
 Users misspell things: "suntinib", "cabozantininb", "Columvi" for Glofitamab,
 "non small lung cancer". The pipeline tolerates this through a fixed
 field-aware normalizer policy. Input closed-set fields use fuzzy closed-set
-normalization; open-set fields use conservative surface cleanup until fetched
-datapoints provide a runtime closed set.
+normalization; open-set fields use conservative surface cleanup and optional
+zero-count probes.
 
 ## Where it plugs in
 
@@ -17,15 +17,14 @@ nl_fragment -> [normalizer for this field] -> cleaned fragment -> closed-set tra
 
 - **Input closed-set fields**: the normalizer bridges misspellings toward a real
   CSV, enum, or boolean entry.
-- **Runtime closed-set fields**: normalization stays conservative before the API
-  call; after datapoints are fetched, the runtime closed set anchors exact and
-  fuzzy matching.
+- **Open-set fields**: normalization stays conservative before the API call.
 
-The production normalizer corrects CSV-backed closed-set fields and treats every
-correction as provisional until the value grounds to the field's closed set.
-Open-set fields pass through conservative cleanup before fetch; their current
-protection is surface cleanup in translation plus zero-count probing in live
-runs.
+The production normalizer is the configured Stage 2 normalizer policy: closed-set
+strategies for CSV-backed fields, enum/boolean normalization for inline sets, and
+conservative cleanup for open-set fields. Every closed-set correction is
+provisional until the value grounds to the field's closed set. Open-set fields
+pass through conservative cleanup; their live protection is surface cleanup in
+translation plus zero-count probing.
 
 This keeps misspelling logic out of Stage 1 routing and Stage 3 assembly.
 
@@ -59,15 +58,14 @@ normalizers = {
 
 | Strategy | Fits | Idea |
 |----------|------|------|
-| Conservative cleanup | open sets before fetch | Strip connective text and preserve the user phrase until runtime grounding can validate a value. |
-| Fuzzy match | closed sets | Use edit-distance / token-set ratio against the field's CSV or runtime closed set. |
+| Conservative cleanup | open sets | Strip connective text and preserve the user phrase for direct open-set emission. |
+| Fuzzy match | closed sets | Use edit-distance / token-set ratio against the field's CSV or inline value set. |
 | Phonetic | input closed sets | Use Soundex/Metaphone keys over CSV names for sound-alike typos. |
 | TERMite-first | input closed sets | Use TERMite's preferred label when it corresponds to the field fragment. |
 | LLM pool enrichment | both | Ask the model for equivalent pool items, then ground them against the closed set. |
 | Hybrid | both | Use fuzzy/phonetic shortlist, LLM disambiguation, then membership validation. |
 
-For open-set fields before fetch, correction is limited to conservative surface
-cleanup. After fetch, the runtime closed set supplies the validation anchor.
+For open-set fields, correction is limited to conservative surface cleanup.
 
 ## Confidence handling
 
@@ -77,8 +75,8 @@ cleanup. After fetch, the runtime closed set supplies the validation anchor.
   closed-set translator resolve them by exact/fuzzy/LLM selection. If no
   candidate grounds, the filter is invalid rather than guessed.
 
-For every bucket, a correction is only valid if it lands on a real member of the
-field's input or runtime closed set. This reuses the final grounding check in
+For every closed-set bucket, a correction is only valid if it lands on a real
+member of the field's input closed set. This reuses the final grounding check in
 [stage-3-aggregation.md](stage-3-aggregation.md), so a bad correction cannot slip
 through as an invented value.
 
@@ -88,10 +86,7 @@ through as an invented value.
   correction is accepted only when the corrected value grounds to the field's
   closed set.
 - Enum and boolean fields normalize through their inline value list.
-- Open-set fields are conservative before the API call because no value set
-  exists yet. After datapoints are fetched, the runtime closed set provides the
-  anchor for exact/fuzzy matching and any correction must select from those
-  fetched values.
+- Open-set fields are conservative because no input value set exists.
 - Normalization is iterative only inside the closed-set translator's resolution
   loop: normalize, exact search, fuzzy search, LLM pool enrichment, then exact and
   fuzzy search again.

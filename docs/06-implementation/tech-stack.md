@@ -34,7 +34,7 @@ same production path rather than a menu of interchangeable implementations:
 | Stage -1 expander | [stages/expand.py](../../src/oppp/stages/expand.py) | LLM query expansion |
 | Stage 0 enhancer | [stages/enhance.py](../../src/oppp/stages/enhance.py) | TERMite NER |
 | Stage 1 decomposer | [stages/decompose.py](../../src/oppp/stages/decompose.py) | LLM decomposition seeded by TERMite annotations |
-| Stage 2 translator | [stages/translate.py](../../src/oppp/stages/translate.py) | grounded closed-set tool translation |
+| Stage 2 translator | [stages/translate.py](../../src/oppp/stages/translate.py) | grounded closed-set tool translation plus direct open-set translation |
 | Stage 2 normalizer | [normalize/](../../src/oppp/normalize/) | fuzzy closed-set normalization plus conservative open-set cleanup |
 | Stage 3 aggregator | [stages/aggregate.py](../../src/oppp/stages/aggregate.py) | LLM aggregation plan plus deterministic validation |
 | Service config | [services/](../../src/oppp/services/) | PK field map, facets, and invariants |
@@ -60,8 +60,9 @@ The per-step comparators in [eval/per_step.py](../../src/oppp/eval/per_step.py)
 score Stage 0 labels, Stage 1 routing/type pairs, Stage 2 emitted field names,
 and Stage 3 machine-query structure. The count harness in
 [eval/harness.py](../../src/oppp/eval/harness.py) scores `countTotal` proximity.
-The gold query set is [`docs/PPPK.xlsx`](../PPPK.xlsx) (`PK_Query` sheet).
-Evaluators load it when scoring resolved field values and end-to-end counts.
+The gold query set is [`PPPK.xlsx`](../PPPK.xlsx) (`PK_Query` sheet).
+The count harness and per-step comparators load it when scoring resolved field
+values and end-to-end counts.
 
 ## Structured Output
 
@@ -84,8 +85,8 @@ before they can be emitted.
 
 Evaluation criteria for these contracts must assert the contract shape itself —
 for example the required fields on enhanced-query annotations, machine
-subqueries, row execution results, runtime closed sets, and post-filter results —
-not only end-to-end behavior. A missing field on a typed contract is a contract
+subqueries, execution results, open-set probe warnings, and final machine queries
+— not only end-to-end behavior. A missing field on a typed contract is a contract
 regression even if one broad behavioral test still passes.
 
 ## Planning Coverage
@@ -104,9 +105,9 @@ work. In particular:
 
 ## Prompt Optimization
 
-The package includes typed boundaries that are suitable for prompt optimization,
-but there are no DSPy modules under `src/oppp/` in v0.1. Prompt optimization can
-reuse the same Pydantic contracts without changing the fixed stage interfaces.
+The package includes typed boundaries that are suitable for prompt optimization.
+Prompt optimization can reuse the same Pydantic contracts without changing the
+fixed stage interfaces.
 
 ## Package Layout
 

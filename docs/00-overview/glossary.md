@@ -11,14 +11,13 @@
 | **Operator / constraint type** | `MATCH`, `OR`, `AND`, `NOT`, `REGEX`, `RANGE`, `DATE_RANGE`, `EMPTY`, `PROXIMITY`. |
 | **Field** | A searchable column, e.g. `species`, `routes`, `documentYear`. The full list is in [inputs/fields.csv](../../inputs/fields.csv) and the request-side criteria in [inputs/query_criteria_fields.csv](../../inputs/query_criteria_fields.csv). |
 | **Closed-set field** | A field whose legal values are fully enumerable before the first API call, either from an `inputs/` CSV taxonomy, an inline enum, or a boolean domain. Values are *grounded* against that set. |
-| **Open-set field** | A field whose value space is not fully enumerable before the first API call. The row-level design translates it after datapoints are fetched; v0.1 emits direct `MATCH`/`REGEX` constraints and may guard them with zero-count probes. |
-| **Runtime closed set** | The unique non-empty values found for an open-set field in fetched datapoints. Stage 2 translates open-set filters against this list, then Stage 3 applies them as post-filters when row fetching is available. |
-| **Zero-count probe** | The v0.1 live guard for open-set filters: execute one isolated count query and drop the filter only when the API confirms it matches no records. |
+| **Open-set field** | A field whose value space is not fully enumerable before the first API call. The translator emits these fields as direct `MATCH` or `REGEX` constraints and can optionally guard them with zero-count probes. |
+| **Zero-count probe** | An optional live guard for open-set filters: execute one isolated count query and drop the filter only when the API confirms it matches no records. |
 | **Grounding** | Forcing a generated or selected value to be a real member of a closed set, rather than a model invention. |
 | **Hierarchy / rollup** | Parent→child relationships inside a taxonomy CSV (`parent_id`, `parent_name`). E.g. "Rodent" → Rat, Mouse…; a drug class → its member drugs. |
 | **Preferred label** | The canonical name for an entity in a taxonomy (the `name` column of a CSV). |
 | **TERMite** | SciBite's NER service ([utils/termite/](../../utils/termite/)) that annotates the query with recognised entities and their preferred labels/IDs. |
 | **Service** | The back-end search collection this translator targets: **PK** (pharmacokinetics), served by the PharmaPendium API. |
 | **Facet** | A field requested for grouped counts in the response (allow-listed per service). |
-| **Entity filter** | A filter applied via a linked entity rather than a direct field. Not used by the PK service in v0.1; all PK fields route directly into the top-level query. |
-| **SME gold set** | [docs/PPPK.xlsx](../PPPK.xlsx): subject-matter-expert questions with the expected datapoint counts. |
+| **Entity filter** | A filter applied via a linked entity rather than a direct field. The PK service routes all field filters directly into the top-level query. |
+| **SME gold set** | [PPPK.xlsx](../PPPK.xlsx): subject-matter-expert questions with the expected datapoint counts. |

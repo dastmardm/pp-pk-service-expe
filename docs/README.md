@@ -1,15 +1,14 @@
-# PharmaPendium NL→Machine-Query Redesign
+# PharmaPendium NL→Machine-Query Translator
 
 This folder documents the natural-language-to-machine-query translation layer
-implemented in [src/oppp/](../src/oppp/) and the legacy prompt stack it replaces
-under [utils/ppendium/](../utils/ppendium/). See [index.md](index.md) for the
+implemented in [src/oppp/](../src/oppp/). See [index.md](index.md) for the
 complete documentation map.
 
-The **goal of the redesign**: replace the single monolithic "one giant prompt
-does everything" translator with a **decomposed, field-by-field pipeline** that
-grounds input closed-set fields against the taxonomy CSVs in
-[inputs/](../inputs/), then handles fields whose value space is not known until
-runtime by translating against the unique values in fetched datapoints.
+The translator uses a **decomposed, field-by-field pipeline** that grounds
+closed-set fields against the taxonomy CSVs in [inputs/](../inputs/) and emits
+open-set fields as direct `MATCH` or `REGEX` constraints. Live execution can
+optionally run isolated zero-count probes for open-set filters before final
+aggregation.
 
 ## Reading order
 
@@ -23,7 +22,7 @@ runtime by translating against the unique values in fetched datapoints.
 | 3 | [03-proposed-design/architecture.md](03-proposed-design/architecture.md) | The pipeline: Stage -1, Stage 1 decomposition, TERMite Stage 0, and 3 translation/aggregation stages |
 | 3 | [03-proposed-design/stage-1-decomposition.md](03-proposed-design/stage-1-decomposition.md) | NL query → per-field NL subqueries |
 | 3 | [03-proposed-design/stage-2-subquery-translation.md](03-proposed-design/stage-2-subquery-translation.md) | NL subquery → machine subquery |
-| 3 | [03-proposed-design/stage-3-aggregation.md](03-proposed-design/stage-3-aggregation.md) | Subqueries → final machine query |
+| 3 | [03-proposed-design/stage-3-aggregation.md](03-proposed-design/stage-3-aggregation.md) | Boolean assembly, service invariants, execution, and open-set probe handling |
 | 3 | [03-proposed-design/grounding-and-tool-calling.md](03-proposed-design/grounding-and-tool-calling.md) | How CSV grounding + tool calling work |
 | 3 | [03-proposed-design/misspelling-strategy.md](03-proposed-design/misspelling-strategy.md) | Fixed handling of user misspellings by field/bucket |
 | 4 | [04-examples/worked-examples.md](04-examples/worked-examples.md) | End-to-end traces from the SME gold set |
@@ -46,7 +45,7 @@ bypasses or replacement methods.
 | -1 Expand | clarify the query and spell out abbreviations without changing meaning | LLM expansion | full pipeline only |
 | 0 Enhance | annotate entities in the decomposed per-field fragments | TERMite NER | `oppp enhance` |
 | 1 Decompose | split into single-field components — **no vocab, no guessing** | LLM decomposition seeded by TERMite annotations | `oppp decompose` |
-| 2 Translate | translate fields against input or runtime closed sets | grounded closed-set tool translation | `oppp field` |
+| 2 Translate | translate fields against input closed sets or direct open-set constraints | grounded closed-set tool translation | `oppp field` |
 | 3 Aggregate | assemble and validate the API query; live runs may execute it for `countTotal` and probe open-set filters | LLM aggregation with deterministic validation | `oppp aggregate` |
 
 `oppp run` uses LLM expansion, TERMite enhancement, LLM decomposition, grounded
@@ -120,10 +119,9 @@ component is **translated independently** against a known closed set. For fields
 whose legal values are available as CSV taxonomies or inline enums (drugs,
 species, routes, documentYear, sex, concomitants, ...), the value is grounded before the
 API call. Fields without an input value set (parameter, parameterDisplay,
-studyGroup, age, dose, duration) are represented in the design
-as runtime closed-set post-filters. In the current package, those open fields are
-emitted as direct `MATCH`/`REGEX` constraints and, when execution is enabled, can
-be guarded by isolated zero-count probes before final aggregation. Finally an LLM
+studyGroup, age, dose, duration) are emitted as direct `MATCH`/`REGEX`
+constraints and, when execution is enabled, can be guarded by isolated zero-count
+probes before final aggregation. Finally an LLM
 **aggregator** reads the decomposition plus valid machine subqueries and assembles
 the nested machine query the PharmaPendium API expects; the boolean structure is
 rendered and validated deterministically.

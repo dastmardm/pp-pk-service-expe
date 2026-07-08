@@ -21,7 +21,7 @@ question box, and a **per-stage output** area that fills in after a run.
 
 ### 1. Question picker (top)
 
-A list of the gold-set questions from [`docs/PPPK.xlsx`](../PPPK.xlsx) (`PK_Query`
+A list of the gold-set questions from [`PPPK.xlsx`](../PPPK.xlsx) (`PK_Query`
 sheet) is shown above the query box. Picking one (by query number / question) loads
 it into the query box; pressing **Translate** runs the agent against it. A free-text
 box stays available for arbitrary questions.
