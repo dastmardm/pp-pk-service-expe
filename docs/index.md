@@ -1,29 +1,47 @@
 # Documentation index
 
-This documentation describes the `oppp` natural-language-to-machine-query
-translator for PharmaPendium: the problem it solves, the field/value contracts it
-uses, the staged pipeline design, examples, evaluation, and implementation notes.
+## Repository topology
 
-| Area | Doc | What it covers |
-|------|-----|----------------|
-| Start here | [README.md](README.md) | Project overview, reading order, pipeline stages, common CLI commands. |
-| Overview | [00-overview/problem-statement.md](00-overview/problem-statement.md) | The translation problem and field-by-field pipeline shape. |
-| Overview | [00-overview/glossary.md](00-overview/glossary.md) | Shared vocabulary for fields, grounding, services, and evaluation. |
-| Domain inputs | [02-domain-inputs/api-reference.md](02-domain-inputs/api-reference.md) | PharmaPendium API: service endpoints, request schemas, and count response envelope. |
-| Domain inputs | [02-domain-inputs/csv-catalog.md](02-domain-inputs/csv-catalog.md) | CSV files under `inputs/` and how the code uses them. |
-| Domain inputs | [02-domain-inputs/field-taxonomy.md](02-domain-inputs/field-taxonomy.md) | Filterable fields, closed sets, open sets, and service field maps. |
-| Domain inputs | [02-domain-inputs/machine-query-schema.md](02-domain-inputs/machine-query-schema.md) | The machine-query JSON shape and PK-specific invariants. |
-| Design | [03-proposed-design/architecture.md](03-proposed-design/architecture.md) | Pipeline architecture and service boundaries. |
-| Design | [03-proposed-design/stage-1-decomposition.md](03-proposed-design/stage-1-decomposition.md) | Stage 1 component decomposition and annotation reconciliation. |
-| Design | [03-proposed-design/stage-2-subquery-translation.md](03-proposed-design/stage-2-subquery-translation.md) | Stage 2 field translation and grounding behavior. |
-| Design | [03-proposed-design/stage-3-aggregation.md](03-proposed-design/stage-3-aggregation.md) | Stage 3 boolean assembly, service invariants, execution, and open-set probe handling. |
-| Design | [03-proposed-design/grounding-and-tool-calling.md](03-proposed-design/grounding-and-tool-calling.md) | Closed-set lookup, LLM fallback, hierarchy expansion, and TERMite division of labor. |
-| Design | [03-proposed-design/misspelling-strategy.md](03-proposed-design/misspelling-strategy.md) | Normalizer behavior for closed-set and open-set fields. |
-| Examples | [04-examples/worked-examples.md](04-examples/worked-examples.md) | End-to-end traces for representative SME cases. |
-| Evaluation | [05-evaluation/gold-set-and-metrics.md](05-evaluation/gold-set-and-metrics.md) | Gold dataset, exact-count metrics, and diagnostic artifact retention. |
-| Implementation | [06-implementation/build-status.md](06-implementation/build-status.md) | Current package status, modules, commands, and limitations. |
-| Implementation | [06-implementation/operations.md](06-implementation/operations.md) | How to install, run, configure, and execute the package. |
-| Implementation | [06-implementation/streamlit-ui.md](06-implementation/streamlit-ui.md) | Streamlit debug UI behavior. |
-| Implementation | [06-implementation/tech-stack.md](06-implementation/tech-stack.md) | Stack choices and implementation conventions. |
-| Artifact | [agent-dag.drawio](agent-dag.drawio) | Editable Draw.io source for the agent component DAG. |
-| Artifact | [PPPK.xlsx](PPPK.xlsx) | SME gold query set for PharmaPendium pharmacokinetics; the filename combines PharmaPendium (`PP`) and pharmacokinetics (`PK`). Includes PK queries with expected counts and parameter taxonomy. |
+```text
+pp-pk-service-expe/ - local package, inputs, tests, and docs for the `oppp` translator
+├── src/oppp/ - Python package for NL-to-machine-query translation
+│   ├── stages/ - expansion, decomposition, TERMite enrichment, staged translation, aggregation
+│   ├── services/ - service configuration; PK is the documented target service
+│   ├── taxonomy/ - CSV-backed lookup and hierarchy expansion
+│   ├── normalize/ - field-aware misspelling and surface cleanup
+│   ├── eval/ - count-gated harness, diagnostics, and report export
+│   └── ui/ - Streamlit stage inspector
+├── inputs/ - taxonomy CSVs, request/response field catalogs, and gold workbook inputs
+├── tests/ - offline tests for taxonomy, pipeline, and evaluation surfaces
+├── utils/ - PharmaPendium and TERMite helper clients used by integration surfaces
+└── docs/ - human-facing project documentation
+```
+
+## Subrepos
+
+This repository has no pinned git submodules. All documented package, input, test,
+and documentation assets live directly in this repository.
+
+## Services and major components
+
+| Component | Role |
+|-----------|------|
+| `oppp` package | Fixed-stage translator from PK natural-language questions to PharmaPendium machine queries. |
+| PK service config | Field buckets, facet allow-list, TERMite type map, search URL, and service invariants. |
+| Taxonomy layer | Loads CSV value sets and provides exact, fuzzy, and hierarchy-aware lookup. |
+| Pipeline stages | Expansion, decomposition, TERMite enrichment, staged translation, aggregation, validation, row filtering, and execution orchestration. |
+| Evaluation harness | Runs the PK gold set and compares final API or row-filtered counts to expected counts. |
+| Streamlit UI | Browser inspector for stage outputs and final payloads. |
+
+## Documentation files
+
+| File | Covers |
+|------|--------|
+| [README.md](README.md) | Project overview, reading order, and common commands. |
+| [domain.md](domain.md) | API payload shape, PK field taxonomy, CSV inputs, and service invariants. |
+| [pipeline.md](pipeline.md) | Fixed pipeline, grounding, normalization, aggregation, and execution behavior. |
+| [examples.md](examples.md) | Worked examples for representative PK questions. |
+| [evaluation.md](evaluation.md) | Gold workbook, exact-count metrics, and staged execution scoring. |
+| [implementation.md](implementation.md) | Package layout, install/run/configuration, UI, and implementation conventions. |
+| [agent-dag.drawio](agent-dag.drawio) | Editable Draw.io component diagram. |
+| [PPPK.xlsx](PPPK.xlsx) | SME PK gold workbook with questions, expected counts, and parameter reference sheets. |
