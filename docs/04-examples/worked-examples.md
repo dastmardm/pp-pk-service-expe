@@ -36,7 +36,7 @@ Shows a basic PK query with closed-set filtering and an open-set PK parameter.
 |-------|--------|--------|------------------|
 | drugs | early contributor | `lookup_drugs("Sunitinib")` → Sunitinib (+ salt Sunitinib Malate); use fuzzy | `MATCH drugsFuzzy = ["Sunitinib*"]` |
 | species | early contributor | `lookup_species("human")` → Human | `MATCH species = "Human"` |
-| route | early contributor | `lookup_route("oral")` → Oral | `MATCH routes = "Oral"` |
+| routes | early contributor | `lookup_route("oral")` → Oral | `MATCH routes = "Oral"` |
 | parameter | open set | `MATCH parameter = "AUC"` with optional zero-count probe |
 
 **Stage 3 — aggregation (with PK invariants)**
@@ -45,15 +45,16 @@ Shows a basic PK query with closed-set filtering and an open-set PK parameter.
 {
   "query": {
     "AND": [
-      { "MATCH": { "field": "drugsFuzzy", "value": ["Sunitinib*"] } },
-      { "MATCH": { "field": "species",    "value": "Human" } },
-      { "MATCH": { "field": "routes",     "value": "Oral" } },
+      { "field": "drugsFuzzy", "value": ["Sunitinib*"] },
+      { "field": "species",    "value": "Human" },
+      { "field": "routes",     "value": "Oral" },
+      { "field": "parameter",  "value": "AUC" },
       { "OR": [
-        { "MATCH": { "field": "concomitants", "value": "Fasted" } },
-        { "EMPTY": { "field": "concomitants" } }
+        { "field": "concomitants", "value": "Fasted" },
+        { "field": "concomitants" }
       ]},
-      { "MATCH": { "field": "tissueSpecific",         "value": "Not tissue-specific" } },
-      { "MATCH": { "field": "metabolitesEnantiomers", "value": "Not metabolites/enantiomers" } }
+      { "field": "tissueSpecific",         "value": "Not tissue-specific" },
+      { "field": "metabolitesEnantiomers", "value": "Not metabolites/enantiomers" }
     ]
   },
   "displayColumns": ["drug", "parameter", "dose", "route"]
@@ -70,24 +71,56 @@ filter.
 
 Shows open-set fields needing synonym handling plus **service invariants**.
 
-**Stage 2** highlights:
+**Stage 1 — decomposition**
+
+```json
+[
+  { "field": "drugs",       "nl_fragment": "Cabozantinib",        "type": "filter", "reason": "The user restricts results to the drug cabozantinib.",       "source": "termite:DRUG" },
+  { "field": "species",     "nl_fragment": "adults",              "type": "filter", "reason": "Adult human subjects imply human studies.",                  "source": "termite:SPECIES" },
+  { "field": "routes",      "nl_fragment": "oral administration", "type": "filter", "reason": "The user restricts results to oral administration.",          "source": "termite:ROUTE" },
+  { "field": "parameter",   "nl_fragment": "Cmax",                "type": "filter", "reason": "The user restricts results to Cmax PK records.",              "source": "termite:PARAMETER" },
+  { "field": "studyGroups", "nl_fragment": "hepatic impairment",  "type": "filter", "reason": "The user restricts results to hepatic impairment studies.",    "source": "llm" },
+  { "field": "age",         "nl_fragment": "adults",              "type": "filter", "reason": "The user restricts results to adult populations.",            "source": "llm" }
+]
+```
+
+**Stage 2 — per-field translation**
 
 | field | bucket | machine subquery |
 |-------|--------|------------------|
-| drugs | early contributor | `MATCH drugsFuzzy = "Cabozantinib*"` |
+| drugs | early contributor | `MATCH drugsFuzzy = ["Cabozantinib*"]` |
 | species | early contributor | `MATCH species = "Human"` |
-| route | early contributor | `MATCH routes = "Oral"` |
+| routes | early contributor | `MATCH routes = "Oral"` |
 | parameter | open set | `MATCH parameter = "Cmax"` |
-| studyGroup | open set | `REGEX studyGroup` matching hepatic impairment synonyms |
+| studyGroups | open set | `REGEX studyGroups` matching hepatic impairment synonyms |
 | age | open set | `REGEX age = "adult"` |
 
-**Stage 3** injects the PK **invariants** automatically into the closed-filter
-query:
-`metabolitesEnantiomers = "Not metabolites/enantiomers"`, `tissueSpecific =
-"Not tissue-specific"`, and the `concomitants` Fasted-or-empty OR block — none of
-which the user said, but all of which the PK service always requires. Live
-execution can probe the open-set `parameter`, `studyGroup`, and `age` filters in
-isolation before final aggregation.
+**Stage 3 — aggregation (with PK invariants)**
+
+```json
+{
+  "query": {
+    "AND": [
+      { "field": "drugsFuzzy", "value": ["Cabozantinib*"] },
+      { "field": "species",    "value": "Human" },
+      { "field": "routes",     "value": "Oral" },
+      { "field": "parameter",  "value": "Cmax" },
+      { "field": "studyGroups", "pattern": "(hepatic impairment|liver impairment|hepatic dysfunction)" },
+      { "field": "age", "pattern": "adult" },
+      { "OR": [
+        { "field": "concomitants", "value": "Fasted" },
+        { "field": "concomitants" }
+      ]},
+      { "field": "tissueSpecific",         "value": "Not tissue-specific" },
+      { "field": "metabolitesEnantiomers", "value": "Not metabolites/enantiomers" }
+    ]
+  },
+  "displayColumns": ["drug", "parameter", "dose", "route"]
+}
+```
+
+Live execution can probe the open-set `parameter`, `studyGroups`, and `age`
+filters in isolation before final aggregation.
 
 ---
 
@@ -115,7 +148,7 @@ invariant.
 |-------|--------|------------------|
 | drugs | early contributor | `MATCH drugsFuzzy = ["Sunitinib*"]` |
 | species | early contributor | `MATCH species = "Rat"` |
-| route | early contributor | `MATCH routes = "Oral"` |
+| routes | early contributor | `MATCH routes = "Oral"` |
 | concomitants | early contributor | `MATCH concomitants = "Fasted"` (user stated; invariant not added again) |
 | parameter | open set | `MATCH parameter = "half-life"` with optional zero-count probe |
 
@@ -128,12 +161,13 @@ invariant does not add a second concomitants constraint.
 {
   "query": {
     "AND": [
-      { "MATCH": { "field": "drugsFuzzy",              "value": ["Sunitinib*"] } },
-      { "MATCH": { "field": "species",                 "value": "Rat" } },
-      { "MATCH": { "field": "routes",                  "value": "Oral" } },
-      { "MATCH": { "field": "concomitants",            "value": "Fasted" } },
-      { "MATCH": { "field": "tissueSpecific",          "value": "Not tissue-specific" } },
-      { "MATCH": { "field": "metabolitesEnantiomers",  "value": "Not metabolites/enantiomers" } }
+      { "field": "drugsFuzzy",              "value": ["Sunitinib*"] },
+      { "field": "species",                 "value": "Rat" },
+      { "field": "routes",                  "value": "Oral" },
+      { "field": "concomitants",            "value": "Fasted" },
+      { "field": "parameter",               "value": "half-life" },
+      { "field": "tissueSpecific",          "value": "Not tissue-specific" },
+      { "field": "metabolitesEnantiomers",  "value": "Not metabolites/enantiomers" }
     ]
   },
   "displayColumns": ["drug", "parameter", "dose", "route"]

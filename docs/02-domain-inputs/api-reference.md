@@ -44,6 +44,8 @@ Shared by all services. Use this to express complex boolean logic.
   "query": { ... },
   "entityFilters": [ ... ],
   "facets": [ ... ],
+  "sortColumns": [{ "column": "drug", "isAscending": true }],
+  "displayColumns": ["drug", "dose", "route"],
   "leafOnly": false,
   "mixtureExpansion": false,
   "limitation": { "firstRow": 0, "count": 100 }
@@ -51,6 +53,10 @@ Shared by all services. Use this to express complex boolean logic.
 ```
 
 #### `query` constraint types
+
+Field-level leaves use the unwrapped API shape. The constraint type is the
+operator selected by the query tree or typed machine-subquery metadata; boolean
+nodes use explicit `AND`/`OR`/`NOT` wrappers.
 
 | Type | Shape | Notes |
 |------|-------|-------|
@@ -107,13 +113,15 @@ query parameters. POST body:
 }
 ```
 
-**All `SearchResponse*` objects** follow this envelope:
+The translator's execution path depends only on the response count. Row, facet,
+and entity shapes belong to the broader PharmaPendium API surface and are outside
+the translator contract.
 
 ```json
 {
-  "entities": [ { "...": "..." } ],
-  "facets":   { "drugs": { "...": "..." } },
-  "totalCount": 412
+  "data": {
+    "countTotal": 412
+  }
 }
 ```
 
@@ -157,14 +165,14 @@ Supports food-effect, drug-interaction, and comparative-exposure queries.
 | `species` | `array<string>` | Species taxonomy. |
 | `routes` | `array<string>` | Routes of administration. |
 | `documentSource` | `array<string>` | Source taxonomy terms. |
-| `parameters` | `array<string>` | PK parameter names from the PK Parameters taxonomy. |
+| `parameter` | `array<string>` | PK parameter names emitted by the translator as direct constraints. |
 | `studyGroups` | `array<string>` | Study population descriptors (e.g. `hepatic impairment`). |
 | `concomitants` | `array<string>` | Food-effect state for the study: `Fed` or `Fasted`. |
 | `radioLabels` | `array<string>` | Radioactive labels used in the study. |
 | `metabolitesEnantiomers` | `array<string>` | Metabolite or enantiomer designations. |
 | `tissueSpecific` | `array<string>` | Tissue-specific parameter designations. |
-| `parameterValues` | `array<object>` | Numeric value constraints for PK parameters. |
-| `years` | `array<integer>` | Publication years. |
+| `parameterValues` | `array<object>` | Numeric value constraints for PK parameters; API-only for this translator. |
+| `documentYear` | `array<integer>` | Publication years. |
 | `facets` | `array<string>` | Facet fields. |
 | `displayColumns` | `array<string>` | Response fields to include. |
 | `sortColumns` | `array<SortColumn>` | Sort order. |
@@ -179,3 +187,5 @@ unless the query already contains the field:
 - `metabolitesEnantiomers` defaults to `Not metabolites/enantiomers`.
 
 See [field-taxonomy.md](field-taxonomy.md) for the full PK field-to-bucket map.
+`drugsAndSynonyms`, `radioLabels`, and `parameterValues` are documented here as
+API fields but are out of scope for translator emission.

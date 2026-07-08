@@ -69,10 +69,11 @@ fields:
 | `match` | Provenance: `exact`, `fuzzy`, `termite`, `class`, `expand`, `llm`, `runtime`, or `unmatched`. |
 | `count` | Corpus count when present in the input CSV. Optional. |
 
-The `grounding` block on a translated filter stores
-`matched: GroundingHit[]`, optional `expanded_from` (`class`, `family`,
-`runtime`, or `llm`), and a 0-1 `confidence`. Runtime closed-set hits use
-`match="runtime"` and omit taxonomy ids unless fetched rows provide stable ids.
+The `grounding` block on a translated filter stores the stable ids from matched
+lookup rows as `matched_ids`, optional `expanded_from` (`class`, `term`,
+`runtime`, or null), and a 0-1 `confidence`. Runtime/open-set hits use
+`expanded_from="runtime"` and may leave `matched_ids` empty when the API does
+not provide stable ids.
 
 ## Resolution order
 
@@ -108,7 +109,7 @@ because it would silently zero an `AND` query.
 
 ### Open-set filter probes
 
-Open-set fields (`parameter`, `parameterDisplay`, `studyGroup`, `age`, `dose`,
+Open-set fields (`parameter`, `parameterDisplay`, `studyGroups`, `age`, `dose`,
 `duration`) have no complete input value list. The translator emits them as
 direct `MATCH` or `REGEX` constraints. Live runs can probe each open-set filter
 in isolation; a confirmed zero-count open filter is dropped with a warning, and
@@ -138,16 +139,15 @@ by every hierarchical lookup tool.
 | Concern | Owner |
 |---------|-------|
 | Segment the full NL query into per-field fragments | Stage 1 |
-| Recognise entities in the decomposed per-field fragments, give text/name + type | **TERMite** (Stage 0, after Stage 1) |
+| Recognise entities in the expanded query, give text/name + type | **TERMite** (Stage 0) |
 | Map entity type → field (refine Stage 1 routing via annotation reconciliation) | Stage 1 post-annotation pass |
 | Confirm the label exists in the vocabulary; expand class/rollup; pick `id` | **CSV lookup tool** |
 | Decide operator & boolean shape | Stage 2 |
 
-TERMite is great at *finding* entities in focused text; operating on decomposed
-fragments (rather than the raw query) reduces type ambiguity and produces
-higher-confidence annotations. The CSVs remain authoritative about *what is
-legal* and *how things nest*. Using both keeps entity recognition separate from
-closed-set validation.
+TERMite is great at *finding* entities and preferred labels before the query is
+split into components. The CSVs remain authoritative about *what is legal* and
+*how things nest*. Using both keeps entity recognition separate from closed-set
+validation.
 
 ## Why not just put the CSV in the prompt?
 

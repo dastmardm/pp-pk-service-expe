@@ -62,8 +62,8 @@ normalizers = {
 | Fuzzy match | closed sets | Use edit-distance / token-set ratio against the field's CSV or inline value set. |
 | Phonetic | input closed sets | Use Soundex/Metaphone keys over CSV names for sound-alike typos. |
 | TERMite-first | input closed sets | Use TERMite's preferred label when it corresponds to the field fragment. |
-| LLM pool enrichment | both | Ask the model for equivalent pool items, then ground them against the closed set. |
-| Hybrid | both | Use fuzzy/phonetic shortlist, LLM disambiguation, then membership validation. |
+| LLM pool enrichment | closed sets | Ask the model for equivalent pool items, then ground them against the closed set. |
+| Hybrid | closed sets | Use fuzzy/phonetic shortlist, LLM disambiguation, then membership validation. |
 
 For open-set fields, correction is limited to conservative surface cleanup.
 
@@ -76,9 +76,9 @@ For open-set fields, correction is limited to conservative surface cleanup.
   candidate grounds, the filter is invalid rather than guessed.
 
 For every closed-set bucket, a correction is only valid if it lands on a real
-member of the field's input closed set. This reuses the final grounding check in
-[stage-3-aggregation.md](stage-3-aggregation.md), so a bad correction cannot slip
-through as an invented value.
+member of the field's input closed set. This reuses the Stage 2 membership
+assertion and re-grounding check, so a bad correction cannot slip through as an
+invented value.
 
 ## Normalizer policy
 

@@ -9,7 +9,7 @@ uses, the staged pipeline design, examples, evaluation, and implementation notes
 | Start here | [README.md](README.md) | Project overview, reading order, pipeline stages, common CLI commands. |
 | Overview | [00-overview/problem-statement.md](00-overview/problem-statement.md) | The translation problem and field-by-field pipeline shape. |
 | Overview | [00-overview/glossary.md](00-overview/glossary.md) | Shared vocabulary for fields, grounding, services, and evaluation. |
-| Domain inputs | [02-domain-inputs/api-reference.md](02-domain-inputs/api-reference.md) | PharmaPendium API: all services, endpoints, filter schemas, and response shapes. |
+| Domain inputs | [02-domain-inputs/api-reference.md](02-domain-inputs/api-reference.md) | PharmaPendium API: service endpoints, request schemas, and count response envelope. |
 | Domain inputs | [02-domain-inputs/csv-catalog.md](02-domain-inputs/csv-catalog.md) | CSV files under `inputs/` and how the code uses them. |
 | Domain inputs | [02-domain-inputs/field-taxonomy.md](02-domain-inputs/field-taxonomy.md) | Filterable fields, closed sets, open sets, and service field maps. |
 | Domain inputs | [02-domain-inputs/machine-query-schema.md](02-domain-inputs/machine-query-schema.md) | The machine-query JSON shape and PK-specific invariants. |
@@ -20,11 +20,10 @@ uses, the staged pipeline design, examples, evaluation, and implementation notes
 | Design | [03-proposed-design/grounding-and-tool-calling.md](03-proposed-design/grounding-and-tool-calling.md) | Closed-set lookup, LLM fallback, hierarchy expansion, and TERMite division of labor. |
 | Design | [03-proposed-design/misspelling-strategy.md](03-proposed-design/misspelling-strategy.md) | Normalizer behavior for closed-set and open-set fields. |
 | Examples | [04-examples/worked-examples.md](04-examples/worked-examples.md) | End-to-end traces for representative SME cases. |
-| Evaluation | [05-evaluation/gold-set-and-metrics.md](05-evaluation/gold-set-and-metrics.md) | Gold datasets, per-step comparators, LLM judge, and count metrics. |
+| Evaluation | [05-evaluation/gold-set-and-metrics.md](05-evaluation/gold-set-and-metrics.md) | Gold dataset, exact-count metrics, and diagnostic artifact retention. |
 | Implementation | [06-implementation/build-status.md](06-implementation/build-status.md) | Current package status, modules, commands, and limitations. |
 | Implementation | [06-implementation/operations.md](06-implementation/operations.md) | How to install, run, configure, and execute the package. |
 | Implementation | [06-implementation/streamlit-ui.md](06-implementation/streamlit-ui.md) | Streamlit debug UI behavior. |
 | Implementation | [06-implementation/tech-stack.md](06-implementation/tech-stack.md) | Stack choices and implementation conventions. |
 | Artifact | [agent-dag.drawio](agent-dag.drawio) | Editable Draw.io source for the agent component DAG. |
-| Artifact | [agent-dag.png](agent-dag.png) | Rendered Draw.io component DAG used by the overview README. |
 | Artifact | [PPPK.xlsx](PPPK.xlsx) | SME gold query set for PharmaPendium pharmacokinetics; the filename combines PharmaPendium (`PP`) and pharmacokinetics (`PK`). Includes PK queries with expected counts and parameter taxonomy. |

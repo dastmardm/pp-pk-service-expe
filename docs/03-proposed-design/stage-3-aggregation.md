@@ -14,7 +14,7 @@ final API call.
 
 ### 1. Keep only valid contributor filters
 
-Stage 2A marks an early-contributor translation invalid when it returns `[]`/`None`
+Stage 2 marks a closed-set translation invalid when it returns `[]`/`None`
 or when the selected candidates are not members of the field's closed set. Stage 3
 does not place invalid filters in the API query. It records them as warnings so
 the final result explains which user constraint could not be grounded.
@@ -41,20 +41,23 @@ has no `entityFilters` routes.
 Rules that are not derived from the user's words but are always required by a
 service are applied as deterministic post-processing:
 
-- **concomitants.** Always pin to Fasted-or-empty:
-  `{"OR":[{"MATCH":{"field":"concomitants","value":"Fasted"}},{"EMPTY":{"field":"concomitants"}}]}`.
+- **concomitants.** Default to Fasted-or-empty unless the query already contains
+  `concomitants`:
+  `{"OR":[{"field":"concomitants","value":"Fasted"},{"field":"concomitants"}]}`.
 - **tissueSpecific.** Default to `Not tissue-specific` unless the query
   already contains `tissueSpecific`.
 - **metabolitesEnantiomers.** Default to `Not metabolites/enantiomers`
   unless the query already contains `metabolitesEnantiomers`.
 
 These live in per-service invariants and are unit-tested in isolation.
+When the user supplies an invariant field, the user value wins for that field;
+the default is not duplicated or merged into a conflicting condition.
 
 ### 5. Attach output options
 
 - **`facets`** - when the question asks "which", "what are the", "list of", or
   categories, add the relevant allow-listed facet(s). PK allows `drugs`,
-  `species`, `sources`, `route`, `documentYear`, `parameters`, `studyGroup`,
+  `species`, `sources`, `routes`, `documentYear`, `parameters`, `studyGroups`,
   `concomitants`, `tissueSpecific`, and `metabolitesEnantiomers`.
 - **`displayColumns`** - when the user explicitly asks for specific output
   columns, add them from [fields.csv](../../inputs/fields.csv), e.g. "at which
@@ -101,12 +104,13 @@ The PK service produces the JSON envelope plus execution metadata.
 
 > "What is the AUC of sunitinib in human subjects after oral administration?"
 
-`species`, `routes`, and `drugs` are closed-set fields.
+`parameter`, `species`, `routes`, and `drugs` are filter fields.
 
 ```text
 A: MATCH species    = "Human"
 B: MATCH routes     = "Oral"
 C: MATCH drugsFuzzy = ["Sunitinib*"]
+D: MATCH parameter  = "AUC"
 questions: dose, parameter         (type: question -> displayColumns)
 ```
 
@@ -117,16 +121,23 @@ Stage 3 assembles and executes the query, plus the PK service invariants
 {
   "query": {
     "AND": [
-      { "MATCH": { "field": "species", "value": "Human" } },
-      { "MATCH": { "field": "routes",  "value": "Oral" } },
-      { "MATCH": { "field": "drugsFuzzy", "value": ["Sunitinib*"] } }
+      { "field": "species", "value": "Human" },
+      { "field": "routes",  "value": "Oral" },
+      { "field": "drugsFuzzy", "value": ["Sunitinib*"] },
+      { "field": "parameter", "value": "AUC" },
+      { "OR": [
+        { "field": "concomitants", "value": "Fasted" },
+        { "field": "concomitants" }
+      ]},
+      { "field": "tissueSpecific", "value": "Not tissue-specific" },
+      { "field": "metabolitesEnantiomers", "value": "Not metabolites/enantiomers" }
     ]
   },
   "displayColumns": ["drug", "dose", "parameter"]
 }
 ```
 
-If the question also had an open-set phrase such as `studyGroup = "hepatic
+If the question also had an open-set phrase such as `studyGroups = "hepatic
 impairment"`, Stage 2 emits a direct open-set constraint. When live execution
 enables zero-count probes, Stage 3 probes that filter in isolation before the
 final query and drops it only when the API confirms a zero count.

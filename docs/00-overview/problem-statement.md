@@ -13,17 +13,18 @@ execute.
 
 ## What a "machine query" actually is
 
-A machine query is **nothing more than a bundle of filters**. Each filter has
-exactly three things:
+A machine query is **nothing more than a bundle of filters**. Each field-level
+filter has three logical parts:
 
 | Part | Example | Notes |
 |------|---------|-------|
-| **operator** | `MATCH`, `OR`, `AND`, `NOT`, `REGEX`, `RANGE`, `DATE_RANGE`, `EMPTY`, `PROXIMITY` | how to compare |
-| **field name** | `species`, `parameter`, `route`, `documentYear` | which column |
+| **operator** | `MATCH`, `REGEX`, `RANGE`, `DATE_RANGE`, `EMPTY`, `PROXIMITY` | how to compare |
+| **field name** | `species`, `parameter`, `routes`, `documentYear` | which column |
 | **value** | `"Human"`, `["Rat","Mouse"]`, `2020` | what to match |
 
-These filters are then composed into a nested boolean tree (the API's `query`
-object), optionally alongside `facets`, `displayColumns`, `entityFilters`, etc.
+These field-level filters are then composed with boolean tree operators
+(`AND`, `OR`, `NOT`) inside the API's `query` object, optionally alongside
+`facets`, `displayColumns`, `entityFilters`, etc.
 The full target format is described in
 [../02-domain-inputs/machine-query-schema.md](../02-domain-inputs/machine-query-schema.md).
 
@@ -42,7 +43,7 @@ The pipeline hinges on one observation: not all fields are the same.
    CSVs can be used for class or rollup expansion.
 
 2. **Open-set fields** — fields whose value space is not known before query
-   execution (`parameter`, `parameterDisplay`, `studyGroup`, `age`, `dose`,
+   execution (`parameter`, `parameterDisplay`, `studyGroups`, `age`, `dose`,
    `duration`). The translator emits these filters as direct `MATCH` or `REGEX`
    constraints. Live execution can optionally guard them with isolated
    zero-count probes.
@@ -50,14 +51,16 @@ The pipeline hinges on one observation: not all fields are the same.
 See [../02-domain-inputs/field-taxonomy.md](../02-domain-inputs/field-taxonomy.md)
 for the full classification.
 
-## The new shape (one line)
+## Pipeline shape (one line)
 
-> NL query -> **many single-field NL subqueries** -> **closed-set translations**
-> for fields with known values plus direct open-set constraints -> **aggregate**
-> -> **validate and optionally execute for `countTotal`**.
+> NL query -> **TERMite-enhanced query** -> **many single-field NL subqueries**
+> -> **closed-set translations** for fields with known values plus direct
+> open-set constraints -> **aggregate** -> **validate** -> **execute for
+> `countTotal` when requested**.
 
-The package includes Stage -1 query expansion before decomposition and executes
-API calls for `countTotal`. It does not fetch full datapoint rows.
+The package includes Stage -1 query expansion and required Stage 0 TERMite
+enhancement before decomposition. API execution reads `countTotal` when enabled;
+it does not fetch full datapoint rows.
 
 The full pipeline is in
 [../03-proposed-design/architecture.md](../03-proposed-design/architecture.md).

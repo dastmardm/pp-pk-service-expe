@@ -108,14 +108,14 @@ The generic algorithm handles typos, synonyms, and hierarchy:
 Output example:
 
 ```json
-{ "MATCH": { "field": "species", "value": ["African green monkey", "Cynomolgus monkey", "Rhesus monkey"] } }
+{ "field": "species", "value": ["African green monkey", "Cynomolgus monkey", "Rhesus monkey"] }
 ```
 
 ## Open-set fields (Pass B)
 
 Open fields are handled by `_translate_open` before aggregation:
 
-- `studyGroup` and `age` emit `REGEX` constraints; `studyGroup` expands a small
+- `studyGroups` and `age` emit `REGEX` constraints; `studyGroups` expands a small
   built-in synonym set for hepatic and renal impairment.
 - Plain free-text fields such as `parameter` and `parameterDisplay` emit `MATCH`
   constraints.
@@ -127,27 +127,29 @@ the grounding trace.
 
 ## Per-field contract
 
-Every field translator exposes the same selection result so Stage 3 and the
-evaluator can treat all translation phases uniformly:
+Every field translator exposes a common envelope plus phase-specific fields so
+Stage 3 can treat closed-set and open-set translations uniformly without
+pretending open-set values came from a closed set:
 
 ```text
 translate(field, pool, closed_set, context) -> {
   field:    str,
-  selected: [str],          # always a subset of closed_set
+  selected: [str] | null,   # closed-set only; always a subset of closed_set
   valid:    bool,
-   phase:    "closed_set" | "open_set",
+  phase:    "closed_set" | "open_set",
   boolean_group?: { id, op: "AND" | "OR" },
   grounding?: { matched_ids: [...], expanded_from: "class"|"term"|"runtime"|null, confidence: 0..1 },
-   machine_subquery?: { operator, field, value },
+  machine_subquery?: { operator, field, value },
   notes?:   str
 }
 ```
 
-`selected` is always a member subset of the provided closed set. For the
-`closed_set` phase, `machine_subquery` is derived from `selected` and the field's
-emission rules. In the `open_set` phase, `machine_subquery` is the direct
-`MATCH` or `REGEX` constraint. `valid=false` means the translation returned `[]`
-or `None`, or every candidate failed membership validation.
+For the `closed_set` phase, `selected` is a member subset of the provided closed
+set and `machine_subquery` is derived from `selected` and the field's emission
+rules. In the `open_set` phase, `selected` is null and `machine_subquery` is the
+direct `MATCH` or `REGEX` constraint. `valid=false` means the translation
+returned no usable machine subquery, or every closed-set candidate failed
+membership validation.
 
 ## Failure handling
 

@@ -51,7 +51,7 @@ CLI's stage-by-stage trace and the `PipelineResult` fields:
 |-------|---------------|------|
 | 0 — enhance | recognized-entity annotations (`surface → label`, type) from TERMite | `result.enhanced` |
 | 1 — decompose | the per-field components table (`type`, `field`, `fragment`, boolean group, `source`, `reason`) | `result.decomposition.components` |
-| 2 — translate | each machine subquery — the `(operator, field, value)` constraint — plus its grounding (matched preferred labels, `expanded_from` class/term, confidence) | `result.subqueries` |
+| 2 — translate | each machine subquery — the `(operator, field, value)` constraint — plus its grounding (`matched_ids`, `expanded_from` class/term/runtime, confidence) | `result.subqueries` |
 | 3 — aggregate | the final machine-query payload (the JSON the API receives) and validation status (`ok` / issues) | `result.machine_query.to_payload()`, `result.ok`, `result.issues` |
 | execution | when **Execute** is on and the query is valid: the `countTotal` returned by the API | `execute_count(...)` |
 

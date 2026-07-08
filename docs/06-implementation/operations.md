@@ -66,7 +66,7 @@ loads `.env` when the LLM, TERMite, or API execution path asks for it.
 | Variable | Purpose | Required for |
 |----------|---------|--------------|
 | `OPPP_INPUTS_DIR` | Overrides the default [inputs/](../../inputs/) directory used for taxonomies and gold sets. | Custom data location. |
-| `PORTKEY_ENDPOINT` | Portkey/OpenAI-compatible base URL. | LLM expander, decomposer, aggregator, term selector, judge. |
+| `PORTKEY_ENDPOINT` | Portkey/OpenAI-compatible base URL. | LLM expander, decomposer, aggregator, term selector. |
 | `PORTKEY_API_KEY` | API key for the Portkey/OpenAI-compatible endpoint. | Same as above. |
 | `PORTKEY_PROVIDER` | Provider prefix used when building the LangChain model name. | Same as above. |
 | `TOOL_MODEL` | Default model suffix used by `oppp.llm.get_chat_model()`. | Same as above. |
@@ -80,8 +80,8 @@ loads `.env` when the LLM, TERMite, or API execution path asks for it.
 
 [execute.py](../../src/oppp/execute.py) posts a `MachineQuery` payload to the
 configured service `search_url` and reads `data.countTotal`. It does not fetch
-full result rows. The CLI uses this count for `oppp run --execute` and the
-evaluation harness uses it for result-count accuracy.
+full result rows. The CLI uses this count for `oppp run` unless execution is
+disabled, and the evaluation harness uses it for exact-count accuracy.
 
 When `probe_open_filters=true`, the pipeline asks the API for isolated counts of
 open-set filters before final aggregation. If an open-set filter's isolated count

@@ -17,7 +17,9 @@ and can be guarded in live runs by isolated zero-count probes.
   "sortColumns":    [ ... ],     // optional
   "displayColumns": [ ... ],     // optional; omit to return all fields
   "facets":         [ ... ],     // grouped counts (allow-listed per service)
-  "leafOnly":       false
+  "leafOnly":       false,       // optional
+  "mixtureExpansion": false,     // optional
+  "limitation":     { ... }      // optional pagination
 }
 ```
 
@@ -28,31 +30,34 @@ The request-side field/type catalogue is in
 |-------|------|
 | `drugs`, `drugsFuzzy`, `drugsAndSynonyms` | `array<string>` |
 | `species`, `routes`, `documentSource` | `array<string>` |
-| `years` | `array<integer>` |
+| `documentYear` | `array<integer>` |
 | `facets`, `displayColumns` | `array<string>` |
 | `sortColumns` | `array<SortColumn>` |
 | `limitation` | `Limitation` |
-| `leaf` | `boolean` |
+| `leafOnly` | `boolean` |
 
 ## The `query` tree: filters all the way down
 
-The `query` is a tree with **exactly one top-level constraint**. Every node is
-one of these constraint types (the "operators"):
+The `query` is a tree with **exactly one top-level constraint**. Boolean nodes
+use explicit `AND`/`OR`/`NOT` wrappers. Field-level leaves use the unwrapped API
+shape; the selected operator is the typed machine-subquery metadata that produced
+the leaf.
 
 | Operator | Shape | Use for |
 |----------|-------|---------|
-| `MATCH` | `{"MATCH": {"field": F, "value": V}}` where `V` is a string or array | exact value(s) on a field |
+| `MATCH` | `{"field": F, "value": V}` where `V` is a string or array | exact value(s) on a field |
 | `OR` | `{"OR": [c1, c2, …]}` (≥2) | any of |
 | `AND` | `{"AND": [c1, c2, …]}` (≥2) | all of |
 | `NOT` | `{"NOT": c}` (single) | negation |
-| `REGEX` | `{"REGEX": {"field": F, "pattern": P}}` | substring / free-text fields |
-| `RANGE` | `{"RANGE": {"field": F, "min": n, "max": n}}` | numeric thresholds |
-| `DATE_RANGE` | `{"DATE_RANGE": {"field": F, "min": "YYYY-MM-DD", "max": …}}` | dates |
-| `EMPTY` | `{"EMPTY": {"field": F}}` | field is empty/absent |
+| `REGEX` | `{"field": F, "pattern": P}` | substring / free-text fields |
+| `RANGE` | `{"field": F, "min": n, "max": n}` | numeric thresholds |
+| `DATE_RANGE` | `{"field": F, "min": "YYYY-MM-DD", "max": …}` | dates |
+| `EMPTY` | `{"field": F}` | field is empty/absent |
 | `PROXIMITY` | (text proximity) | rarely used |
 
-**Every leaf is an `(operator, field, value)` triple.** That is the unit Stage 2
-produces. The interior `AND`/`OR`/`NOT` nodes are the structure Stage 3 builds.
+**Every Stage 2 machine subquery is an `(operator, field, value)` triple.** The
+API query serializes the field leaf in the unwrapped shape while Stage 3 uses the
+operator metadata to build `AND`/`OR`/`NOT` structure and validation.
 
 ### Example
 
@@ -62,17 +67,21 @@ produces. The interior `AND`/`OR`/`NOT` nodes are the structure Stage 3 builds.
 {
   "query": {
     "AND": [
-      { "MATCH": { "field": "drugsFuzzy", "value": ["Sunitinib*"] } },
-      { "MATCH": { "field": "species",    "value": "Human" } },
-      { "MATCH": { "field": "routes",     "value": "Oral" } }
+      { "field": "drugsFuzzy", "value": ["Sunitinib*"] },
+      { "field": "species",    "value": "Human" },
+      { "field": "routes",     "value": "Oral" },
+      { "OR": [
+        { "field": "parameter", "value": "AUC" },
+        { "field": "parameter", "value": "Cmax" }
+      ]}
     ]
   }
 }
 ```
 
-Note the AND across fields (drug ∧ species ∧ route). The `parameter` request
-(AUC or Cmax) is an open-set field emitted as a direct API constraint when the
-user asks for it as a filter.
+Note the AND across fields (drug, species, route, and parameter intent). The
+`parameter` request (AUC or Cmax) is an open-set field emitted as a direct API
+constraint when the user asks for it as a retrieval filter.
 
 ## Entity filters
 
@@ -85,8 +94,8 @@ the service configuration.
 
 ## Facets and display columns
 
-- `facets`: allow-listed for PK (`drugs`, `species`, `sources`, `route`,
-  `documentYear`, `parameters`, `studyGroup`, `concomitants`, `tissueSpecific`,
+- `facets`: allow-listed for PK (`drugs`, `species`, `sources`, `routes`,
+  `documentYear`, `parameters`, `studyGroups`, `concomitants`, `tissueSpecific`,
   `metabolitesEnantiomers`). Used when the question asks for lists / "which" /
   categories.
 - `displayColumns`: only when the user explicitly asks for specific output

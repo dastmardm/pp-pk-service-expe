@@ -21,7 +21,7 @@ them.
 | Stage 3 — aggregate | [stages/aggregate.py](../../src/oppp/stages/aggregate.py) | dropped-filter handling, API constraint budget collapse, boolean tree, entityFilters routing, facets/displayColumns, validation, service invariants, and zero-count open-filter probing. |
 | Service config | [services/](../../src/oppp/services/) | PK field map, buckets, facet allow-list, TERMite type map, and service invariants. |
 | Execution | [execute.py](../../src/oppp/execute.py) | POST machine query to the PP API and read `data.countTotal`; full rows are not fetched. |
-| Evaluation | [eval/](../../src/oppp/eval/) | count-based harness, per-step comparators, gold-vs-agent filter diff, typed LLM judge, CSV/XLSX report export. |
+| Evaluation | [eval/](../../src/oppp/eval/) | count-based harness, diagnostic per-step comparators, gold-vs-agent filter diff, CSV/XLSX report export. |
 | CLI | [cli.py](../../src/oppp/cli.py) | `run`, `enhance`, `decompose`, `field`, `aggregate`, `lookup`, `services`, `dag`, `eval`. |
 | UI | [ui/app.py](../../src/oppp/ui/app.py) | Streamlit stage-by-stage inspector with service selection, gold-set picker, Stage 0-3 panels, payload display, and count execution control. |
 | Tests | [tests/](../../tests/) | taxonomy, pipeline, eval (offline). |
@@ -61,7 +61,7 @@ execution model.
 Per [docs/05](../05-evaluation/gold-set-and-metrics.md), the harness scores by
 **result-count accuracy**: translate → execute → read `countTotal` → compare to
 the `Expected Count` column in `PPPK.xlsx`. Reported: `valid_rate`, `executed_rate`, `exact_count`,
-`within_<tol>`.
+`exact_count_rate`.
 
 The evaluation harness keeps each stage's typed output so failures can be traced
 to TERMite recognition, decomposition, closed-set translation, open-set direct
@@ -71,14 +71,13 @@ The implementation includes these evaluation surfaces:
 
 - **Gold dataset.** [PPPK.xlsx](../PPPK.xlsx) `PK_Query` sheet with 47 PK
   questions and expected counts, read by [eval/harness.py](../../src/oppp/eval/harness.py).
-- **CLI harness.** `oppp eval` runs translate -> execute when requested -> compare
-  `countTotal` to `Expected Count`, with CSV/XLSX report export.
-- **Per-step comparators.** [eval/per_step.py](../../src/oppp/eval/per_step.py)
-  scores TERMite labels, decomposition routing/type pairs, translated field names,
-  and final machine-query structure.
-- **Typed judge.** [eval/judge.py](../../src/oppp/eval/judge.py) exposes `LLMJudge`
-  and `JudgeVerdict` for fragment, open-pattern, and structure tie-breaks. Tests
-  inject a fake client so the judge contract stays hermetic.
+- **CLI harness.** `oppp eval` runs translate -> execute unless `--no-execute`
+  is supplied -> compare `countTotal` exactly to `Expected Count`, with CSV/XLSX
+  report export.
+- **Per-step diagnostics.** [eval/per_step.py](../../src/oppp/eval/per_step.py)
+  compares TERMite labels, decomposition routing/type pairs, translated field
+  names, and final machine-query structure for failure analysis. These artifacts
+  are retained alongside the exact-count score.
 - **PK-focused coverage.** The gold set targets PK questions on the
   PharmaPendium API; evaluation coverage is complemented by targeted service
   configuration tests.
@@ -104,7 +103,7 @@ they can affect the machine query.
 
 ## Limitations
 
-- **Open-set filters are guarded by probes.** `parameter`, `parameterDisplay`, `studyGroup`,
+- **Open-set filters are guarded by probes.** `parameter`, `parameterDisplay`, `studyGroups`,
   `age`, `dose`, `duration`, and similar fields are emitted as direct `MATCH`/`REGEX`
   constraints. Live runs may drop a filter whose isolated count is confirmed `0`.
 - **`parameter` and `parameterDisplay` have no input closed set in `inputs/`.** These open-set fields are translated as direct `MATCH` constraints and may be guarded by zero-count probing.

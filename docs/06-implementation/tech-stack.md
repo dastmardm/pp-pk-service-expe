@@ -11,7 +11,7 @@ helper for debugging and evaluation.
 |------|----------------------|
 | **Python 3.11+** | Implementation language. |
 | **pyproject.toml / Hatchling** | Package metadata, extras, console script, build backend, and Ruff/Pytest configuration. |
-| **Pydantic** | Typed stage contracts: expansion, enhancement annotations, decomposition components, subqueries, machine query, aggregation plan, and judge verdicts. |
+| **Pydantic** | Typed stage contracts: expansion, enhancement annotations, decomposition components, subqueries, machine query, and aggregation plan. |
 | **Typer** | CLI entry points for full runs, isolated stages, lookup, DAG rendering, services, and evaluation. |
 | **RapidFuzz** | Exact-adjacent and fuzzy lookup over closed-set taxonomy names. |
 | **python-dotenv** | Lazy `.env` loading when LLM, TERMite, or API execution paths need credentials. |
@@ -59,7 +59,8 @@ Because each stage has typed inputs and outputs, each can be exercised alone:
 The per-step comparators in [eval/per_step.py](../../src/oppp/eval/per_step.py)
 score Stage 0 labels, Stage 1 routing/type pairs, Stage 2 emitted field names,
 and Stage 3 machine-query structure. The count harness in
-[eval/harness.py](../../src/oppp/eval/harness.py) scores `countTotal` proximity.
+[eval/harness.py](../../src/oppp/eval/harness.py) scores exact `countTotal`
+matches.
 The gold query set is [`PPPK.xlsx`](../PPPK.xlsx) (`PK_Query` sheet).
 The count harness and per-step comparators load it when scoring resolved field
 values and end-to-end counts.
@@ -77,7 +78,6 @@ models:
 | Stage 1 decomposer | `Decomposition` |
 | Stage 2 term selector / LLM fallbacks | `TermSelection` |
 | Stage 3 LLM aggregator | `AggregationPlan` |
-| LLM-as-judge | `JudgeVerdict` |
 
 The final request body is always represented by `MachineQuery` and validated by
 Stage 3. Closed-set values proposed by the LLM are re-grounded against the CSV
@@ -119,6 +119,6 @@ fixed stage interfaces.
 | [src/oppp/taxonomy/](../../src/oppp/taxonomy/) | CSV-backed closed-set indexes and hierarchy helpers. |
 | [src/oppp/normalize/](../../src/oppp/normalize/) | Misspelling normalizer strategies. |
 | [src/oppp/services/](../../src/oppp/services/) | PK field map and service invariants. |
-| [src/oppp/eval/](../../src/oppp/eval/) | Count harness, per-step comparators, judge, and gold diff helpers. |
+| [src/oppp/eval/](../../src/oppp/eval/) | Count harness, diagnostic per-step comparators, and gold diff helpers. |
 | [src/oppp/ui/app.py](../../src/oppp/ui/app.py) | Streamlit debug UI. |
 | [src/oppp/cli.py](../../src/oppp/cli.py) | Typer CLI. |

@@ -1,9 +1,10 @@
 # Stage 1 — Decomposition
 
-**Input:** the query text after Stage -1 expansion.
+**Input:** the enhanced query from Stage 0, including TERMite annotations over
+the expanded query.
 **Output:** a list of single-field NL subqueries, each routed to a target field.
-Each fragment is then passed to Stage 0 (TERMite) for entity annotation before
-Stage 2 translation begins.
+Stage 1 also records which Stage 0 annotations seed each component before Stage 2
+translation begins.
 
 ## Goal
 
@@ -73,26 +74,24 @@ The boolean hint is a structured `boolean_group` object:
 
 ## How routing is seeded
 
-1. **LLM decomposer.** The decomposer is a **vocab-free** LLM step: it segments
+1. **Stage 0 TERMite annotations.** TERMite runs over the expanded query before
+   decomposition and returns recognized text, preferred labels, public synonyms,
+   and entity types that map to PK fields: `DRUG->drugs`,
+   `SPECIES->species`, `ROUTE->routes`, `PARAMETER->parameter`, `AGE->age`.
+2. **LLM decomposer.** The decomposer is a **vocab-free** LLM step: it segments
    the query into single-field spans and routes each to a field using the field
    catalogue and the user's own words. It does **not** resolve, normalize, or
    consult any taxonomy — that is Stage 2's grounded job. It also assigns each
    component its `type` and writes its one-sentence `reason`. Components carry
-   `source: llm` initially. The prompt instructs it to emit a `drugs` filter only
+   `source: llm` unless a Stage 0 annotation supports the same component. The
+   prompt instructs it to emit a `drugs` filter only
    when a **specific drug or drug class is named** (Sunitinib, kinase inhibitors):
    the bare head noun "drugs" in a *"drugs treating/causing/for `<condition>`"*
    construction is the thing asked about, not a filter — the `<condition>` routes
-   to `studyGroup` and "drugs" becomes a `question` (the reported
+   to `studyGroups` and "drugs" becomes a `question` (the reported
    output). Otherwise the carrier phrase fuzzy-grounds to a nonsense drug and
    zeroes the query.
-2. **Stage 0 TERMite annotation.** After decomposition, each per-field NL
-  fragment is passed to the TERMite NER service. TERMite annotations carry text
-  or a preferred name plus a type that maps to a PK field: `DRUG->drugs`,
-  `SPECIES->species`, `ROUTE->routes`, `PARAMETER->parameter`, `AGE->age`.
-  Fragments that receive a TERMite hit have
-   their `source` updated to `termite:<TYPE>`, providing high-confidence preferred
-   labels that seed Stage 2 translation.
-3. **Annotation reconciliation (deterministic, post-annotation).** A small
+3. **Annotation reconciliation (deterministic).** A small
    deterministic pass honours TERMite annotations and resolves routing ambiguities.
    It resolves routing ambiguities: when TERMite annotates a fragment with a type
    that conflicts with the decomposer's field assignment, the pass probes the
@@ -102,12 +101,12 @@ The boolean hint is a structured `boolean_group` object:
    (AUC, Cmax, t½, …) names the *kind of record* sought, so it must be a
    **filter**, not just a reported column. "What is the **AUC** of X in fed
    subjects" asks about AUC *and* restricts retrieval to AUC records, but the
-   decomposer may emit only a `parameter` *question*. When TERMite recognized such
+   decomposer may emit only a `parameter` *question*. When TERMite recognizes such
    an entity, the pass promotes the same-field question to a filter on the preferred
    label (the field is still reported via Stage-3 facets/displayColumns). Plain
    questions like "at which dose" are untouched.
 
-   Both rules live in `reconcile_with_annotations` and run after annotation.
+   Both rules live in `reconcile_with_annotations` and run after decomposition.
 
 ## Granularity: per concept, tagged by field
 

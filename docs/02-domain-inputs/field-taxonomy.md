@@ -1,8 +1,8 @@
 # Filterable fields and value sets
 
-Every searchable filter field belongs to exactly one bucket in the service
-configuration. The bucket determines when the field can be translated and where
-its legal values come from.
+Every translator-emittable filter field belongs to exactly one bucket in the
+service configuration. The bucket determines when the field can be translated
+and where its legal values come from.
 
 - **Closed-set fields** have a complete value set before query execution. The set
   comes from an `inputs/` taxonomy CSV, an inline enum, or a boolean domain. Stage
@@ -62,7 +62,7 @@ Typical open-set fields:
 |-------|----------|----------------------|
 | `parameter` | no local PK parameter value set in `inputs/` | direct `MATCH` or `REGEX` |
 | `parameterDisplay` | no local value set in `inputs/` | direct `MATCH` or `REGEX` |
-| `studyGroup` | free text needing synonym handling, e.g. hepatic impairment | direct `MATCH` or `REGEX` |
+| `studyGroups` | free text needing synonym handling, e.g. hepatic impairment | direct `MATCH` or `REGEX` |
 | `age` | free text or category-like record values | direct `MATCH` or `REGEX` |
 | `dose` | free numeric/unit text as stored in records | direct `MATCH` or `REGEX` |
 | `duration` | free text stored in records | direct `MATCH` or `REGEX` |
@@ -74,7 +74,7 @@ bucket each field uses.
 
 | Service | Closed-set filters before API query | Open-set fields |
 |---------|-------------------------------------|-------------------------------------------|
-| PK | `drugs`, `species`, `routes`, `documentSource`, `documentYear`, `sex`, `concomitants`, `tissueSpecific`, `metabolitesEnantiomers`, `isPreclinical` | `parameter`, `parameterDisplay`, `studyGroup`, `age`, `dose`, `duration` |
+| PK | `drugs`, `species`, `routes`, `documentSource`, `documentYear`, `sex`, `concomitants`, `tissueSpecific`, `metabolitesEnantiomers`, `isPreclinical` | `parameter`, `parameterDisplay`, `studyGroups`, `age`, `dose`, `duration` |
 
 ### Concrete service configuration
 
@@ -84,12 +84,12 @@ PK emits JSON machine queries:
 |---------------|--------|-------------|-------------------|-----------------|
 | `drugs` | closed | `drugs.csv` | `drugsFuzzy` | facet `drugs`, display `drug` |
 | `species` | closed | `species.csv` | `species` | facet `species`, display `specie` |
-| `route` (logical) | closed | `route.csv` | `routes` (API filter field) | facet/display `route` |
+| `routes` | closed | `route.csv` | `routes` | facet `routes`, display `route` |
 | `documentSource` | closed | `sources.csv` | `documentSource` (API field) | facet `sources`, display `source` |
 | `documentYear` | closed | `document_year.csv` | `documentYear` | facet/display `documentYear` |
-| `parameter` | open | none | direct API field `parameter` | facet `parameters`, display `parameter` |
+| `parameter` | open | none | direct API field `parameter` | facet `parameters` for output grouping, display `parameter` |
 | `parameterDisplay` | open | none | direct API field `parameterDisplay` | none |
-| `studyGroup` | open | none | direct API field `studyGroup` | facet `studyGroup` |
+| `studyGroups` | open | none | direct API field `studyGroups` | facet `studyGroups` |
 | `age` | open | none | direct API field `age` | none |
 | `dose` | open | none | direct API field `dose` | display `dose` |
 | `duration` | open | none | direct API field `duration` | none |
@@ -99,10 +99,16 @@ PK emits JSON machine queries:
 | `metabolitesEnantiomers` | enum | `Not metabolites/enantiomers`, `Metabolite`, `Enantiomer` | `metabolitesEnantiomers` | facet `metabolitesEnantiomers` |
 | `isPreclinical` | boolean | `true`, `false` | `isPreclinical` | none |
 
-PK always adds the following invariants unless the user query already supplies
-the field: `concomitants` is `Fasted` or empty, `tissueSpecific` is
+PK adds the following invariants unless the user query already supplies the
+field: `concomitants` is `Fasted` or empty, `tissueSpecific` is
 `Not tissue-specific`, and `metabolitesEnantiomers` is
-`Not metabolites/enantiomers`.
+`Not metabolites/enantiomers`. A user-supplied value for one of these fields
+wins for that field, including non-fasted concomitant conditions; the default
+constraint is not duplicated.
+
+The PharmaPendium API also exposes request fields that this translator does not
+emit. `drugsAndSynonyms`, `radioLabels`, and `parameterValues` are API-only for
+the translator and are not assigned to a translation bucket.
 
 ## Decision rule
 

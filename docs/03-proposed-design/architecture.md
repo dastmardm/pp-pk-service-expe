@@ -10,36 +10,33 @@
                           └───────────────────────────────────────┘
                                           │
                                           ▼
-        ╔═══════════════════════════════════════════════════════════════╗
-        ║ STAGE 1 — DECOMPOSITION                                        ║
-        ║ NL query  →  many single-field NL subqueries                  ║
-        ║   • {field: drugs,   nl: "sunitinib"}                         ║
-        ║   • {field: species, nl: "human"}                            ║
-        ║   • {field: parameter, nl: "AUC" (output intent)}            ║
-        ╚═══════════════════════════════════════════════════════════════╝
-                                          │
-                                          ▼
                           ┌───────────────────────────────────────┐
                           │  STAGE 0 — TERMite ENHANCE             │
-                          │  required SciBite NER over decomposed  │
-                          │  fragments                             │
+                          │  required SciBite NER over the         │
+                          │  expanded query                        │
                           │  → entities + preferred labels + types │
                           └───────────────────────────────────────┘
                                           │
                                           ▼
         ╔═══════════════════════════════════════════════════════════════╗
-        ║ STAGE 2A — EARLY-CONTRIBUTOR TRANSLATION                       ║
-        ║ closed-set fields with < EARLY_CONTRIBUTOR_THRESHOLD items    ║
-        ║ are resolved first (default threshold: 500 items)             ║
+        ║ STAGE 1 — DECOMPOSITION                                        ║
+        ║ enhanced NL query  →  many single-field NL subqueries         ║
+        ║   • {field: drugs,   nl: "sunitinib"}                         ║
+        ║   • {field: species, nl: "human"}                            ║
+        ║   • {field: parameter, nl: "AUC"}                            ║
+        ╚═══════════════════════════════════════════════════════════════╝
+                                          │
+                                          ▼
+        ╔═══════════════════════════════════════════════════════════════╗
+        ║ STAGE 2 — PER-FIELD TRANSLATION                                ║
+        ║ closed-set fields are grounded against CSV/enum/boolean sets; ║
+        ║ open-set fields are emitted as direct constraints             ║
         ║                                                               ║
         ║   CSV/enum field → exact → fuzzy → enriched pool → LLM select ║
         ║      "sunitinib" ──lookup drugs.csv──▶                        ║
         ║                    MATCH drugsFuzzy = ["Sunitinib*"]          ║
         ║      "human"     ──lookup species.csv──▶                      ║
         ║                    MATCH species = "Human"                    ║
-        ║                                                               ║
-        ║   large closed-set fields (≥ threshold) and open-set fields   ║
-        ║   are deferred until early-contributor datapoints are fetched  ║
         ╚═══════════════════════════════════════════════════════════════╝
                                           │
                                           ▼
@@ -57,19 +54,23 @@
 
 ## Why these stages
 
-Stage -1 expansion clarifies abbreviations before decomposition. Stage 1 decomposes the query into single-field fragments; Stage 0 TERMite then annotates those fragments so entity recognition operates on focused spans rather than the full raw query. The remaining stages drive the grounding and fetch loop.
+Stage -1 expansion clarifies abbreviations before entity recognition and
+decomposition. Stage 0 TERMite annotates the expanded query with preferred labels
+and entity types. Stage 1 uses those annotations while decomposing the query into
+single-field fragments. The remaining stages translate, aggregate, validate, and
+execute the count request.
 
 | Stage | Responsibility | Why separate |
 |-------|---------------|--------------|
-| **1. Decomposition** | Split the expanded NL query into one NL fragment per field; route each fragment to a field. | Isolates "what is the user asking about?" from "how do I express it?". Small, cheap, testable. |
-| **0. TERMite enhancement** | Run NER over the decomposed per-field fragments; annotate entities, preferred labels, and entity types. | Targeting focused fragments reduces ambiguity; annotations seed Stage 2 translation with high-confidence preferred labels. |
+| **0. TERMite enhancement** | Run NER over the expanded query; annotate entities, preferred labels, and entity types. | Gives Stage 1 and Stage 2 high-confidence entity hints without letting NER emit machine-query values directly. |
+| **1. Decomposition** | Split the enhanced NL query into one NL fragment per field; route each fragment to a field. | Isolates "what is the user asking about?" from "how do I express it?". Small, cheap, testable. |
 | **2. Translation** | Translate closed-set fields against CSV, enum, or boolean values; emit open-set fields as direct `MATCH` or `REGEX` constraints. | Grounded values are validated before aggregation, and open-set filters can be guarded by optional zero-count probes. |
 | **3. Aggregation and execution** | Assemble valid subqueries into the final API query, apply service invariants, and execute for `countTotal` when requested. | The API payload is deterministic, typed, and auditable. |
 
 [execute.py](../../src/oppp/execute.py) reads `countTotal` and does not fetch full
 datapoint rows. Open-set filters are emitted as direct `MATCH`/`REGEX`
-constraints, with an optional server-side zero-count probe
-(`drop_empty_open_filters`) before aggregation in live runs.
+constraints, with an optional server-side zero-count probe before final
+aggregation in live runs.
 
 ## Design principles
 
@@ -85,7 +86,7 @@ constraints, with an optional server-side zero-count probe
    parent→children expansion is a documented step, not a hope.
 5. **Expansion and enhancement are separate.** Stage -1 rewrites only for
    readability and abbreviation expansion. Stage 0 always contributes TERMite
-   entity annotations and preferred labels over the decomposed per-field fragments.
+   entity annotations and preferred labels over the expanded query.
    Neither stage may emit machine-query values on its own; TERMite labels seed
    later routing and translation only.
 
@@ -95,7 +96,7 @@ The pipeline targets the PK service on the PharmaPendium API. The service
 configuration object defines:
 
 - the **field set** (which fields exist),
-- the **field→bucket map** (early-contributor closed-set, large closed-set, runtime open-set, enum, boolean),
+- the **field→bucket map** (closed-set, open-set, enum, boolean),
 - the **facet allow-list**,
 - the **service invariants** applied in Stage 3 (`concomitants`, `tissueSpecific`, `metabolitesEnantiomers` defaults).
 
