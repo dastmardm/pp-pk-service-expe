@@ -118,7 +118,7 @@ required **TERMite enhancer** then annotates entities in the decomposed per-fiel
 fragments, producing preferred labels and types that seed Stage 2 translation. Each
 component is **translated independently** against a known closed set. For fields
 whose legal values are available as CSV taxonomies or inline enums (drugs,
-species, route, documentYear, sex, concomitants, ...), the value is grounded before the
+species, routes, documentYear, sex, concomitants, ...), the value is grounded before the
 API call. Fields without an input value set (parameter, parameterDisplay,
 studyGroup, age, dose, duration) are represented in the design
 as runtime closed-set post-filters. In the current package, those open fields are

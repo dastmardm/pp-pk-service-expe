@@ -158,6 +158,42 @@ def _drop_ungroundable(
     return kept
 
 
+def aggregate_query(
+    decomp: Decomposition,
+    subqueries: list[MachineSubquery],
+    service: ServiceConfig,
+) -> tuple[MachineQuery, list[ValidationIssue]]:
+    """Stage 3A public entry point: aggregate subqueries into a machine query."""
+    return aggregate(decomp, subqueries, service)
+
+
+def apply_post_filters(
+    datapoints: list[dict],
+    field: str,
+    runtime_values: list[str],
+    selected: list[str],
+) -> list[dict]:
+    """Stage 2C public entry point: filter fetched datapoints by runtime closed-set selection.
+
+    `datapoints` are the raw API row dicts. `field` is the field name to filter on.
+    `runtime_values` is the full RuntimeClosedSet for that field. `selected` is the
+    subset chosen by translation. Returns only rows whose field value is in `selected`.
+    """
+    if not selected:
+        return datapoints
+    selected_set = {v.lower() for v in selected}
+    kept = []
+    for row in datapoints:
+        val = row.get(field)
+        if val is None:
+            kept.append(row)
+            continue
+        vals = val if isinstance(val, list) else [val]
+        if any(str(v).lower() in selected_set for v in vals):
+            kept.append(row)
+    return kept
+
+
 def aggregate(
     decomp: Decomposition,
     subqueries: list[MachineSubquery],

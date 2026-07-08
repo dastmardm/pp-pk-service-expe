@@ -15,10 +15,9 @@ Why it helps: an expanded surface form lets the recognizer match terms it would
 otherwise miss (e.g. 'ADC' -> 'antibody-drug conjugate (ADC)', which the drug
 hierarchy can recognize) without the decomposer having to know any vocabulary.
 
-Backends (pluggable by name):
+Backends:
   * llm  — default. Rewrites via the central LLM factory (temperature 0 + seed).
-           Degrades to pass-through when no LLM is configured (offline / no creds),
-           so importing or running without the 'llm' extra never fails.
+           Raises ConfigError when LLM credentials are absent.
   * noop — returns the query unchanged (used by hermetic/offline doubles).
 
 The original query is always preserved on the result for the audit record.
@@ -44,7 +43,12 @@ def get_expander(name: str = "llm", **kwargs) -> Expander:
     return expander_registry.create(name, **kwargs)
 
 
-def expand(query: str, service: str = "safety", backend: str = "llm") -> ExpandedQuery:
+def expand_query(query: str, service: ServiceConfig) -> ExpandedQuery:
+    """Stage -1 public entry point: expand query using the LLM backend."""
+    return get_expander("llm").expand(query, service)
+
+
+def expand(query: str, service: str = "pk", backend: str = "llm") -> ExpandedQuery:
     """Convenience: run Stage -1 with the named backend."""
     return get_expander(backend).expand(query, get_service(service))
 
@@ -95,9 +99,8 @@ class LLMExpander:
     """Rewrite the query with an LLM (clarify + expand abbreviations).
 
     Lazy: the structured model is built on first use via :mod:`oppp.llm`, so import
-    needs no creds. When the LLM is unavailable (no PORTKEY_* / no 'llm' extra) or a
-    call fails, it falls back to passing the query through unchanged — the stage is
-    always *present* but never *fatal*.
+    needs no creds. Raises ConfigError when the LLM is unavailable (no PORTKEY_* /
+    no 'llm' extra) — the stage is mandatory in the fixed pipeline.
     """
 
     def __init__(self, model: str | None = None) -> None:
@@ -112,15 +115,13 @@ class LLMExpander:
         return self._structured
 
     def expand(self, query: str, service: ServiceConfig) -> ExpandedQuery:
-        try:
-            from oppp.llm import LLMUnavailable
+        from oppp.config import ConfigError
+        from oppp.llm import LLMUnavailable
 
-            try:
-                result: QueryExpansion = self._get().invoke(_PROMPT.format(query=query))
-            except LLMUnavailable:
-                return ExpandedQuery(text=query, original=query, source="noop(no-llm)")
-        except Exception:  # pragma: no cover - any build/call failure -> pass through
-            return ExpandedQuery(text=query, original=query, source="noop(error)")
+        try:
+            result: QueryExpansion = self._get().invoke(_PROMPT.format(query=query))
+        except LLMUnavailable as e:
+            raise ConfigError(str(e)) from e
         text = (result.expanded or "").strip() or query
         return ExpandedQuery(text=text, original=query, source="llm")
 

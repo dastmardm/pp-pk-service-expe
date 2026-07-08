@@ -1,6 +1,6 @@
-"""Runtime configuration: where the input CSVs live and (optional) LLM settings.
+"""Runtime configuration: where the input CSVs live and (optional) LLM/TERMite settings.
 
-Secrets are read from the project .env only when an LLM backend is actually used;
+Secrets are read from the project .env only when the stage that needs them is invoked;
 the deterministic core never needs them.
 """
 
@@ -12,20 +12,21 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-# Repo root = three levels up from this file (src/oppp/config.py -> repo).
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_INPUTS_DIR = REPO_ROOT / "inputs"
 
 
+class ConfigError(RuntimeError):
+    """Raised when a required configuration variable is missing."""
+
+
 class Settings(BaseModel):
     inputs_dir: Path = DEFAULT_INPUTS_DIR
-    # LLM (optional; only needed for the LangChain/DSPy backends)
     portkey_endpoint: str | None = None
     portkey_api_key: str | None = None
     portkey_provider: str | None = None
     tool_model: str | None = None
-    llm_seed: int | None = None  # fixed decoding seed for reproducibility (LLM_SEED)
-    # TERMite NER (optional; only needed for the 'termite' decomposer backend)
+    llm_seed: int | None = None
     termite_home: str | None = None
     termite_auth_url: str | None = None
     termite_client_name: str | None = None
@@ -50,7 +51,7 @@ def get_settings() -> Settings:
 
 
 def load_dotenv_if_present() -> None:
-    """Best-effort load of the project .env (only when an LLM backend is used)."""
+    """Best-effort load of the project .env (only when a backend that needs creds is used)."""
     try:
         from dotenv import load_dotenv
     except ImportError:
@@ -59,3 +60,25 @@ def load_dotenv_if_present() -> None:
     if env.exists():
         load_dotenv(env)
         get_settings.cache_clear()
+
+
+def get_llm_settings() -> Settings:
+    """Return settings, raising ConfigError if LLM credentials are absent."""
+    load_dotenv_if_present()
+    s = get_settings()
+    if not (s.portkey_api_key and s.portkey_endpoint):
+        raise ConfigError(
+            "LLM stage requires PORTKEY_ENDPOINT and PORTKEY_API_KEY in .env"
+        )
+    return s
+
+
+def get_termite_settings() -> Settings:
+    """Return settings, raising ConfigError if TERMite credentials are absent."""
+    load_dotenv_if_present()
+    s = get_settings()
+    if not s.termite_home:
+        raise ConfigError(
+            "Stage 0 requires TERMITE_HOME in .env"
+        )
+    return s

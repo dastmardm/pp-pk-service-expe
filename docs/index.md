@@ -9,6 +9,7 @@ uses, the staged pipeline design, examples, evaluation, and implementation notes
 | Start here | [README.md](README.md) | Project overview, reading order, pipeline stages, common CLI commands. |
 | Overview | [00-overview/problem-statement.md](00-overview/problem-statement.md) | Why the monolithic legacy translator is being replaced. |
 | Overview | [00-overview/glossary.md](00-overview/glossary.md) | Shared vocabulary for fields, grounding, services, and evaluation. |
+| Domain inputs | [02-domain-inputs/api-reference.md](02-domain-inputs/api-reference.md) | PharmaPendium API: all services, endpoints, filter schemas, and response shapes. |
 | Domain inputs | [02-domain-inputs/csv-catalog.md](02-domain-inputs/csv-catalog.md) | CSV files under `inputs/` and how the code uses them. |
 | Domain inputs | [02-domain-inputs/field-taxonomy.md](02-domain-inputs/field-taxonomy.md) | Filterable fields, closed sets, open sets, and service field maps. |
 | Domain inputs | [02-domain-inputs/machine-query-schema.md](02-domain-inputs/machine-query-schema.md) | The machine-query JSON shape and PK-specific invariants. |

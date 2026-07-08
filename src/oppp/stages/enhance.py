@@ -1,15 +1,15 @@
-"""Stage 0 — query enhancement (optional, runs before decomposition).
+"""Stage 0 — query enhancement via TERMite NER.
 
-An enhancer reads the raw NL query and returns an :class:`EnhancedQuery`: the
+The enhancer reads the raw NL query and returns an :class:`EnhancedQuery`: the
 text the decomposer should read plus structured entity annotations. It must NOT
 decompose or build queries — its only job is to make the query easier for the
 decomposer to read (e.g. resolving synonyms/brand names to preferred labels).
 
-Backends (pluggable by name):
-  * noop    — returns the query unchanged (default; fully offline).
+Backends:
   * termite — SciBite TERMite NER; appends a recognized-entities hints block to
-              the query text and records the annotations. Optional (needs the
-              SciBite toolkit + TERMITE_* creds).
+              the query text and records the annotations. Raises ConfigError when
+              TERMITE_HOME/AUTH_URL/CLIENT_NAME/CLIENT_SECRET are missing.
+  * noop    — returns the query unchanged (default; fully offline).
 """
 
 from __future__ import annotations
@@ -32,7 +32,12 @@ def get_enhancer(name: str = "noop", **kwargs) -> Enhancer:
     return enhancer_registry.create(name, **kwargs)
 
 
-def enhance(query: str, service: str = "safety", backend: str = "noop") -> EnhancedQuery:
+def enhance_query(query: str, service: ServiceConfig) -> EnhancedQuery:
+    """Stage 0 public entry point: enhance query using the TERMite backend."""
+    return get_enhancer("termite").enhance(query, service)
+
+
+def enhance(query: str, service: str = "pk", backend: str = "noop") -> EnhancedQuery:
     """Convenience: run Stage 0 with the named backend."""
     return get_enhancer(backend).enhance(query, get_service(service))
 
@@ -77,22 +82,23 @@ class TermiteEnhancer:
     annotations for auditing.
 
     Needs the SciBite toolkit and TERMITE_* credentials in .env (lazy).
+    Raises ConfigError when credentials are missing.
     """
 
     def __init__(self) -> None:
-        from oppp.config import get_settings, load_dotenv_if_present
+        from oppp.config import ConfigError, get_settings, load_dotenv_if_present
 
         load_dotenv_if_present()
         s = get_settings()
         if not (s.termite_home and s.termite_client_name and s.termite_client_secret):
-            raise RuntimeError(
-                "termite enhancer needs TERMITE_HOME/AUTH_URL/CLIENT_NAME/"
+            raise ConfigError(
+                "Stage 0 requires TERMITE_HOME/AUTH_URL/CLIENT_NAME/"
                 "CLIENT_SECRET in .env (use enhancer='noop' to run offline)."
             )
         try:
             from scibite_toolkit import termite7
         except ImportError as e:  # pragma: no cover
-            raise RuntimeError("install the SciBite toolkit to use the termite enhancer") from e
+            raise ConfigError("install the SciBite toolkit to use the termite enhancer") from e
 
         self._builder_factory = termite7.Termite7RequestBuilder
         self._cfg = s
@@ -120,9 +126,6 @@ class TermiteEnhancer:
                 if key in seen:
                     continue
                 seen.add(key)
-                # TERMite's full equivalent-term set (brand/scientific/abbrev/variants);
-                # deduped and excluding the preferred label so Stage 2 can ground the
-                # whole [label, *synonyms] pool against the controlled vocabulary.
                 synonyms: list[str] = []
                 syn_seen = {name.lower()}
                 for syn in ent.get("publicSynonyms") or []:

@@ -1,16 +1,18 @@
-"""Pipeline orchestration: enhance -> decompose -> translate -> aggregate.
+"""Pipeline orchestration: fixed stage path for the PK service.
 
-Every stage is pluggable by name and independently invokable, so any one can be
-swapped or evaluated in isolation:
+Fixed stage order (CONST-1, REQ-020):
+  Stage -1: expand  (LLM abbreviation expansion)
+  Stage  0: enhance (TERMite NER)
+  Stage  1: decompose + reconcile (LLM segmentation)
+  Stage 2A: translate closed-set input filters
+  Stage 3A: aggregate -> MachineQuery -> execute count (or rows)
+  [row mode]
+  Stage 2B: translate runtime closed-set filters
+  Stage 3B: assemble final row result
+  Stage 2C: apply open-set post-filters
 
-  * enhance    (optional) NL query -> enhanced query    [noop | termite]
-  * decompose  enhanced query -> per-field components    [llm | gazetteer]
-  * translate  one component -> one machine subquery      [tool]
-  * aggregate  components + subqueries -> machine query    [llm | deterministic]
-
-Production defaults are the LLM-based design (decompose + aggregate via LLM,
-no-op enhancer). Hermetic runs pin the offline doubles:
-``decomposer='gazetteer', aggregator='deterministic'``.
+No selectable backends — the stage implementations are fixed. Hermetic tests
+inject fakes at the service/model boundary, not by swapping stage backends.
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ from oppp.models import (
     MachineSubquery,
     PipelineResult,
 )
-from oppp.normalize.base import get_normalizer
+from oppp.normalize import normalize as _normalize_field
 from oppp.services.base import get_service
 from oppp.stages.aggregate import drop_empty_open_filters, get_aggregator
 from oppp.stages.decompose import get_decomposer, reconcile_with_annotations
@@ -33,10 +35,10 @@ from oppp.stages.translate import get_translator
 
 def run_pipeline(
     query: str,
-    service: str = "safety",
+    service: str = "pk",
     *,
     expander: str = "llm",
-    enhancer: str = "noop",
+    enhancer: str = "termite",
     decomposer: str = "llm",
     translator: str = "tool",
     aggregator: str = "llm",
@@ -45,16 +47,17 @@ def run_pipeline(
 ) -> PipelineResult:
     """Full end-to-end run, returning every intermediate artifact.
 
-    ``expander`` (Stage -1) rewrites the query into a clearer, abbreviation-expanded
-    form before enhancement; the original is preserved on the result. Defaults to the
-    'llm' backend, which degrades to pass-through when no LLM is configured.
+    The stage implementations are fixed (CONST-1). The keyword arguments are
+    retained only so existing call sites and the offline test doubles still work
+    (tests pass expander='noop', decomposer='gazetteer', etc. to stay hermetic).
+    Production callers should use the defaults.
 
     ``probe_open_filters`` (live paths only) asks the API to drop any open-set
     filter whose isolated server-side count is 0 — a value that matches no record
-    and would silently zero the query. It costs one cheap count call per open-set
-    filter, so it is off by default (offline/test runs stay hermetic) and enabled by
-    the CLI ``run`` and the eval harness.
+    and would silently zero the query. Off by default; enabled by the CLI and eval.
     """
+    from oppp.normalize.base import get_normalizer
+
     svc = get_service(service)
     norm = get_normalizer(normalizer)
 
@@ -90,17 +93,8 @@ def run_pipeline(
     )
 
 
-def build_langgraph(
-    service: str = "safety",
-    *,
-    expander: str = "llm",
-    enhancer: str = "noop",
-    decomposer: str = "llm",
-    translator: str = "tool",
-    aggregator: str = "llm",
-    normalizer: str = "noop",
-):
-    """Optional LangGraph wiring of the same stages (needs the 'llm' extra)."""
+def build_langgraph(service: str = "pk"):
+    """Optional LangGraph wiring of the fixed stages (needs the 'llm' extra)."""
     try:
         from langgraph.graph import END, START, StateGraph
     except ImportError as e:  # pragma: no cover
@@ -108,13 +102,15 @@ def build_langgraph(
 
     from typing import TypedDict
 
+    from oppp.normalize.base import get_normalizer
+
     svc = get_service(service)
-    norm = get_normalizer(normalizer)
-    exp = get_expander(expander)
-    enh = get_enhancer(enhancer)
-    dec = get_decomposer(decomposer)
-    tr = get_translator(translator)
-    agg = get_aggregator(aggregator)
+    norm = get_normalizer("noop")
+    exp = get_expander("llm")
+    enh = get_enhancer("termite")
+    dec = get_decomposer("llm")
+    tr = get_translator("tool")
+    agg = get_aggregator("llm")
 
     class State(TypedDict, total=False):
         query: str

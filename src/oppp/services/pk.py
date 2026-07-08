@@ -1,18 +1,15 @@
 """PK (Pharmacokinetics) service configuration.
 
-Designed-for service (Safety is the realised scope); the pipeline shape is shared
-and only this data differs. Field set, buckets, facet allow-list, and the always-on
-PK invariants mirror utils/ppendium/prompts.py::pp_base_pk_translation, but as data
-(CONST-12 — service variation lives in config, not stage code).
+The pipeline shape is shared; only this data differs. Field set, buckets,
+facet allow-list, and the always-on PK invariants live here as data (CONST-10).
 """
 
 from __future__ import annotations
 
 from oppp.models import Decomposition, MachineQuery
-from oppp.services.base import FieldSpec, ServiceConfig, service_registry
+from oppp.services.base import EARLY_CONTRIBUTOR_THRESHOLD, FieldSpec, ServiceConfig, service_registry
 
 PK_FIELDS: dict[str, FieldSpec] = {
-    # --- closed-vocabulary (CSV-backed; reuse the shared taxonomies) ---
     "drugs": FieldSpec(
         "drugs",
         "closed",
@@ -29,8 +26,8 @@ PK_FIELDS: dict[str, FieldSpec] = {
         facetable=True,
         display_column="specie",
     ),
-    "route": FieldSpec(
-        "route",
+    "routes": FieldSpec(
+        "routes",
         "closed",
         taxonomy="route",
         facetable=True,
@@ -50,14 +47,12 @@ PK_FIELDS: dict[str, FieldSpec] = {
         facetable=True,
         display_column="documentYear",
     ),
-    # --- open / free-text (no PK-parameter taxonomy ships in inputs/) ---
     "parameter": FieldSpec("parameter", "open", display_column="parameter"),
     "parameterDisplay": FieldSpec("parameterDisplay", "open"),
     "studyGroup": FieldSpec("studyGroup", "open"),
     "age": FieldSpec("age", "open"),
     "dose": FieldSpec("dose", "open", display_column="dose"),
     "duration": FieldSpec("duration", "open"),
-    # --- small enums / boolean ---
     "sex": FieldSpec("sex", "enum", enum_values=["Male", "Female", "Both"]),
     "concomitants": FieldSpec("concomitants", "enum", enum_values=["Fed", "Fasted"]),
     "tissueSpecific": FieldSpec(
@@ -79,7 +74,7 @@ PK_FACETS = {
     "sources",
     "parameters",
     "concomitantsAndClasses",
-    "route",
+    "routes",
     "concomitants",
     "studyGroup",
     "metabolitesEnantiomers",
@@ -90,19 +85,23 @@ PK_FACETS = {
 PK_TERMITE_MAP = {
     "DRUG": "drugs",
     "SPECIES": "species",
-    "ROUTE": "route",
+    "ROUTE": "routes",
     "PARAMETER": "parameter",
     "AGE": "age",
 }
 
+PK_INVARIANTS = [
+    ("concomitants", "Fasted"),
+    ("tissueSpecific", "Not tissue-specific"),
+    ("metabolitesEnantiomers", "Not metabolites/enantiomers"),
+]
+
 
 def _pk_invariants(mq: MachineQuery, decomp: Decomposition) -> MachineQuery:
-    """Apply PK's always-on filters (pp_base_pk_translation → Additional rules):
+    """Apply PK always-on filters.
 
-    every PK query restricts concomitants to Fasted-or-empty, and defaults the
-    measurement to plasma (`tissueSpecific`) and the parent drug
-    (`metabolitesEnantiomers`) unless the question overrides them. The invariants
-    are AND-ed onto the existing boolean tree, keeping it a single legal top constraint.
+    Every PK query restricts concomitants to Fasted-or-empty, and defaults
+    tissueSpecific and metabolitesEnantiomers unless the question overrides them.
     """
     base = mq.query
     if not base:
@@ -142,4 +141,5 @@ def build_pk() -> ServiceConfig:
         facet_allow_list=PK_FACETS,
         termite_type_map=PK_TERMITE_MAP,
         invariants=_pk_invariants,
+        early_contributor_threshold=EARLY_CONTRIBUTOR_THRESHOLD,
     )

@@ -1,7 +1,7 @@
-"""Per-step evaluation against the SME per-stage gold set (docs/sme_stage_cases.csv).
+"""Per-step evaluation against the PK gold set (docs/PPPK.xlsx, PK_Query sheet).
 
 Where the count-based harness (harness.py) scores only the final result count, this
-module scores each pipeline stage against its own column in the per-step gold set, so
+module scores each pipeline stage against its own column in the gold set, so
 a regression can be traced to the stage that caused it (CONST-9). Each stage gets the
 comparator that fits the shape of its output:
 
@@ -10,14 +10,11 @@ comparator that fits the shape of its output:
   * translate (Stage 2) — set F1 over the emitted field names
   * aggregate / machine query (Stage 3) — structural: top operator + matched fields
 
-Free-text nuances that have no canonical form (fragment wording, open-field patterns,
-structure tie-breaks) are out of scope here and handled by the LLM-as-judge (judge.py).
 All comparators run offline against the gold cells.
 """
 
 from __future__ import annotations
 
-import csv
 import json
 import re
 from dataclasses import dataclass, field
@@ -25,7 +22,8 @@ from dataclasses import dataclass, field
 from oppp.config import REPO_ROOT
 from oppp.models import PipelineResult
 
-PERSTEP_GOLD_PATH = REPO_ROOT / "docs" / "sme_stage_cases.csv"
+PPPK_PATH = REPO_ROOT / "docs" / "PPPK.xlsx"
+PERSTEP_SHEET = "PK_Query"
 
 _TYPE_RE = re.compile(r"(\w+)\[(filter|question)\]")
 _FIELD_EQ_RE = re.compile(r"\b([A-Za-z][A-Za-z0-9]+)\s*=")
@@ -42,15 +40,40 @@ class StepScore:
 
 
 def load_perstep_cases() -> list[dict]:
-    with open(PERSTEP_GOLD_PATH, newline="", encoding="utf-8") as fh:
-        return list(csv.DictReader(fh))
+    """Load PK gold cases from PPPK.xlsx PK_Query sheet.
+
+    Returns rows as dicts with at least 'Query', 'Expected Count', and 'Quety number'.
+    Uses openpyxl (optional); falls back to an empty list if not installed.
+    """
+    if not PPPK_PATH.exists():
+        return []
+    try:
+        import openpyxl
+    except ImportError:
+        return []
+    wb = openpyxl.load_workbook(PPPK_PATH, read_only=True, data_only=True)
+    if PERSTEP_SHEET not in wb.sheetnames:
+        return []
+    ws = wb[PERSTEP_SHEET]
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return []
+    headers = [str(h) if h is not None else "" for h in rows[0]]
+    result = []
+    for row in rows[1:]:
+        d = {headers[i]: (row[i] if i < len(row) else None) for i in range(len(headers))}
+        result.append(d)
+    return result
 
 
-def find_perstep_case(nl_query: str) -> dict | None:
-    target = nl_query.strip().lower()
+def find_perstep_case(query_number: int) -> dict | None:
     for row in load_perstep_cases():
-        if (row.get("nl query") or "").strip().lower() == target:
-            return row
+        num = row.get("Quety number") or row.get("Query number")
+        try:
+            if int(num) == query_number:
+                return row
+        except (TypeError, ValueError):
+            pass
     return None
 
 
@@ -156,5 +179,5 @@ def compare_steps(result: PipelineResult, gold_row: dict) -> dict[str, StepScore
     """Score every stage of one run against the gold row's per-stage columns."""
     scores: dict[str, StepScore] = {}
     for column, comparator in _COMPARATORS.items():
-        scores[column] = comparator(result, gold_row.get(column, ""))
+        scores[column] = comparator(result, str(gold_row.get(column, "") or ""))
     return scores

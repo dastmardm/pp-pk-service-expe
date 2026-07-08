@@ -45,7 +45,7 @@ def get_translator(name: str = "tool", **kwargs) -> Translator:
 
 
 # Open fields searched as free-text substrings rather than exact values.
-_REGEX_OPEN_FIELDS = {"studyGroup", "ages"}
+_REGEX_OPEN_FIELDS = {"studyGroup", "age"}
 
 # Minimum fuzzy score for a *non-exact* match to be trusted enough to anchor a
 # MedDRA family rollup. Legitimate anchors land exact/near-exact (>=98); spurious
@@ -118,9 +118,54 @@ _STUDYGROUP_SYNONYMS: dict[str, list[str]] = {
 }
 
 
+def translate_input_filter(
+    component: Component,
+    service: ServiceConfig,
+    normalizer=None,
+    annotations: list[EntityAnnotation] | None = None,
+) -> MachineSubquery | None:
+    """Stage 2A public entry point: translate a closed-set input filter component."""
+    from oppp.normalize.base import get_normalizer as _get_norm
+
+    return translate_component(
+        component,
+        service,
+        normalizer or _get_norm("noop"),
+        llm_select=True,
+        annotations=annotations,
+    )
+
+
+def translate_runtime_filter(
+    component: Component,
+    service: ServiceConfig,
+    runtime_values: list[str],
+) -> MachineSubquery | None:
+    """Stage 2B public entry point: translate a runtime closed-set component.
+
+    `runtime_values` is the sorted unique non-empty value list from fetched
+    datapoints (the RuntimeClosedSet). The component is grounded against this
+    list rather than the full taxonomy CSV.
+    """
+    if component.type is ComponentType.QUESTION:
+        return None
+    frag = component.nl_fragment.strip().lower()
+    matched = [v for v in runtime_values if v.lower() == frag]
+    if not matched:
+        matched = [v for v in runtime_values if frag in v.lower() or v.lower() in frag]
+    value = matched[0] if len(matched) == 1 else (matched if matched else frag)
+    return MachineSubquery(
+        field=component.field,
+        operator=Operator.MATCH,
+        value=value,
+        boolean_group=component.boolean_group,
+        notes="runtime closed-set translation" if matched else "no runtime match; raw fragment",
+    )
+
+
 def translate_one(
     component: Component,
-    service: str = "safety",
+    service: str = "pk",
     normalizer: str = "noop",
     *,
     llm_select: bool = False,

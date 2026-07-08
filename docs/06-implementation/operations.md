@@ -31,6 +31,7 @@ Common commands:
 
 ```bash
 oppp run "AUC of Sunitinib in human after oral"
+oppp run "<question>" --payload-only
 oppp run "<question>" --no-execute
 oppp enhance "AUC of Sunitinib in human after oral"
 oppp decompose "AUC of Sunitinib in human after oral"

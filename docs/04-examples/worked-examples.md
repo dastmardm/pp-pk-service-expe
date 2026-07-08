@@ -22,7 +22,7 @@ Shows a basic PK query with closed-set filtering and an open-set PK parameter.
 [
   { "field": "drugs",       "nl_fragment": "Sunitinib", "type": "filter",   "reason": "The user restricts results to the drug sunitinib.",           "source": "termite:DRUG" },
   { "field": "species",     "nl_fragment": "human",     "type": "filter",   "reason": "The user restricts results to human studies.",                "source": "termite:SPECIES" },
-  { "field": "route",       "nl_fragment": "oral",      "type": "filter",   "reason": "The user restricts results to oral administration.",           "source": "termite:ROUTE" },
+  { "field": "routes",      "nl_fragment": "oral",      "type": "filter",   "reason": "The user restricts results to oral administration.",           "source": "termite:ROUTE" },
   { "field": "parameter",   "nl_fragment": "AUC",       "type": "filter",   "reason": "The user restricts results to AUC PK records.",               "source": "termite:PARAMETER" },
   { "field": "value",       "nl_fragment": "what is AUC", "type": "question", "reason": "The user wants the AUC value reported from the retrieved records.", "source": "llm" }
 ]
@@ -38,7 +38,7 @@ Shows a basic PK query with closed-set filtering and an open-set PK parameter.
 |-------|--------|--------|------------------|
 | drugs | early contributor | `lookup_drugs("Sunitinib")` → Sunitinib (+ salt Sunitinib Malate); use fuzzy | `MATCH drugsFuzzy = ["Sunitinib*"]` |
 | species | early contributor | `lookup_species("human")` → Human | `MATCH species = "Human"` |
-| route | early contributor | `lookup_route("oral")` → Oral | `MATCH route = "Oral"` |
+| route | early contributor | `lookup_route("oral")` → Oral | `MATCH routes = "Oral"` |
 | parameter | runtime closed set | deferred until early-contributor datapoints are fetched |
 
 **Stage 3 — aggregation (with PK invariants)**
@@ -49,7 +49,7 @@ Shows a basic PK query with closed-set filtering and an open-set PK parameter.
     "AND": [
       { "MATCH": { "field": "drugsFuzzy", "value": ["Sunitinib*"] } },
       { "MATCH": { "field": "species",    "value": "Human" } },
-      { "MATCH": { "field": "route",      "value": "Oral" } },
+      { "MATCH": { "field": "routes",     "value": "Oral" } },
       { "OR": [
         { "MATCH": { "field": "concomitants", "value": "Fasted" } },
         { "EMPTY": { "field": "concomitants" } }
@@ -80,7 +80,7 @@ invariants**.
 |-------|--------|------------------|
 | drugs | early contributor | `MATCH drugsFuzzy = "Cabozantinib*"` |
 | species | early contributor | `MATCH species = "Human"` |
-| route | early contributor | `MATCH route = "Oral"` |
+| route | early contributor | `MATCH routes = "Oral"` |
 | parameter | runtime closed set | selected from fetched `parameter` values, e.g. `["Cmax"]` |
 | studyGroup | runtime closed set | selected from fetched `studyGroup` values matching hepatic impairment synonyms |
 | age | runtime closed set | selected from fetched `age` values, e.g. `["Adult"]` |
@@ -106,7 +106,7 @@ invariant.
 [
   { "field": "drugs",        "nl_fragment": "Sunitinib",   "type": "filter",   "reason": "The user restricts results to the drug sunitinib.",      "source": "termite:DRUG" },
   { "field": "species",      "nl_fragment": "rats",        "type": "filter",   "reason": "The user restricts results to rat studies.",             "source": "termite:SPECIES" },
-  { "field": "route",        "nl_fragment": "oral",        "type": "filter",   "reason": "The user restricts results to oral administration.",      "source": "termite:ROUTE" },
+  { "field": "routes",       "nl_fragment": "oral",        "type": "filter",   "reason": "The user restricts results to oral administration.",      "source": "termite:ROUTE" },
   { "field": "concomitants", "nl_fragment": "fasted state","type": "filter",   "reason": "The user specifies fasted concomitant conditions.",       "source": "llm" },
   { "field": "parameter",    "nl_fragment": "half-life",   "type": "filter",   "reason": "The user restricts results to half-life PK records.",     "source": "termite:PARAMETER" },
   { "field": "value",        "nl_fragment": "what is the half-life", "type": "question", "reason": "The user wants the t½ value reported.", "source": "llm" }
@@ -119,7 +119,7 @@ invariant.
 |-------|--------|------------------|
 | drugs | early contributor | `MATCH drugsFuzzy = ["Sunitinib*"]` |
 | species | early contributor | `MATCH species = "Rat"` |
-| route | early contributor | `MATCH route = "Oral"` |
+| route | early contributor | `MATCH routes = "Oral"` |
 | concomitants | early contributor | `MATCH concomitants = "Fasted"` (user stated; invariant not added again) |
 | parameter | runtime closed set | selected from fetched `parameter` values, e.g. `["t½"]` or `["Half-life"]` |
 
@@ -134,7 +134,7 @@ invariant does not add a second concomitants constraint.
     "AND": [
       { "MATCH": { "field": "drugsFuzzy",              "value": ["Sunitinib*"] } },
       { "MATCH": { "field": "species",                 "value": "Rat" } },
-      { "MATCH": { "field": "route",                   "value": "Oral" } },
+      { "MATCH": { "field": "routes",                  "value": "Oral" } },
       { "MATCH": { "field": "concomitants",            "value": "Fasted" } },
       { "MATCH": { "field": "tissueSpecific",          "value": "Not tissue-specific" } },
       { "MATCH": { "field": "metabolitesEnantiomers",  "value": "Not metabolites/enantiomers" } }

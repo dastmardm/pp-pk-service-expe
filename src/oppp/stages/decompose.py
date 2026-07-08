@@ -42,7 +42,12 @@ def get_decomposer(name: str = "llm", **kwargs) -> Decomposer:
     return decomposer_registry.create(name, **kwargs)
 
 
-def decompose(query: str, service: str = "safety", backend: str = "llm") -> Decomposition:
+def decompose_query(query: str, service: ServiceConfig) -> Decomposition:
+    """Stage 1 public entry point: decompose query using the LLM backend."""
+    return get_decomposer("llm").decompose(query, service)
+
+
+def decompose(query: str, service: str = "pk", backend: str = "llm") -> Decomposition:
     """Convenience: run Stage 1 with the named backend."""
     return get_decomposer(backend).decompose(query, get_service(service))
 
@@ -272,36 +277,19 @@ def _detect_questions(lower: str, service: ServiceConfig, comps):
                 )
             )
 
-    if re.search(r"\b(adrs?|adverse|side effect)", lower) and "effects" not in have:
-        add_q(
-            "effects",
-            "adverse effects",
-            "The user wants the adverse effects over the retrieved records.",
-        )
     if re.search(r"at which dose|which dose|\bdose\b", lower):
         add_q("dose", "at which dose", "The user wants the dose reported per record.")
-    if re.search(r"dosing regimen|regimen", lower):
-        add_q("doseType", "dosing regimen", "The user wants the dosing regimen per record.")
-    if re.search(r"\broute\b", lower):
-        add_q("route", "route", "The user wants the route reported per record.")
-    if re.search(r"what (are|is) the drugs|which drugs|drugs causing|drugs treating", lower):
+    if re.search(r"what (are|is) the (drugs|drug)|which drugs|which drug", lower):
         add_q("drugs", "which drugs", "The user wants the list of drugs from the results.")
+    if re.search(r"\bparameter\b|what (are|is) the (parameter|pk)", lower):
+        add_q("parameter", "parameter", "The user wants the PK parameter reported per record.")
 
 
 # ---------------------------------------------------------------------------
 # Annotation-driven reconciliation (runs after any decomposer, in the pipeline)
 # ---------------------------------------------------------------------------
 def _drug_class_for_mechanism(target_surface: str, service: ServiceConfig) -> str | None:
-    """A drug-class label for an '<target> inhibitor(s)' mechanism phrase, or None.
-
-    A phrase like 'inhibitors of kinases' has two readings: the biological *target*
-    (Kinases) and the antineoplastic *drug class* ('Kinase inhibitors'). The gold
-    set resolves it as the drug class (a strictly tighter, intended set). We probe
-    the drugs taxonomy for a class node named '<target-singular> inhibitors' (and a
-    few light variants); if one exists, return its canonical label. Returns None when
-    no such drug class exists, so the target reading is used instead. Field-agnostic:
-    works for any target whose '<x> inhibitors' is a real drug class.
-    """
+    """A drug-class label for an '<target> inhibitor(s)' mechanism phrase, or None."""
     if "drugs" not in service.fields:
         return None
     spec = service.fields["drugs"]
@@ -320,23 +308,12 @@ def _drug_class_for_mechanism(target_surface: str, service: ServiceConfig) -> st
 
 # Closed-vocab fields where a *recognized entity defines the record type* and so must
 # constrain retrieval (a FILTER), even when the question is phrased as "what is the
-# <param>" — the param is both asked-about and filtered-on. A toxicity parameter
-# (NOAEL/NOEL/LD50/MTD/…) names the kind of study record sought; left as a pure
-# question it drops the constraint and the query goes overbroad.
-_RETRIEVAL_DEFINING_FIELDS = ("toxicityParameter",)
+# <param>" — the param is both asked-about and filtered-on.
+_RETRIEVAL_DEFINING_FIELDS: tuple[str, ...] = ()
 
 
 def _reconcile_target_mechanism(decomp, service: ServiceConfig, annotations) -> None:
-    """Resolve a mechanism phrase ('inhibitors of kinases') by its TARGET annotation.
-
-    Two readings, picked deterministically by probing the drugs taxonomy:
-    1. **Drug class** (preferred): if '<target> inhibitors' is a real drug-class node
-       ('Kinase inhibitors'), keep it on `drugs` and rewrite the fragment to the class
-       label — the tighter, intended set.
-    2. **Target** (fallback): otherwise route to `targets` (DrugsTargets entity filter).
-    Only fires on a TARGET annotation whose surface appears in a `drugs`/`targets`
-    filter fragment, so plain drug queries and untagged 'CDk4 inhibitors' are untouched.
-    """
+    """Resolve a mechanism phrase ('inhibitors of kinases') by its TARGET annotation."""
     if "targets" not in service.fields:
         return
     type_map = service.termite_type_map
@@ -374,16 +351,7 @@ def _reconcile_target_mechanism(decomp, service: ServiceConfig, annotations) -> 
 
 
 def _reconcile_retrieval_defining_filters(decomp, service: ServiceConfig, annotations) -> None:
-    """Ensure a recognized retrieval-defining entity (e.g. a tox parameter) is a FILTER.
-
-    'What is the Maximum tolerated dose of X' asks about MTD *and* restricts retrieval
-    to MTD records, but the decomposer often emits only a `toxicityParameter` QUESTION
-    (a reported column), dropping the constraint -> overbroad results. When TERMite
-    recognized an entity for a retrieval-defining field, promote/convert the existing
-    same-field QUESTION to a FILTER (or add a filter if none exists), using the
-    enhancer's preferred label as the fragment. Field-agnostic over
-    ``_RETRIEVAL_DEFINING_FIELDS``; a no-op when the entity is already a filter.
-    """
+    """Ensure a recognized retrieval-defining entity is a FILTER."""
     type_map = service.termite_type_map
     for field in _RETRIEVAL_DEFINING_FIELDS:
         if field not in service.fields:
@@ -397,12 +365,10 @@ def _reconcile_retrieval_defining_filters(decomp, service: ServiceConfig, annota
             continue
         existing = [c for c in decomp.components if c.field == field]
         if any(c.type is ComponentType.FILTER for c in existing):
-            continue  # already a filter
+            continue
         label = labels[0]
         question = next((c for c in existing if c.type is ComponentType.QUESTION), None)
         if question is not None:
-            # Promote the question to a filter on the recognized label; the field is
-            # still reported (the question intent) via Stage 3 facets/displayColumns.
             question.type = ComponentType.FILTER
             question.nl_fragment = label
             question.reason = (
@@ -423,17 +389,7 @@ def _reconcile_retrieval_defining_filters(decomp, service: ServiceConfig, annota
 
 
 def reconcile_with_annotations(decomp, service: ServiceConfig, annotations) -> None:
-    """Deterministic post-decompose reconciliation against the enhancer's annotations.
-
-    The vocab-free LLM decomposer routes by intuition; this pass honours TERMite's
-    structured recognitions rather than trusting the prompt hint alone. Two rules:
-
-    * mechanism phrases -> drug class or `targets` (:func:`_reconcile_target_mechanism`);
-    * recognized retrieval-defining entities (tox parameters) must be FILTERS, not just
-      reported questions (:func:`_reconcile_retrieval_defining_filters`).
-
-    Mutates ``decomp.components`` in place; a no-op without annotations.
-    """
+    """Deterministic post-decompose reconciliation against the enhancer's annotations."""
     if not annotations:
         return
     _reconcile_target_mechanism(decomp, service, annotations)
@@ -473,7 +429,7 @@ class LLMDecomposer:
     def _build_prompt(self, query: str, service: ServiceConfig) -> str:
         fields = ", ".join(service.fields)
         return (
-            "You decompose a pharmacology question into single-field components. "
+            "You decompose a pharmacokinetics (PK) question into single-field components. "
             "This is ONLY segmentation — you split, you do not resolve.\n\n"
             "Hard rules:\n"
             "- Copy the user's own words verbatim into nl_fragment. Do NOT normalize, "
@@ -484,51 +440,17 @@ class LLMDecomposer:
             "by 'and'/'or' (e.g. 'rats or mice'), emit one component per value and put them "
             "in the same boolean_group with the matching op (OR for 'or', AND for 'and').\n"
             "- type='filter' constrains retrieval; type='question' is what the user wants "
-            "reported over the results. Only the bare HEAD NOUN the question asks for is a "
-            "QUESTION — in 'What are the <X> ...', 'which <X> ...', 'at which <X> ...', the "
-            "<X> head noun alone (adverse events, drugs, dose, route, dosing regimen) is the "
-            "reported output. Any clause MODIFYING that head noun ('... causing <effect>', "
-            "'... treating <disease>', '... of <drug>', '... in <species>') is a FILTER on "
-            "its own field, NOT part of the question. Examples: 'What are the drugs causing "
-            "neutropenia in human' -> drugs is a QUESTION, effects='neutropenia' and "
-            "species='human' are FILTERS. 'What are the adverse events of Sunitinib in human' "
-            "-> effects is a QUESTION, drugs='Sunitinib' and species='human' are FILTERS.\n"
-            "- A field mentioned with NO specific value — just asking for it to be reported, "
-            "e.g. a trailing list like '..., at which dose, dosing regimen and route?' — is a "
-            "QUESTION for each such field (dose, doseType, route), NEVER a filter with the "
-            "field name as its value. Do not emit filters like dose='dose' or route='route'; "
-            "those are the columns to report. A field is a FILTER only when the user gives a "
-            "concrete value to match (route='subcutaneous', dose>'100 mg').\n"
-            "- Only emit a `drugs` filter when the user names a SPECIFIC drug or drug "
-            "class (e.g. 'Sunitinib', 'kinase inhibitors', 'monoclonal antibodies'). The "
-            "bare word 'drug'/'drugs' as the generic head noun of the question is NOT a "
-            "drug filter. In 'drugs treating/causing/for/used for <condition>' (e.g. "
-            "'adverse events for drugs treating non small cell lung cancer'), 'drugs' is "
-            "the thing being asked about — route the <condition> to its own field "
-            "(indications for a disease treated, effects for an adverse event caused) and "
-            "make 'drugs' a `question` (the reported output), never a `drugs` filter on the "
-            "carrier phrase.\n"
+            "reported over the results.\n"
             "- Route each fragment to the field that matches its MEANING, not the nearest "
             "keyword. In particular:\n"
-            "    * `effects` is for an adverse event / medical finding the drug CAUSES "
-            "(neutropenia, hepatotoxicity, arrhythmia). A phrase that QUALIFIES the study "
-            "or parameter context — 'related to maternal toxicity', 'under fasted "
-            "conditions', a study-condition note — is free-text `parameterComment` (if that "
-            "field exists), NOT an `effects` filter.\n"
-            "    * Phrasing about how a dose is given — 'single administration', 'single "
-            "dose(s)', 'repeated dose(s)', 'dosing regimen' WITH a value — is the `doseType` "
-            "field, not `studyGroup`/`ages`/free text.\n"
-            "    * 'preclinical' / 'non-clinical' / 'non clinical species' is the boolean "
-            "`isPreclinical` field (value 'true') when it exists — it is NEVER a literal "
-            "`species` value (there is no species named 'non clinical species'). A NAMED "
-            "animal (rat, mouse, monkey, dog) is a `species` filter.\n"
-            "    * A genetic-toxicology / safety ASSAY or FINDING — 'Ames test', "
-            "'mutagenicity', 'genotoxicity', 'clastogenicity', 'positive Ames Test' — is an "
-            "`effects` filter (it is a recorded finding/result), NOT a `toxicityParameter`. "
-            "`toxicityParameter` is reserved for the named quantitative dose endpoints "
-            "(NOAEL, NOEL, LOAEL, LD50, MTD, ED50). Keep the assay/finding wording in "
-            "`effects` and do NOT split a result-qualifier like 'positive' into its own "
-            "filter — 'positive Ames Test' is a single `effects` fragment.\n"
+            "    * `parameter` is for a PK parameter like Cmax, AUC, t1/2, clearance, Vd.\n"
+            "    * `drugs` is for a named drug or drug class.\n"
+            "    * `species` is for an animal or human species.\n"
+            "    * `routes` is for the administration route (oral, IV, intravenous, etc.).\n"
+            "    * `sex` is Male/Female/Both.\n"
+            "    * `isPreclinical` is for preclinical/non-clinical (boolean).\n"
+            "    * `documentYear` is for publication year constraints.\n"
+            "    * `dose` is for a specific dose amount.\n"
             "- If a square-bracketed '[Recognized entities ...]' hint block is present, you "
             "may use it to choose the right field, but still copy the user's surface words.\n\n"
             f"Available fields: {fields}\n\n"

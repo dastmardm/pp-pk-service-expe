@@ -41,6 +41,12 @@ The emitted value is therefore guaranteed to exist in the relevant closed set.
 | `lookup_route` | [route.csv](../../inputs/route.csv) | matching routes |
 | `lookup_sources` | [sources.csv](../../inputs/sources.csv) | sources + FDA/EMA parent |
 
+Inline enum and boolean fields (`sex`, `concomitants`, `tissueSpecific`,
+`metabolitesEnantiomers`, `isPreclinical`, `documentYear`) do not need a lookup
+tool because their complete value set is small enough to inline directly in the
+translator prompt. Stage 2 selects from that inline closed set and validates
+membership before emitting a value.
+
 A uniform tool signature keeps Stage 2 simple:
 
 ```

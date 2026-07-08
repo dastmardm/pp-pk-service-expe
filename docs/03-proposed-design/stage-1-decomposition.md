@@ -88,7 +88,7 @@ The boolean hint is a structured `boolean_group` object:
    zeroes the query.
 2. **Stage 0 TERMite annotation.** After decomposition, each per-field NL
    fragment is passed to the TERMite NER service. TERMite annotations carry a type
-   that maps to a PK field: `DRUG->drugs`, `SPECIES->species`, `ROUTE->route`,
+   that maps to a PK field: `DRUG->drugs`, `SPECIES->species`, `ROUTE->routes`,
    `PARAMETER->parameter`, `AGE->age`. Fragments that receive a TERMite hit have
    their `source` updated to `termite:<TYPE>`, providing high-confidence preferred
    labels that seed Stage 2 translation.
@@ -137,7 +137,7 @@ as a single logical filter in evaluation.
   { "field": "parameter", "nl_fragment": "AUC",               "type": "filter",   "reason": "The user restricts results to AUC records.",                           "source": "termite:PARAMETER" },
   { "field": "drugs",     "nl_fragment": "sunitinib",         "type": "filter",   "reason": "The user restricts results to the drug sunitinib.",                    "source": "termite:DRUG" },
   { "field": "species",   "nl_fragment": "rats",              "type": "filter",   "reason": "The user restricts results to rat studies.",                           "source": "termite:SPECIES" },
-  { "field": "route",     "nl_fragment": "oral",              "type": "filter",   "reason": "The user restricts results to oral administration.",                   "source": "termite:ROUTE" },
+  { "field": "routes",    "nl_fragment": "oral",              "type": "filter",   "reason": "The user restricts results to oral administration.",                   "source": "termite:ROUTE" },
   { "field": "concomitants", "nl_fragment": "fasted",         "type": "filter",   "reason": "The user restricts results to fasted-state records.",                  "source": "llm" },
   { "field": "value",     "nl_fragment": "what is the AUC",  "type": "question", "reason": "The user wants the AUC value reported from the retrieved records.",    "source": "llm" }
 ]

@@ -12,21 +12,21 @@ from oppp.registry import Registry
 
 Bucket = str  # "closed" | "open" | "enum" | "boolean"
 
+EARLY_CONTRIBUTOR_THRESHOLD = 500
+
 
 @dataclass
 class FieldSpec:
-    name: str  # logical field name used in decomposition
+    name: str
     bucket: Bucket
-    taxonomy: str | None = None  # taxonomy index name (closed-vocab)
-    value_field: str | None = None  # API field to emit (defaults to name)
-    fuzzy_wildcard: bool = False  # append trailing '*' (drug-style broadening)
-    entity_name: str | None = None  # route via entityFilters under this entity
+    taxonomy: str | None = None
+    value_field: str | None = None
+    fuzzy_wildcard: bool = False
+    entity_name: str | None = None
     enum_values: list[str] = field(default_factory=list)
     facetable: bool = False
-    display_column: str | None = None  # response column for displayColumns
-    rollup_to_siblings: bool = False  # MedDRA-style: leaf -> parent's children
-    # Curated concepts with no single taxonomy node (e.g. "preclinical species"):
-    # alias (lowercased) -> the member terms to expand to (resolved against the CSV).
+    display_column: str | None = None
+    rollup_to_siblings: bool = False
     curated: dict[str, list[str]] = field(default_factory=dict)
 
     @property
@@ -42,6 +42,11 @@ class ServiceConfig:
     facet_allow_list: set[str] = field(default_factory=set)
     termite_type_map: dict[str, str] = field(default_factory=dict)
     invariants: Callable[[MachineQuery, Decomposition], MachineQuery] | None = None
+    early_contributor_threshold: int = EARLY_CONTRIBUTOR_THRESHOLD
+
+    @property
+    def field_specs(self) -> dict[str, FieldSpec]:
+        return self.fields
 
     def spec(self, field_name: str) -> FieldSpec | None:
         return self.fields.get(field_name)

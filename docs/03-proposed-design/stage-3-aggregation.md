@@ -174,13 +174,13 @@ metadata.
 
 > "What is the AUC of sunitinib in human subjects after oral administration?"
 
-`species` (286 items) and `route` (204 items) are early contributors (below the
+`species` (286 items) and `routes` (204 items) are early contributors (below the
 500-item threshold). `drugs` (5,227 items) is a large closed-set field and is
 deferred.
 
 ```text
 A: MATCH species = "Human"         (early contributor)
-B: MATCH route   = "Oral"          (early contributor)
+B: MATCH routes  = "Oral"          (early contributor)
 questions: dose, parameter         (type: question -> displayColumns)
 deferred:  drugs                   (large closed-set, ≥ threshold)
 ```
@@ -193,7 +193,7 @@ invariants (`concomitants`, `tissueSpecific`, `metabolitesEnantiomers` defaults)
   "query": {
     "AND": [
       { "MATCH": { "field": "species", "value": "Human" } },
-      { "MATCH": { "field": "route",   "value": "Oral" } }
+      { "MATCH": { "field": "routes",  "value": "Oral" } }
     ]
   },
   "displayColumns": ["drug", "dose", "parameter"]

@@ -33,7 +33,7 @@ The evaluator scores per-field Stage-2 output against these PK fields:
 |------------|---------------|-------|
 | `drugsFuzzy` | `drugs` | Compare after removing only API wildcard decoration such as a trailing `*`. |
 | `species` | `species` | Includes class/member expansions. |
-| `route` | `route` | Closed-set route. |
+| `route` | `routes` | Closed-set route; pipeline logical field `route`, API field `routes`. |
 | `parameter` | `parameter` | Runtime/open PK parameter field; compare against post-filter selected subset when rows are available. |
 | `parameterDisplay` | `parameterDisplay` | Runtime/open display label; compare against post-filter subset when rows are available. |
 | `studyGroup` | `studyGroup` | Runtime/open field; synonym-equivalent fetched strings may use the typed judge. |

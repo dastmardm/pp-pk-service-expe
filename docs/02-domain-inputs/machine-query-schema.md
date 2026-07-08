@@ -29,7 +29,7 @@ The request-side field/type catalogue is in
 | field | type |
 |-------|------|
 | `drugs`, `drugsFuzzy`, `drugsAndSynonyms` | `array<string>` |
-| `species`, `routes`, `sources` | `array<string>` |
+| `species`, `routes`, `documentSource` | `array<string>` |
 | `years` | `array<integer>` |
 | `facets`, `displayColumns` | `array<string>` |
 | `sortColumns` | `array<SortColumn>` |
@@ -66,7 +66,7 @@ produces. The interior `AND`/`OR`/`NOT` nodes are the structure Stage 3 builds.
     "AND": [
       { "MATCH": { "field": "drugsFuzzy", "value": ["Sunitinib*"] } },
       { "MATCH": { "field": "species",    "value": "Human" } },
-      { "MATCH": { "field": "route",      "value": "Oral" } }
+      { "MATCH": { "field": "routes",     "value": "Oral" } }
     ]
   }
 }

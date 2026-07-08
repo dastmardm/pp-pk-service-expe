@@ -1,16 +1,13 @@
-"""Evaluation over the per-step SME gold set (docs/sme_stage_cases.csv).
+"""Evaluation over the PK gold set (docs/PPPK.xlsx, PK_Query sheet).
 
 The metric is **result-count accuracy**: each gold row carries the question
-(`nl query`) and an expected number of matching records (`counts`). We translate
-the question, execute the machine query against the PharmaPendium API, read
-`countTotal`, and compare it to `counts`.
+(``Query``) and an expected number of matching records (``Expected Count``). We
+translate the question, execute the machine query against the PharmaPendium API,
+read ``countTotal``, and compare it to the expected count.
 
 Reported: how often the query is valid, how often it executes, exact-count match
 rate, and within-tolerance rate (counts drift as the DB updates, so a tolerance
 band is the realistic signal).
-
-(The per-field gold set `inputs/sme_expected_cases.csv` is still loaded by
-:func:`load_gold_cases` for the side-by-side per-field view of `oppp run --case N`.)
 """
 
 from __future__ import annotations
@@ -21,16 +18,22 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from oppp.config import get_settings
+from oppp.config import REPO_ROOT, get_settings
 from oppp.execute import execute_count
 from oppp.pipeline import run_pipeline
 from oppp.services.base import get_service
 
+PPPK_PATH = REPO_ROOT / "docs" / "PPPK.xlsx"
+PPPK_SHEET = "PK_Query"
 
-def _parse_expected(cell: str) -> int | None:
-    if not cell:
+
+def _parse_expected(cell) -> int | None:
+    if cell is None:
         return None
-    m = re.search(r"\d[\d,]*", cell)
+    s = str(cell).strip()
+    if not s:
+        return None
+    m = re.search(r"\d[\d,]*", s)
     return int(m.group(0).replace(",", "")) if m else None
 
 
@@ -97,20 +100,63 @@ def _mean(xs: list[float]) -> float:
     return sum(xs) / len(xs) if xs else 0.0
 
 
-def load_gold_cases() -> list[dict]:
-    """Per-field SME gold set (inputs/sme_expected_cases.csv).
+def load_pk_cases() -> list[dict]:
+    """Load PK gold cases from PPPK.xlsx PK_Query sheet.
 
-    Carries `query_number` and one column per field; used by `oppp run --case N`
-    for the side-by-side gold-vs-agent per-field comparison (oppp.eval.compare).
+    Returns rows as dicts with keys matching the spreadsheet headers, including
+    'Query', 'Expected Count', and 'Quety number' (sic — typo in the source file).
+    Uses openpyxl; raises FileNotFoundError if the workbook is missing.
     """
-    path = get_settings().inputs_dir / "sme_expected_cases.csv"
-    with open(path, newline="", encoding="utf-8") as fh:
-        return list(csv.DictReader(fh))
+    if not PPPK_PATH.exists():
+        raise FileNotFoundError(
+            f"PK gold set not found: {PPPK_PATH}. Place PPPK.xlsx in the docs/ directory."
+        )
+    try:
+        import openpyxl
+    except ImportError as e:
+        raise RuntimeError(
+            "Reading PPPK.xlsx requires openpyxl: pip install openpyxl"
+        ) from e
+    wb = openpyxl.load_workbook(PPPK_PATH, read_only=True, data_only=True)
+    if PPPK_SHEET not in wb.sheetnames:
+        raise ValueError(
+            f"Sheet '{PPPK_SHEET}' not found in PPPK.xlsx. "
+            f"Available sheets: {wb.sheetnames}"
+        )
+    ws = wb[PPPK_SHEET]
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return []
+    headers = [str(h) if h is not None else "" for h in rows[0]]
+    result = []
+    for row in rows[1:]:
+        d = {headers[i]: (row[i] if i < len(row) else None) for i in range(len(headers))}
+        result.append(d)
+    return result
+
+
+def load_gold_cases() -> list[dict]:
+    """Alias for load_pk_cases() — returns the PK gold set rows as dicts.
+
+    Kept for backward compatibility with existing callers that expect a list of
+    dicts with a 'question' key. Maps 'Query' -> 'question' and
+    'Expected Count' -> 's' for the per-field comparison view.
+    """
+    rows = load_pk_cases()
+    out = []
+    for r in rows:
+        d = dict(r)
+        if "Query" in d and "question" not in d:
+            d["question"] = d["Query"]
+        if "Expected Count" in d and "s" not in d:
+            d["s"] = d["Expected Count"]
+        out.append(d)
+    return out
 
 
 def evaluate(
     *,
-    service: str = "safety",
+    service: str = "pk",
     expander: str = "noop",
     enhancer: str = "noop",
     decomposer: str = "gazetteer",
@@ -121,28 +167,25 @@ def evaluate(
     execute: bool = True,
     limit: int | None = None,
 ) -> EvalReport:
-    """Run each per-step gold question and compare executed `countTotal` to `counts`.
+    """Run each PK gold question and compare executed ``countTotal`` to the expected count.
 
-    Reads the question (`nl query`) and expected count (`counts`) from the per-step
-    gold set `docs/sme_stage_cases.csv` (:func:`load_perstep_cases`). Defaults to the
-    offline doubles (gazetteer + deterministic) so the harness is cheap and hermetic;
-    pass decomposer='llm'/aggregator='llm' to evaluate the production pipeline.
-    `execute=False` skips the API call: only validity is measured.
+    Reads the question (``Query``) and expected count (``Expected Count``) from
+    the PPPK.xlsx PK_Query sheet. Defaults to the offline doubles (gazetteer +
+    deterministic) so the harness is cheap and hermetic; pass decomposer='llm'/
+    aggregator='llm' to evaluate the production pipeline.
+    ``execute=False`` skips the API call: only validity is measured.
     """
-    # The per-step gold set (docs/sme_stage_cases.csv) is owned by oppp.eval.per_step;
-    # reuse its loader so `oppp eval` reads `nl query` / `counts` from that file.
-    from oppp.eval.per_step import load_perstep_cases
-
     svc = get_service(service)
     report = EvalReport(tolerance=tolerance)
-    rows = load_perstep_cases()
+    rows = load_pk_cases()
     if limit:
         rows = rows[:limit]
 
-    for idx, row in enumerate(rows, start=1):
-        q = (row.get("nl query") or "").strip()
+    for row in rows:
+        q = str(row.get("Query") or "").strip()
         if not q:
             continue
+        qnum = str(row.get("Quety number") or row.get("Query number") or "")
         result = run_pipeline(
             q,
             service,
@@ -152,15 +195,13 @@ def evaluate(
             translator=translator,
             aggregator=aggregator,
             normalizer=normalizer,
-            # Only the live path probes open-set filters (it hits the API anyway);
-            # offline eval (execute=False) stays hermetic.
             probe_open_filters=execute,
         )
         cr = CaseResult(
-            query_number=str(idx),
+            query_number=qnum,
             question=q,
             ok=result.ok,
-            expected=_parse_expected(row.get("counts", "")),
+            expected=_parse_expected(row.get("Expected Count")),
             issues=[i.message for i in result.issues],
         )
         if execute and result.ok and result.machine_query is not None:
@@ -216,18 +257,13 @@ def _metric_rows(report: EvalReport) -> list[tuple[str, object]]:
     ]
 
 
-# Section titles that head the parameters / summary / cases blocks on top of the report.
 _PARAMS_TITLE = "Parameters"
 _SUMMARY_TITLE = "Summary"
 _BOLD_FIRST_CELLS = {_PARAMS_TITLE, _SUMMARY_TITLE, CASE_COLUMNS[0]}
 
 
 def _report_blocks(report: EvalReport, run_config: dict | None) -> list[list]:
-    """The top-of-report rows: the run parameters, then the summary metrics.
-
-    Returned as a list of row-lists so both the .xlsx and .csv writers lay the
-    parameters used and the run summary *above* the per-case table.
-    """
+    """The top-of-report rows: the run parameters, then the summary metrics."""
     blocks: list[list] = [[_PARAMS_TITLE]]
     for k, v in (run_config or {}).items():
         blocks.append([k, v])
@@ -244,14 +280,12 @@ def write_report(report: EvalReport, path: str | Path, run_config: dict | None =
 
     The report is a single sheet: the **parameters used** and the **run summary** on
     top, then the per-case table. ``.xlsx`` (the default — a bare path with no suffix
-    becomes ``.xlsx``) needs the optional ``openpyxl`` dependency
-    (``pip install -e '.[report]'``); ``.csv`` uses the stdlib. Creates the parent
-    directory if needed. Raises ``ValueError`` on an unsupported extension and
-    ``RuntimeError`` if ``.xlsx`` is requested without ``openpyxl`` installed.
+    becomes ``.xlsx``) needs the optional ``openpyxl`` dependency; ``.csv`` uses
+    the stdlib. Raises ``ValueError`` on an unsupported extension.
     """
     path = Path(path)
     suffix = path.suffix.lower()
-    if suffix == "":  # default to Excel when no extension is given
+    if suffix == "":
         path = path.with_suffix(".xlsx")
         suffix = ".xlsx"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -273,8 +307,7 @@ def write_report(report: EvalReport, path: str | Path, run_config: dict | None =
             from openpyxl.styles import Font
         except ImportError as e:  # pragma: no cover - optional extra
             raise RuntimeError(
-                "Excel output needs the 'report' extra: pip install -e '.[report]' "
-                "(or `pip install openpyxl`). Or write a .csv instead."
+                "Excel output needs openpyxl: pip install openpyxl"
             ) from e
         wb = Workbook()
         ws = wb.active
@@ -284,7 +317,6 @@ def write_report(report: EvalReport, path: str | Path, run_config: dict | None =
         ws.append(CASE_COLUMNS)
         for row in case_rows:
             ws.append(row)
-        # Bold the section titles and the case-table header.
         for r in ws.iter_rows():
             if r and r[0].value in _BOLD_FIRST_CELLS:
                 for cell in r:

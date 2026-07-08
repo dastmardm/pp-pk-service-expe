@@ -27,8 +27,8 @@ that may be emitted to the API.
 |-------|-------------|------|---------------|------------------|
 | `drugs` / `drugsFuzzy` | [drugs.csv](../../inputs/drugs.csv) | 5,227 | yes (drug -> class via `parent_name`) | `MATCH` (+ trailing `*` for fuzzy drug leaves) |
 | `species` | [species.csv](../../inputs/species.csv) | 286 | yes (class -> members, e.g. Rodent/Primate) | `MATCH` with class/leaf handling |
-| `route` | [route.csv](../../inputs/route.csv) | 204 | flat (+ usage counts) | `MATCH` |
-| `documentSource` / `sources` | [sources.csv](../../inputs/sources.csv) | 56 | yes (doc -> FDA/EMA parent) | `MATCH` |
+| `routes` | [route.csv](../../inputs/route.csv) | 204 | flat (+ usage counts) | `MATCH` |
+| `documentSource` | [sources.csv](../../inputs/sources.csv) | 56 | yes (doc -> FDA/EMA parent) | `MATCH` |
 | `documentYear` | [document_year.csv](../../inputs/document_year.csv) | 118 | flat years/ranges | `MATCH` / `RANGE` / `DATE_RANGE` |
 
 ### Inline closed sets
@@ -89,7 +89,7 @@ bucket each field uses.
 
 | Service | Closed-set filters before API query | Open-set fields |
 |---------|-------------------------------------|-------------------------------------------|
-| PK | `drugs`, `species`, `route`, `documentSource`, `documentYear`, `sex`, `concomitants`, `tissueSpecific`, `metabolitesEnantiomers`, `isPreclinical` | `parameter`, `parameterDisplay`, `studyGroup`, `age`, `dose`, `duration` |
+| PK | `drugs`, `species`, `routes`, `documentSource`, `documentYear`, `sex`, `concomitants`, `tissueSpecific`, `metabolitesEnantiomers`, `isPreclinical` | `parameter`, `parameterDisplay`, `studyGroup`, `age`, `dose`, `duration` |
 
 ### Concrete service configuration
 
@@ -99,8 +99,8 @@ PK emits JSON machine queries:
 |---------------|--------|-------------|-------------------|-----------------|
 | `drugs` | closed | `drugs.csv` | `drugsFuzzy` | facet `drugs`, display `drug` |
 | `species` | closed | `species.csv` | `species` | facet `species`, display `specie` |
-| `route` | closed | `route.csv` | `route` | facet/display `route` |
-| `documentSource` | closed | `sources.csv` | `documentSource` | facet `sources`, display `source` |
+| `route` (logical) | closed | `route.csv` | `routes` (API filter field) | facet/display `route` |
+| `documentSource` | closed | `sources.csv` | `documentSource` (API field) | facet `sources`, display `source` |
 | `documentYear` | closed | `document_year.csv` | `documentYear` | facet/display `documentYear` |
 | `parameter` | open | fetched PK values | post-filter field `parameter` | facet `parameters`, display `parameter` |
 | `parameterDisplay` | open | fetched PK values | post-filter field `parameterDisplay` | none |

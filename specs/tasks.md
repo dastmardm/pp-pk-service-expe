@@ -102,7 +102,7 @@ W1 (root)         — oppp v0.1 PK pipeline
 - **Parent**: W1.1
 - **Children**: none
 - **Owns**: `src/oppp/llm.py`
-- **REQ**: REQ-002, REQ-003
+- **REQ**: REQ-002, REQ-003, NFR-003
 - **After**: W1.1.2
 - **Done-when**: `get_chat_model()` returns a LangChain chat model with temperature 0, `top_p=0`, seed from `LLM_SEED` (default 7); LangChain NOT imported at `import oppp.llm` module load time; compile and ruff pass.
 
@@ -216,14 +216,14 @@ W1 (root)         — oppp v0.1 PK pipeline
 - **Owns**: `src/oppp/stages/aggregate.py`
 - **REQ**: REQ-012, REQ-017, REQ-018
 - **After**: W1.1.1, W1.2.3
-- **Done-when**: `aggregate_query` applies boolean grouping, PK invariants, facets, displayColumns, structural validation; `drop_empty_open_filters` probes and drops zero-count open filters; `apply_post_filters` applies valid runtime selections; ruff pass.
+- **Done-when**: `aggregate_query` applies boolean grouping, PK invariants, facets, displayColumns, structural validation; `drop_empty_open_filters` probes and drops zero-count open filters; `apply_post_filters` applies valid runtime selections and records invalid runtime translations in `issues` without narrowing datapoints; ruff pass.
 
 ### W1.3.6 — Execution (count + rows)
 - **Type**: leaf
 - **Parent**: W1.3
 - **Children**: none
 - **Owns**: `src/oppp/execute.py`
-- **REQ**: REQ-013, REQ-014, REQ-018
+- **REQ**: REQ-013, REQ-014, REQ-018, NFR-004
 - **After**: W1.1.1, W1.2.2
 - **Done-when**: `execute_count` POSTs and reads `data.countTotal`; `execute_rows` paginates until limit/all/error; row unavailability returns `ok=false` with error (no exception); `urllib.request` is only HTTP import; ruff pass.
 
@@ -244,7 +244,7 @@ W1 (root)         — oppp v0.1 PK pipeline
 - **Children**: W1.4.1, W1.4.2, W1.4.3, W1.4.4
 - **Owns**: none
 - **After**: W1.3
-- **Review**: `oppp run --help` contains no `--enhancer`, `--decomposer`, `--translator`, `--aggregator`, `--normalizer`; `oppp dag` output contains all seven stage labels (Stage -1 through Stage 2C).
+- **Review**: `oppp run --help` contains no `--enhancer`, `--decomposer`, `--translator`, `--aggregator`, `--normalizer`; `oppp dag` output contains all eight stage labels (Stage -1, Stage 0, Stage 1, Stage 2A, Stage 3A, Stage 2B, Stage 3B, Stage 2C).
 - **Done-when**: all four child leaves complete; the review assertions above pass.
 
 ### W1.4.1 — Pipeline orchestrator
@@ -254,14 +254,14 @@ W1 (root)         — oppp v0.1 PK pipeline
 - **Owns**: `src/oppp/pipeline.py`, `src/oppp/__init__.py`
 - **REQ**: REQ-001, REQ-018
 - **After**: W1.3.7
-- **Done-when**: `run_pipeline` calls stages in fixed order; `fetch_rows=True` calls `execute_rows` and 2B/2C stubs; no stage method parameter; `build_langgraph()` wraps same fixed stages; ruff pass.
+- **Done-when**: `run_pipeline` calls stages in fixed order; `fetch_rows=True` calls `execute_rows` and 2B/2C stubs; no stage method parameter; `build_langgraph()` exists and returns a callable graph wrapping the same fixed stage functions (behavioral correctness of the LangGraph topology is out of evaluation scope per `specs/evaluation.md`); ruff pass.
 
 ### W1.4.2 — CLI
 - **Type**: leaf
 - **Parent**: W1.4
 - **Children**: none
 - **Owns**: `src/oppp/cli.py`
-- **REQ**: REQ-020
+- **REQ**: REQ-020, NFR-005
 - **After**: W1.4.1
 - **Done-when**: all listed commands exist; none accept `--enhancer`, `--decomposer`, `--translator`, `--aggregator`, `--normalizer`; help text mentions no pluggable backend; ruff pass.
 
@@ -281,7 +281,7 @@ W1 (root)         — oppp v0.1 PK pipeline
 - **Owns**: `src/oppp/dag.py`
 - **REQ**: REQ-022
 - **After**: W1.4.1
-- **Done-when**: `dag.py` exports fixed stage list containing Stage -1, Stage 0, Stage 1, Stage 2A, Stage 3A, Stage 2B, Stage 3B, Stage 2C; no pluggable-backend registry; ruff pass.
+- **Done-when**: `dag.py` exports fixed stage list containing all eight stages (Stage -1, Stage 0, Stage 1, Stage 2A, Stage 3A, Stage 2B, Stage 3B, Stage 2C); no pluggable-backend registry; ruff pass.
 
 ---
 
@@ -335,7 +335,7 @@ W1 (root)         — oppp v0.1 PK pipeline
 - **Parent**: W1.5
 - **Children**: none
 - **Owns**: `tests/conftest.py`
-- **REQ**: REQ-026
+- **REQ**: REQ-026, NFR-002
 - **After**: W1.1.1, W1.1.4
 - **Done-when**: provides `fake_llm_client`, `fake_termite_client`, `mock_api_count_response`, `mock_api_row_response` fixtures; no fixture imports live LangChain or TERMite unconditionally; ruff pass.
 
@@ -427,7 +427,7 @@ W1 (root)         — oppp v0.1 PK pipeline
 - **Owns**: `tests/test_dag.py`
 - **REQ**: REQ-022
 - **After**: none
-- **Done-when**: DAG fixed stage list contains all seven stage labels; no backend registry; `pytest -q tests/test_dag.py` passes.
+- **Done-when**: DAG fixed stage list contains all eight stage labels (Stage -1, Stage 0, Stage 1, Stage 2A, Stage 3A, Stage 2B, Stage 3B, Stage 2C); no backend registry; `pytest -q tests/test_dag.py` passes.
 
 ## Cross-tree dependencies
 - W1.2 after W1.1 — interface: `FieldSpec` and `ServiceConfig` dataclasses (W1.1.1/W1.2.2) consumed by all service leaves.

@@ -9,7 +9,7 @@
 
 ### CONST-2 — TERMite is mandatory
 **Rule.** Stage 0 MUST call TERMite for every full pipeline run and fixed stage inspection command. Missing TERMite credentials or toolkit support is a blocking configuration error, not permission to continue with an empty enhancement.
-**Why.** TERMite supplies preferred labels, entity types, and synonyms that seed Stage 1 routing and Stage 2 translation.
+**Why.** Stage 0 runs over the per-field fragments produced by Stage 1. TERMite supplies preferred labels, entity types, and synonyms that the post-Stage-1 `reconcile_with_annotations` pass uses to adjust routing (e.g. promoting a PK parameter from `question` to `filter`), and that seed Stage 2 translation pools. Absent TERMite, brand names, scientific names, and retrieval-defining PK parameters can be silently lost before translation.
 **Breaks if violated.** Brand names, scientific names, and retrieval-defining PK parameters can be silently lost before translation.
 
 ### CONST-3 — Closed sets are authoritative

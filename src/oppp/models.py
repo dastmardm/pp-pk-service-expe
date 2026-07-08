@@ -1,9 +1,4 @@
-"""Pydantic contracts shared across all stages.
-
-These are the typed boundaries the design mandates (docs/06-implementation):
-every LLM step emits one of these validated objects rather than free text, and
-every stage hands the next a typed value.
-"""
+"""Pydantic contracts shared across all stages."""
 
 from __future__ import annotations
 
@@ -14,15 +9,11 @@ from pydantic import BaseModel, Field
 
 
 class ComponentType(StrEnum):
-    """How a decomposed component is used (docs/03/stage-1)."""
-
-    FILTER = "filter"  # -> becomes a machine subquery, constrains retrieval
-    QUESTION = "question"  # -> answered over the retrieved records (facet/display)
+    FILTER = "filter"
+    QUESTION = "question"
 
 
 class Operator(StrEnum):
-    """Machine-query constraint types (docs/02/machine-query-schema)."""
-
     MATCH = "MATCH"
     OR = "OR"
     AND = "AND"
@@ -39,8 +30,6 @@ class BooleanOp(StrEnum):
 
 
 class BooleanGroup(BaseModel):
-    """Marks several same-field components that must combine with one operator."""
-
     id: str
     op: BooleanOp = BooleanOp.OR
 
@@ -49,13 +38,11 @@ class BooleanGroup(BaseModel):
 # Stage 1 output
 # ---------------------------------------------------------------------------
 class Component(BaseModel):
-    """One single-field fragment produced by decomposition (Stage 1)."""
-
     field: str
     nl_fragment: str
     type: ComponentType
     reason: str = Field(description="One-sentence justification for field+type.")
-    source: str = "llm"  # e.g. "termite:DRUG" | "gazetteer:species" | "llm"
+    source: str = "llm"
     boolean_group: BooleanGroup | None = None
 
 
@@ -77,114 +64,67 @@ class Decomposition(BaseModel):
 # Grounding / lookup
 # ---------------------------------------------------------------------------
 class GroundingHit(BaseModel):
-    name: str  # preferred label sent to the API
+    name: str
     id: str | None = None
     parent_id: str | None = None
     parent_name: str | None = None
     score: float = 1.0
-    match: str = "exact"  # exact | fuzzy | phonetic | termite | expand
+    match: str = "exact"
     count: int | None = None
 
 
 class Grounding(BaseModel):
     matched: list[GroundingHit] = Field(default_factory=list)
-    expanded_from: str | None = None  # "class" | "term" | None
+    expanded_from: str | None = None
     confidence: float = 1.0
 
 
 class TermSelection(BaseModel):
-    """LLM choice of the final vocabulary term(s) from a candidate pool (Stage 2).
-
-    The model is shown the user's phrase plus the taxonomy candidates surfaced by
-    exact/fuzzy lookup, and returns the subset that best matches the intent.
-    """
-
-    selected: list[str] = Field(
-        default_factory=list, description="Chosen terms, using exact candidate spellings."
-    )
-    reason: str = Field(default="", description="One-sentence justification for the choice.")
+    selected: list[str] = Field(default_factory=list)
+    reason: str = Field(default="")
 
 
 # ---------------------------------------------------------------------------
-# Stage -1 — query expansion (pre-enhancement)
+# Stage -1 — query expansion
 # ---------------------------------------------------------------------------
 class QueryExpansion(BaseModel):
-    """LLM structured output for the expansion stage.
-
-    The model rewrites the user's question into a clearer, fully-spelled-out form
-    (abbreviations expanded, phrasing clarified) WITHOUT adding, dropping, or
-    changing any entity, value, or filter. ``expanded`` is the rewritten text.
-    """
-
     expanded: str = Field(description="The clarified, abbreviation-expanded question.")
-    reason: str = Field(default="", description="One-sentence note on what was expanded.")
+    reason: str = Field(default="")
 
 
 class ExpandedQuery(BaseModel):
-    """Output of the optional Stage -1 expander.
-
-    ``text`` is the (possibly rewritten) query that Stage 0 should read;
-    ``original`` preserves the user's exact words for the audit record.
-    """
-
     text: str
     original: str
     source: str = "noop"
 
 
 # ---------------------------------------------------------------------------
-# Stage 0 — enhancement (optional, pre-decomposition)
+# Stage 0 — enhancement
 # ---------------------------------------------------------------------------
 class EntityAnnotation(BaseModel):
-    """One entity the enhancer (e.g. TERMite) recognized in the raw query.
-
-    ``synonyms`` is the enhancer's full equivalent-term set for the entity (TERMite's
-    ``publicSynonyms``: brand names, scientific names, abbreviations, spelling/word-order
-    variants). Grounding treats ``[label, *synonyms]`` as one search pool so a synonym
-    that *is* a controlled-vocab term still resolves even when the preferred label is not.
-    """
-
-    surface: str  # span as it appears in the query
-    label: str  # preferred/normalized label
-    entity_type: str | None = None  # e.g. DRUG | SPECIES | ADVERSE_EVENT
-    synonyms: list[str] = Field(default_factory=list)  # enhancer's equivalent-term set
+    surface: str
+    label: str
+    entity_type: str | None = None
+    synonyms: list[str] = Field(default_factory=list)
 
 
 class EnhancedQuery(BaseModel):
-    """Output of the optional Stage-0 enhancer.
-
-    ``text`` is the query the decomposer should read (unchanged for the no-op
-    enhancer; possibly annotated with a hints block by TERMite). ``annotations``
-    carries the structured recognitions for auditing and as decomposer hints.
-    """
-
     text: str
     annotations: list[EntityAnnotation] = Field(default_factory=list)
     source: str = "noop"
 
 
 # ---------------------------------------------------------------------------
-# Stage 3 — aggregation plan (LLM-decided boolean structure)
+# Stage 3 — aggregation plan
 # ---------------------------------------------------------------------------
 class FieldCombine(BaseModel):
-    """How to combine the (possibly multiple) values of one field."""
-
     field: str
-    op: BooleanOp = BooleanOp.OR  # OR within a field by default
-    negate: bool = False  # wrap the field's constraint in NOT
+    op: BooleanOp = BooleanOp.OR
+    negate: bool = False
 
 
 class AggregationPlan(BaseModel):
-    """LLM-decided global combination logic for the machine query (Stage 3).
-
-    The model sees the decomposition (the user's intent) plus every machine
-    subquery and decides only the *structure*: how to combine values within each
-    field and how to combine fields together. Concrete constraint JSON is still
-    rendered (and validated) deterministically from this plan, so the output is
-    always a legal query.
-    """
-
-    top_op: BooleanOp = BooleanOp.AND  # how to combine the per-field constraints
+    top_op: BooleanOp = BooleanOp.AND
     fields: list[FieldCombine] = Field(default_factory=list)
     facets: list[str] = Field(default_factory=list)
     display_columns: list[str] = Field(default_factory=list)
@@ -195,27 +135,23 @@ class AggregationPlan(BaseModel):
 # Stage 2 output
 # ---------------------------------------------------------------------------
 class MachineSubquery(BaseModel):
-    """A single filter: (operator, field, value). The atom of the machine query."""
-
     field: str
     operator: Operator = Operator.MATCH
-    value: Any = None  # str | list[str] | {min,max} | bool depending on operator
-    pattern: str | None = None  # for REGEX
+    value: Any = None
+    pattern: str | None = None
     boolean_group: BooleanGroup | None = None
-    entity_name: str | None = None  # if set, Stage 3 routes via entityFilters
-    collapse_to: str | None = None  # canonical term to fall back to under API budget
+    entity_name: str | None = None
+    collapse_to: str | None = None
     grounding: Grounding | None = None
     notes: str | None = None
-    dropped: bool = False  # ungroundable closed-vocab term -> excluded from the query (CONST-1)
+    dropped: bool = False
 
     def value_count(self) -> int:
-        """How many API constraints this filter contributes (one per MATCH value)."""
         if self.operator is Operator.MATCH:
             return len(self.value) if isinstance(self.value, list) else 1
         return 1
 
     def to_constraint(self) -> dict[str, Any]:
-        """Serialize this single filter to the API constraint shape."""
         op = self.operator
         if op is Operator.REGEX:
             return {"REGEX": {"field": self.field, "pattern": self.pattern}}
@@ -231,7 +167,6 @@ class MachineSubquery(BaseModel):
             return {"DATE_RANGE": dr}
         if op is Operator.EMPTY:
             return {"EMPTY": {"field": self.field}}
-        # MATCH (default)
         return {"MATCH": {"field": self.field, "value": self.value}}
 
 
@@ -239,8 +174,6 @@ class MachineSubquery(BaseModel):
 # Stage 3 output
 # ---------------------------------------------------------------------------
 class MachineQuery(BaseModel):
-    """The final request body posted to the PharmaPendium API."""
-
     query: dict[str, Any] = Field(default_factory=dict)
     entityFilters: list[dict[str, Any]] = Field(default_factory=list)
     facets: list[str] = Field(default_factory=list)
@@ -263,13 +196,50 @@ class MachineQuery(BaseModel):
 
 
 class ValidationIssue(BaseModel):
-    level: str  # "error" | "warning"
+    level: str
     message: str
 
 
-class PipelineResult(BaseModel):
-    """Everything one full run produced — auditable end to end."""
+# ---------------------------------------------------------------------------
+# Execution results
+# ---------------------------------------------------------------------------
+class ExecutionResult(BaseModel):
+    ok: bool
+    count_total: int | None = None
+    status: int | None = None
+    error: str | None = None
 
+
+class RowExecutionResult(BaseModel):
+    ok: bool
+    count_total: int | None = None
+    datapoints: list[dict[str, Any]] = Field(default_factory=list)
+    status: int | None = None
+    error: str | None = None
+    page_state: dict[str, Any] | None = None
+
+
+# ---------------------------------------------------------------------------
+# Runtime post-filtering contracts
+# ---------------------------------------------------------------------------
+class RuntimeClosedSet(BaseModel):
+    field: str
+    values: list[str] = Field(default_factory=list)
+
+
+class PostFilterResult(BaseModel):
+    field: str
+    pool: str
+    runtime_closed_set: list[str] = Field(default_factory=list)
+    selected: list[str] = Field(default_factory=list)
+    valid: bool = True
+    reason: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Pipeline result
+# ---------------------------------------------------------------------------
+class PipelineResult(BaseModel):
     query: str
     service: str
     expanded: ExpandedQuery | None = None
@@ -277,7 +247,14 @@ class PipelineResult(BaseModel):
     decomposition: Decomposition
     subqueries: list[MachineSubquery] = Field(default_factory=list)
     machine_query: MachineQuery | None = None
+    execution: ExecutionResult | None = None
     issues: list[ValidationIssue] = Field(default_factory=list)
+    # Row-mode fields (populated when fetch_rows=True)
+    row_execution: RowExecutionResult | None = None
+    runtime_closed_sets: list[RuntimeClosedSet] = Field(default_factory=list)
+    runtime_translations: list[PostFilterResult] = Field(default_factory=list)
+    filtered_datapoints: list[dict[str, Any]] = Field(default_factory=list)
+    final_filtered_count: int | None = None
 
     @property
     def ok(self) -> bool:

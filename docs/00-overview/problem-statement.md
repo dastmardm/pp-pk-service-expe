@@ -36,7 +36,7 @@ The redesign hinges on one observation: not all fields are the same.
 
 1. **Closed-set fields** — fields whose complete set of legal values is known
    before query execution, either from CSV taxonomies (`drugs`, `species`,
-   `route`, `sources`, `documentYear`) or from inline enums/booleans (`sex`,
+   `routes`, `documentSource`, `documentYear`) or from inline enums/booleans (`sex`,
    `concomitants`, `tissueSpecific`, `metabolitesEnantiomers`, `isPreclinical`).
    These values are selected by grounding against the set, and hierarchy in the
    CSVs can be used for class or rollup expansion.

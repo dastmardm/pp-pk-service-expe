@@ -5,10 +5,6 @@ its chat model here so credentials, provider wiring, and structured-output
 behaviour live in one place. The model is created lazily from the project .env
 (Portkey settings), so importing this module never requires creds — only calling
 :func:`get_chat_model` does.
-
-Tests stay hermetic by selecting the offline doubles of each stage rather than
-mocking this module, but a fake structured-output callable can also be injected
-into a stage directly (see the stage constructors).
 """
 
 from __future__ import annotations
@@ -16,14 +12,6 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any
 
-# Fixed decoding seed for every LLM call. Determinism knobs, strongest first:
-#   * temperature=0   — greedy decoding (no sampling)
-#   * top_p=0         — collapse the nucleus to the single top token
-#   * seed=<fixed>    — pin the provider's RNG for what randomness remains
-# Even together these are best-effort, not a guarantee: hosted models still drift
-# run-to-run from batched-GPU float non-associativity, MoE routing, and provider
-# load-balancing. They remove every source of variance we control. Overridable via
-# LLM_SEED so a run can be re-seeded deliberately.
 _DEFAULT_SEED = 7
 
 
@@ -35,11 +23,8 @@ class LLMUnavailable(RuntimeError):
 def get_chat_model(model: str | None = None, temperature: float = 0.0):
     """Build a LangChain chat model via Portkey. Cached per (model, temperature).
 
-    Configured for maximum reproducibility the provider allows: temperature=0,
-    top_p=0, and a fixed seed (see module notes). Raises LLMUnavailable with an
-    actionable message when PORTKEY_* settings are missing or the 'llm' extra is not
-    installed, so callers can surface a clear error instead of an import/attribute
-    failure.
+    Raises LLMUnavailable when PORTKEY_* settings are missing or the 'llm' extra
+    is not installed, so callers can surface a clear error.
     """
     from oppp.config import get_settings, load_dotenv_if_present
 
@@ -47,8 +32,7 @@ def get_chat_model(model: str | None = None, temperature: float = 0.0):
     s = get_settings()
     if not (s.portkey_api_key and s.portkey_endpoint):
         raise LLMUnavailable(
-            "LLM stage needs PORTKEY_* settings in .env (use the offline doubles "
-            "for hermetic runs: decomposer='gazetteer', aggregator='deterministic')."
+            "LLM stage needs PORTKEY_ENDPOINT and PORTKEY_API_KEY in .env"
         )
     try:
         from langchain_openai import ChatOpenAI

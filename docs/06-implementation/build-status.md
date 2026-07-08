@@ -35,6 +35,7 @@ uv venv && uv pip install -e '.[dev]'        # or: python -m venv .venv && .venv
 
 # full pipeline on one question
 oppp run "AUC of Sunitinib in human after oral administration"
+oppp run "AUC of Sunitinib in human after oral administration" --payload-only
 
 # isolate a single stage (the design's per-step isolation)
 oppp enhance "AUC of Sunitinib in human after oral"          # Stage 0 TERMite

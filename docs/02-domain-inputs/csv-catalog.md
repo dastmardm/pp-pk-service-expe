@@ -12,7 +12,7 @@ The hierarchical ones share the schema `name, id, parent_id, parent_name`.
 |------|------|--------|-------------|-----------|
 | [drugs.csv](../../inputs/drugs.csv) | 5,227 | name,id,parent_id,parent_name | `drugs`, `drugsFuzzy` | drug → drug class (parent) |
 | [species.csv](../../inputs/species.csv) | 286 | name,id,parent_id,parent_name | `species` | class (Rodent, Primate, Fish…) → species |
-| [route.csv](../../inputs/route.csv) | 204 | name,id,count | `route` | flat (+ corpus `count`) |
+| [route.csv](../../inputs/route.csv) | 204 | name,id,count | `routes` | flat (+ corpus `count`) |
 | [sources.csv](../../inputs/sources.csv) | 56 | name,id,parent_id,parent_name | `documentSource` | document → FDA/EMA parent |
 | [document_year.csv](../../inputs/document_year.csv) | 118 | name,id,count | `documentYear` | flat; mixes single years and ranges ("1911 - 1920") |
 
