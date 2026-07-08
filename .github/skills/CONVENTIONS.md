@@ -59,11 +59,10 @@ given arguments, as if the user had typed it. It is **not** narrative — write 
 verbatim, on its own line, with no surrounding prose, so it is recognised.
 
 Current uses: **none.** No skill currently emits an `EXECUTE_COMMAND` directive — the
-mechanism remains defined for any future skill that needs to chain automatically, and
-`/mdflow` still recognises it if one does. Every present hand-off is a **human
-checkpoint** instead: a skill ends with prose (`Next step: …`) so the chain pauses for
-review rather than auto-advancing (e.g. `/mdtechnical` after a docs clarification,
-`/mdevaluation` after writing its gap report).
+mechanism remains defined for any future skill that needs to chain automatically. Every
+present hand-off is a **human checkpoint** instead: a skill ends with prose (`Next step: …`)
+so the chain pauses for review rather than auto-advancing (e.g. `/mdtechnical` after a
+docs clarification, `/mdevaluation` after writing its gap report).
 
 ---
 
@@ -133,7 +132,6 @@ earlier skill to run first. The canonical order:
 | `mddocs` | `./docs/` | — |
 | `mdresearch` | data source(s) + the project | — (writes its insight under `./docs/`) |
 | `mdrevdocs` | the source code | — (reverse-engineers `./docs/` from code) |
-| `mdflow` | a DAG-of-skills markdown file | — |
 
 ---
 
@@ -158,27 +156,27 @@ derived file's favour.
 ## Interactive vs autonomous skills
 
 Some skills are designed to **converse with the human** mid-run; others run to
-completion **unattended**. The distinction matters because `/mdflow` — and any unattended
-or parallel invocation — cannot relay a question to the user from inside a running skill.
+completion **unattended**. The distinction matters because any unattended or parallel
+invocation cannot relay a question to the user from inside a running skill.
 
 - **Autonomous** (never need the human to proceed once started): `mdimplement`,
-  `mdevaluation`, `mdgit`, `mdflow`, `mddocs`, `mdresearch`, and `mdrevdocs`. They may
-  ask **once, up front** if a required input is genuinely missing, but they do not block mid-run.
+  `mdevaluation`, `mdgit`, `mddocs`, `mdresearch`, and `mdrevdocs`. They may ask
+  **once, up front** if a required input is genuinely missing, but they do not block mid-run.
 - **Interactive** (designed to clarify with the human as they work): `mdtechnical` (the
   clarify-in-docs loop) and `mdcritique` (its `QUESTION` findings).
 
-**Autonomous-mode contract.** When an interactive skill is run unattended — under
-`/mdflow`, inside a dispatched subagent, or when the user says "don't stop to ask" — it
-must **not block**. It records each unresolved ambiguity as a structured deferral
-(`mdtechnical` → `specs/product.md` `## Open Questions`; `mdcritique` → `QUESTION` findings),
-continues with everything that *is* unambiguous, and surfaces the full deferral list in
-its final report. It never invents an answer and bakes it into an artefact. (`mdtechnical`
-already does this when the human declines to record a clarification; the contract
-generalises that behaviour to every unattended run.)
+**Autonomous-mode contract.** When an interactive skill is run unattended — inside a
+dispatched subagent, or when the user says "don't stop to ask" — it must **not block**.
+It records each unresolved ambiguity as a structured deferral (`mdtechnical` →
+`specs/product.md` `## Open Questions`; `mdcritique` → `QUESTION` findings), continues
+with everything that *is* unambiguous, and surfaces the full deferral list in its final
+report. It never invents an answer and bakes it into an artefact. (`mdtechnical` already
+does this when the human declines to record a clarification; the contract generalises that
+behaviour to every unattended run.)
 
-**Write scopes (for `/mdflow` parallel-eligibility).** Two branches are write-disjoint —
-hence safe to run concurrently — only if their write scopes below do not overlap. A
-shared **index/registry file** (e.g. the `docs/` index) is a *convergent* file (see Work
+**Write scopes (for parallel-eligibility).** Two branches are write-disjoint — hence safe
+to run concurrently — only if their write scopes below do not overlap. A shared
+**index/registry file** (e.g. the `docs/` index) is a *convergent* file (see Work
 Breakdown Structure → Convergent files): when parallel branches each need to register an
 entry, that single write is **serialised** as a join step, not raced.
 
@@ -192,7 +190,6 @@ entry, that single write is **serialised** as a join step, not raced.
 | `mdcritique` | `docs/**` only (audits `docs/` for consistency and reflects resolutions back into it; reads and writes nothing outside `docs/`) |
 | `mdimplement` | source code, the env template, migrations (never git) — only to conform code to `docs/`-derived intent, never to originate a content change |
 | `mdgit` | git refs / index only — no working-tree file writes |
-| `mdflow` | nothing of its own (it dispatches other skills) |
 
 ---
 

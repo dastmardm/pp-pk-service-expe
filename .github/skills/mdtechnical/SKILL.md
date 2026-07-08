@@ -122,8 +122,8 @@ either: leave it as an `## Open Questions` entry in `specs/product.md`. A spec m
 never assert something `./docs/` does not.)
 
 **Running unattended.** This clarify loop is interactive. When `/mdtechnical` is run
-without a human to answer — under `/mdflow`, in a dispatched subagent, or when told not to
-stop — treat every ambiguity as if the human were unavailable: do **not** block, record
+without a human to answer — in a dispatched subagent, or when told not to stop — treat
+every ambiguity as if the human were unavailable: do **not** block, record
 it as an `## Open Questions` entry, proceed from what `./docs/` unambiguously states, and
 list all deferrals in the final report (`../CONVENTIONS.md` → Interactive vs autonomous
 skills).
@@ -476,7 +476,7 @@ needed — so the fix belongs upstream, in `./docs/`, never in `specs/`:
 - **Stop and alert the user:** because `./docs/` has now changed, the specs just
   generated are stale and **`/mdtechnical` must be re-run from scratch** against
   the updated `./docs/`. State clearly that you are not continuing the chain — the
-  user (or `/mdflow`) must restart `/mdtechnical`.
+  user must restart `/mdtechnical`.
 
 **Running unattended:** do not block — record each detected gap and the exact
 `./docs/` change it implies in the final report, apply only docs edits that need no
