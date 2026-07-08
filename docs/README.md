@@ -27,7 +27,7 @@ constraints when the closed branch is still too large to fetch.
 | [domain.md](domain.md) | PharmaPendium API payload, field taxonomy, CSV inputs, and PK invariants. |
 | [pipeline.md](pipeline.md) | Fixed stage design, grounding, normalization, and aggregation behavior. |
 | [examples.md](examples.md) | Representative end-to-end PK query traces. |
-| [evaluation.md](evaluation.md) | Gold workbook and exact-count evaluation contract. |
+| [evaluation.md](evaluation.md) | `PK_Query` sheet and expected-row-count evaluation contract. |
 | [implementation.md](implementation.md) | Package modules, commands, configuration, UI, and implementation conventions. |
 
 ## Common commands

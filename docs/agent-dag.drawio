@@ -18,10 +18,10 @@
         <mxCell id="expand" value="&lt;b&gt;Query expansion&lt;/b&gt;&lt;br&gt;Clarify abbreviations while preserving meaning." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EAF2FF;strokeColor=#2F6FDB;fontColor=#17324D;align=left;verticalAlign=top;spacing=12;fontSize=14;arcSize=8;" vertex="1" parent="1">
           <mxGeometry x="310" y="160" width="200" height="95" as="geometry"/>
         </mxCell>
-        <mxCell id="decompose" value="&lt;b&gt;Query decomposition&lt;/b&gt;&lt;br&gt;One component per field; filter vs question." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F2EEFF;strokeColor=#6B4FD3;fontColor=#2E245F;align=left;verticalAlign=top;spacing=12;fontSize=14;arcSize=8;" vertex="1" parent="1">
+        <mxCell id="decompose" value="&lt;b&gt;Query decomposition&lt;/b&gt;&lt;br&gt;One component per field with nl_fragment, type, and reason." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F2EEFF;strokeColor=#6B4FD3;fontColor=#2E245F;align=left;verticalAlign=top;spacing=12;fontSize=14;arcSize=8;" vertex="1" parent="1">
           <mxGeometry x="560" y="160" width="200" height="95" as="geometry"/>
         </mxCell>
-        <mxCell id="termite" value="&lt;b&gt;TERMite enrichment&lt;/b&gt;&lt;br&gt;Entity labels, synonyms, and types for decomposed fragments." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EAF7F7;strokeColor=#168B8B;fontColor=#123A3A;align=left;verticalAlign=top;spacing=12;fontSize=14;arcSize=8;" vertex="1" parent="1">
+        <mxCell id="termite" value="&lt;b&gt;TERMite enrichment&lt;/b&gt;&lt;br&gt;Run on each nl_fragment in its selected field context." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EAF7F7;strokeColor=#168B8B;fontColor=#123A3A;align=left;verticalAlign=top;spacing=12;fontSize=14;arcSize=8;" vertex="1" parent="1">
           <mxGeometry x="810" y="160" width="220" height="95" as="geometry"/>
         </mxCell>
         <mxCell id="early_translate" value="&lt;b&gt;Small closed / early translation&lt;/b&gt;&lt;br&gt;Ground closed fields with &amp;lt;1000 values." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F6F1;strokeColor=#23856D;fontColor=#12342D;align=left;verticalAlign=top;spacing=12;fontSize=14;arcSize=8;" vertex="1" parent="1">
@@ -83,7 +83,7 @@
         <mxCell id="api" value="&lt;b&gt;PharmaPendium API&lt;/b&gt;&lt;br&gt;countTotal, datapoints or rows, pageState." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EEF2F4;strokeColor=#60717C;fontColor=#25333A;align=left;verticalAlign=top;spacing=12;fontSize=13;arcSize=8;" vertex="1" parent="1">
           <mxGeometry x="480" y="820" width="250" height="120" as="geometry"/>
         </mxCell>
-        <mxCell id="evaluation" value="&lt;b&gt;Evaluation&lt;/b&gt;&lt;br&gt;PPPK.xlsx PK_Query sheet; compare final count exactly to Expected Count." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FDF7FF;strokeColor=#9256C9;fontColor=#3F2457;align=left;verticalAlign=top;spacing=12;fontSize=13;arcSize=8;" vertex="1" parent="1">
+        <mxCell id="evaluation" value="&lt;b&gt;Evaluation&lt;/b&gt;&lt;br&gt;PK_Query only; compare final row count exactly to Expected Count." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FDF7FF;strokeColor=#9256C9;fontColor=#3F2457;align=left;verticalAlign=top;spacing=12;fontSize=13;arcSize=8;" vertex="1" parent="1">
           <mxGeometry x="150" y="820" width="270" height="120" as="geometry"/>
         </mxCell>
 

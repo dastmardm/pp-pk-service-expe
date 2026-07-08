@@ -109,7 +109,7 @@ filters unless the user also uses them to restrict retrieval.
 | `inputs/fields.csv` | Response/display field catalog. |
 | `inputs/query_criteria_fields.csv` | Request-side criteria and types. |
 | `inputs/enums.csv` | API enum cross-checks, including fuzzy lookup taxonomy values. |
-| `docs/PPPK.xlsx` | SME PK gold workbook and PK parameter reference sheets. |
+| `docs/PPPK.xlsx` | SME PK evaluation workbook; automated evaluation uses only the `PK_Query` sheet. |
 
 CSV-backed closed fields emit preferred labels from the `name` column. The
 `id`, `parent_id`, and `parent_name` columns provide stable keys and hierarchy

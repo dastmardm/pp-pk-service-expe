@@ -23,8 +23,8 @@ been executed.
 | Step | Responsibility |
 |------|----------------|
 | Query expansion | Rewrite the question for clarity and abbreviation expansion while preserving meaning. |
-| Query decomposition | Split the expanded question into one component per field, classify each component as `filter` or `question`, and preserve field-level boolean hints. |
-| TERMite enrichment | Enrich decomposed fragments with entity surfaces, preferred labels, synonyms, and entity types. |
+| Query decomposition | Split the expanded question into one component per field, classify each component as `filter` or `question`, and emit `field`, `nl_fragment`, `type`, `reason`, and field-level boolean hints. |
+| TERMite enrichment | Apply TERMite to each decomposed component's `nl_fragment` using that component's `field` as the enrichment context. |
 | Small-closed/early translation | Ground CSV-backed closed fields whose current value set has fewer than `1000` items and leave all other filters pending. |
 | Early aggregation and count | Assemble the early API query, apply PK invariants, validate it, and read `data.countTotal`. |
 | Small early result | When the early count is below `1000`, fetch datapoints for the early query and apply pending filters locally. |
@@ -59,7 +59,9 @@ the same field. A user-supplied invariant field wins for that field.
 
 Decomposition is vocab-free for value selection. It routes text spans to fields
 using the field catalog and user wording, but it does not choose taxonomy values.
-Components have:
+Each component carries the selected `field`, the natural-language fragment for
+that field, the component `type`, and a `reason` explaining why the fragment
+belongs to that field. Components have:
 
 ```json
 {
@@ -72,6 +74,10 @@ Components have:
 }
 ```
 
+The `field` value is the field context for TERMite enrichment. TERMite is applied
+to the component's `nl_fragment` in that field context, while `reason` is kept as
+the audit trail for the field assignment.
+
 Only `type: "filter"` components become retrieval filters. `type: "question"`
 components describe what to report from retrieved records and guide facets or
 display columns.
@@ -82,8 +88,9 @@ filter and carries the reporting intent separately.
 
 ## TERMite enrichment
 
-TERMite enrichment attaches annotations to the decomposed components. The
-annotation trace preserves:
+TERMite enrichment attaches annotations to the decomposed components. For each
+component, TERMite receives the component `nl_fragment` and the selected `field`
+from decomposition. The annotation trace preserves:
 
 - source surface from the user question;
 - preferred entity label;
@@ -91,8 +98,8 @@ annotation trace preserves:
 - synonyms or alternative labels.
 
 TERMite labels and synonyms contribute candidates for closed-set grounding and
-open-set phrase cleanup. They do not override the field selected by
-decomposition.
+open-set phrase cleanup. The decomposition `field` remains the authoritative
+field for the component; TERMite enriches that field-scoped fragment.
 
 ## Translation and grounding
 

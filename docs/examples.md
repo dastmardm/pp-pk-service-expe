@@ -17,16 +17,46 @@ Decomposition:
 
 ```json
 [
-  { "field": "drugs", "nl_fragment": "Sunitinib", "type": "filter", "source": "query" },
-  { "field": "species", "nl_fragment": "human", "type": "filter", "source": "query" },
-  { "field": "routes", "nl_fragment": "oral", "type": "filter", "source": "query" },
-  { "field": "parameter", "nl_fragment": "AUC", "type": "filter", "source": "query" },
-  { "field": "value", "nl_fragment": "what is AUC", "type": "question", "source": "query" }
+  {
+    "field": "drugs",
+    "nl_fragment": "Sunitinib",
+    "type": "filter",
+    "reason": "The user restricts results to the drug sunitinib.",
+    "source": "query"
+  },
+  {
+    "field": "species",
+    "nl_fragment": "human",
+    "type": "filter",
+    "reason": "The user restricts results to human studies.",
+    "source": "query"
+  },
+  {
+    "field": "routes",
+    "nl_fragment": "oral",
+    "type": "filter",
+    "reason": "The user restricts results to oral administration.",
+    "source": "query"
+  },
+  {
+    "field": "parameter",
+    "nl_fragment": "AUC",
+    "type": "filter",
+    "reason": "The user restricts results to AUC PK records.",
+    "source": "query"
+  },
+  {
+    "field": "value",
+    "nl_fragment": "what is AUC",
+    "type": "question",
+    "reason": "The user wants AUC values reported from the retrieved records.",
+    "source": "query"
+  }
 ]
 ```
 
 TERMite enrichment attaches drug, species, route, and PK-parameter annotations to
-the matching fragments. Small-closed/early translation grounds:
+the matching field-scoped fragments. Small-closed/early translation grounds:
 
 | Field | Translation |
 |-------|-------------|
@@ -71,12 +101,48 @@ Decomposition:
 
 ```json
 [
-  { "field": "drugs", "nl_fragment": "Cabozantinib", "type": "filter", "source": "query" },
-  { "field": "species", "nl_fragment": "adults", "type": "filter", "source": "query" },
-  { "field": "routes", "nl_fragment": "oral administration", "type": "filter", "source": "query" },
-  { "field": "parameter", "nl_fragment": "Cmax", "type": "filter", "source": "query" },
-  { "field": "studyGroups", "nl_fragment": "hepatic impairment", "type": "filter", "source": "query" },
-  { "field": "age", "nl_fragment": "adults", "type": "filter", "source": "query" }
+  {
+    "field": "drugs",
+    "nl_fragment": "Cabozantinib",
+    "type": "filter",
+    "reason": "The user restricts results to the drug cabozantinib.",
+    "source": "query"
+  },
+  {
+    "field": "species",
+    "nl_fragment": "adults",
+    "type": "filter",
+    "reason": "Adult subjects imply human studies.",
+    "source": "query"
+  },
+  {
+    "field": "routes",
+    "nl_fragment": "oral administration",
+    "type": "filter",
+    "reason": "The user restricts results to oral administration.",
+    "source": "query"
+  },
+  {
+    "field": "parameter",
+    "nl_fragment": "Cmax",
+    "type": "filter",
+    "reason": "The user restricts results to Cmax PK records.",
+    "source": "query"
+  },
+  {
+    "field": "studyGroups",
+    "nl_fragment": "hepatic impairment",
+    "type": "filter",
+    "reason": "The user restricts results to hepatic impairment studies.",
+    "source": "query"
+  },
+  {
+    "field": "age",
+    "nl_fragment": "adults",
+    "type": "filter",
+    "reason": "The user restricts results to adult populations.",
+    "source": "query"
+  }
 ]
 ```
 
@@ -129,12 +195,48 @@ Decomposition:
 
 ```json
 [
-  { "field": "drugs", "nl_fragment": "Sunitinib", "type": "filter", "source": "query" },
-  { "field": "species", "nl_fragment": "rats", "type": "filter", "source": "query" },
-  { "field": "routes", "nl_fragment": "oral", "type": "filter", "source": "query" },
-  { "field": "concomitants", "nl_fragment": "fasted state", "type": "filter", "source": "query" },
-  { "field": "parameter", "nl_fragment": "half-life", "type": "filter", "source": "query" },
-  { "field": "value", "nl_fragment": "what is the half-life", "type": "question", "source": "query" }
+  {
+    "field": "drugs",
+    "nl_fragment": "Sunitinib",
+    "type": "filter",
+    "reason": "The user restricts results to the drug sunitinib.",
+    "source": "query"
+  },
+  {
+    "field": "species",
+    "nl_fragment": "rats",
+    "type": "filter",
+    "reason": "The user restricts results to rat studies.",
+    "source": "query"
+  },
+  {
+    "field": "routes",
+    "nl_fragment": "oral",
+    "type": "filter",
+    "reason": "The user restricts results to oral administration.",
+    "source": "query"
+  },
+  {
+    "field": "concomitants",
+    "nl_fragment": "fasted state",
+    "type": "filter",
+    "reason": "The user restricts results to fasted-state records.",
+    "source": "query"
+  },
+  {
+    "field": "parameter",
+    "nl_fragment": "half-life",
+    "type": "filter",
+    "reason": "The user restricts results to half-life PK records.",
+    "source": "query"
+  },
+  {
+    "field": "value",
+    "nl_fragment": "what is the half-life",
+    "type": "question",
+    "reason": "The user wants half-life values reported from the retrieved records.",
+    "source": "query"
+  }
 ]
 ```
 

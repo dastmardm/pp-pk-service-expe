@@ -11,7 +11,7 @@ pp-pk-service-expe/ - local package, inputs, tests, and docs for the `oppp` tran
 │   ├── normalize/ - field-aware misspelling and surface cleanup
 │   ├── eval/ - count-gated harness, diagnostics, and report export
 │   └── ui/ - Streamlit stage inspector
-├── inputs/ - taxonomy CSVs, request/response field catalogs, and gold workbook inputs
+├── inputs/ - taxonomy CSVs, request/response field catalogs, and evaluation inputs
 ├── tests/ - offline tests for taxonomy, pipeline, and evaluation surfaces
 ├── utils/ - PharmaPendium and TERMite helper clients used by integration surfaces
 └── docs/ - human-facing project documentation
@@ -30,7 +30,7 @@ and documentation assets live directly in this repository.
 | PK service config | Field buckets, facet allow-list, TERMite type map, search URL, and service invariants. |
 | Taxonomy layer | Loads CSV value sets and provides exact, fuzzy, and hierarchy-aware lookup. |
 | Pipeline stages | Expansion, decomposition, TERMite enrichment, staged translation, aggregation, validation, row filtering, and execution orchestration. |
-| Evaluation harness | Runs the PK gold set and compares final API or row-filtered counts to expected counts. |
+| Evaluation harness | Runs `PK_Query` cases and compares the final row count to `Expected Count`. |
 | Streamlit UI | Browser inspector for stage outputs and final payloads. |
 
 ## Documentation files
@@ -41,7 +41,7 @@ and documentation assets live directly in this repository.
 | [domain.md](domain.md) | API payload shape, PK field taxonomy, CSV inputs, and service invariants. |
 | [pipeline.md](pipeline.md) | Fixed pipeline, grounding, normalization, aggregation, and execution behavior. |
 | [examples.md](examples.md) | Worked examples for representative PK questions. |
-| [evaluation.md](evaluation.md) | Gold workbook, exact-count metrics, and staged execution scoring. |
+| [evaluation.md](evaluation.md) | `PK_Query` sheet and expected-row-count scoring. |
 | [implementation.md](implementation.md) | Package layout, install/run/configuration, UI, and implementation conventions. |
 | [agent-dag.drawio](agent-dag.drawio) | Editable Draw.io component diagram. |
-| [PPPK.xlsx](PPPK.xlsx) | SME PK gold workbook with questions, expected counts, and parameter reference sheets. |
+| [PPPK.xlsx](PPPK.xlsx) | SME PK evaluation workbook; automated scoring uses only `PK_Query`. |

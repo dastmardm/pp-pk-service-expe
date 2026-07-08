@@ -93,8 +93,9 @@ execution.
 The UI calls the same pipeline as `oppp run` and presents:
 
 - service and execution controls;
-- gold-set question picker plus free-text query box;
-- expanded query, decomposition components, and TERMite annotations;
+- `PK_Query` question picker plus free-text query box;
+- expanded query, decomposition components with field reasons, and field-scoped
+  TERMite annotations;
 - staged translations with `matched_ids`, `expanded_from`, and confidence;
 - API payloads, validation status, count-gate branch, fetched datapoints, row
   filters, and final count.
