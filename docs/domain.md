@@ -59,24 +59,29 @@ Aggregation uses that metadata to validate and assemble the API tree.
 
 ## PK request fields
 
-| Field | Bucket | Backing source | Emission |
-|-------|--------|----------------|----------|
-| `drugs` | closed | `inputs/drugs.csv` | Emits `drugsFuzzy`; singleton values remain arrays such as `["Sunitinib*"]`. |
-| `species` | closed | `inputs/species.csv` | Emits taxonomy labels or supported class labels. |
-| `routes` | closed | `inputs/route.csv` | Emits route labels such as `Oral`. |
-| `documentSource` | closed | `inputs/sources.csv` | Emits source labels. |
-| `documentYear` | closed | `inputs/document_year.csv` | Emits year/range constraints. |
-| `sex` | enum | `Male`, `Female`, `Both` | Emits enum value. |
-| `isPreclinical` | boolean | `true`, `false` | Emits boolean value. |
-| `concomitants` | enum/invariant | `Fed`, `Fasted` | User value wins; otherwise PK adds Fasted-or-empty. |
-| `tissueSpecific` | enum/invariant | `Tissue-specific`, `Not tissue-specific` | User value wins; otherwise PK adds `Not tissue-specific`. |
-| `metabolitesEnantiomers` | enum/invariant | `Not metabolites/enantiomers`, `Metabolite`, `Enantiomer` | User value wins; otherwise PK adds `Not metabolites/enantiomers`. |
-| `parameter` | open | No complete local value set | Row-side filter below the row gate; emits direct `MATCH` or `REGEX` in the full API branch. PK parameter mentions such as AUC and Cmax are retrieval filters. |
-| `parameterDisplay` | open | No complete local value set | Row-side filter below the row gate; emits direct `MATCH` or `REGEX` in the full API branch. |
-| `studyGroups` | open | No complete local value set | Row-side filter below the row gate; emits direct `REGEX` in the full API branch, including built-in impairment synonyms. |
-| `age` | open | No complete local value set | Row-side filter below the row gate; emits direct `REGEX` in the full API branch. |
-| `dose` | open | No complete local value set | Row-side filter below the row gate; emits direct `MATCH` or `REGEX` in the full API branch. |
-| `duration` | open | No complete local value set | Row-side filter below the row gate; emits direct `MATCH` or `REGEX` in the full API branch. |
+CSV-backed closed fields are classified by the number of items in the current
+input catalog. Fewer than `1000` items makes the field small closed, also called
+early. `1000` or more items keeps the field in the closed bucket. Non-CSV buckets
+keep their own names.
+
+| Field | Bucket | Backing source | Value-set size | Emission |
+|-------|--------|----------------|----------------|----------|
+| `drugs` | closed | `inputs/drugs.csv` | 5,226 items | Emits `drugsFuzzy`; singleton values remain arrays such as `["Sunitinib*"]`. |
+| `species` | small closed / early | `inputs/species.csv` | 285 items | Emits taxonomy labels or supported class labels. |
+| `routes` | small closed / early | `inputs/route.csv` | 203 items | Emits route labels such as `Oral`. |
+| `documentSource` | small closed / early | `inputs/sources.csv` | 55 items | Emits source labels. |
+| `documentYear` | small closed / early | `inputs/document_year.csv` | 117 items | Emits year/range constraints. |
+| `sex` | enum | `Male`, `Female`, `Both` | 3 values | Emits enum value. |
+| `isPreclinical` | boolean | `true`, `false` | 2 values | Emits boolean value. |
+| `concomitants` | enum/invariant | `Fed`, `Fasted` | 2 values | User value wins; otherwise PK adds Fasted-or-empty. |
+| `tissueSpecific` | enum/invariant | `Tissue-specific`, `Not tissue-specific` | 2 values | User value wins; otherwise PK adds `Not tissue-specific`. |
+| `metabolitesEnantiomers` | enum/invariant | `Not metabolites/enantiomers`, `Metabolite`, `Enantiomer` | 3 values | User value wins; otherwise PK adds `Not metabolites/enantiomers`. |
+| `parameter` | open | No complete local value set | Not bounded | Row-side filter below the row gate; emits direct `MATCH` or `REGEX` in the full API branch. PK parameter mentions such as AUC and Cmax are retrieval filters. |
+| `parameterDisplay` | open | No complete local value set | Not bounded | Row-side filter below the row gate; emits direct `MATCH` or `REGEX` in the full API branch. |
+| `studyGroups` | open | No complete local value set | Not bounded | Row-side filter below the row gate; emits direct `REGEX` in the full API branch, including built-in impairment synonyms. |
+| `age` | open | No complete local value set | Not bounded | Row-side filter below the row gate; emits direct `REGEX` in the full API branch. |
+| `dose` | open | No complete local value set | Not bounded | Row-side filter below the row gate; emits direct `MATCH` or `REGEX` in the full API branch. |
+| `duration` | open | No complete local value set | Not bounded | Row-side filter below the row gate; emits direct `MATCH` or `REGEX` in the full API branch. |
 
 The PharmaPendium API also exposes fields that the translator does not emit.
 `drugsAndSynonyms`, `radioLabels`, and `parameterValues` are API-only for this
@@ -106,7 +111,7 @@ filters unless the user also uses them to restrict retrieval.
 | `inputs/enums.csv` | API enum cross-checks, including fuzzy lookup taxonomy values. |
 | `docs/PPPK.xlsx` | SME PK gold workbook and PK parameter reference sheets. |
 
-CSV-backed closed-set fields emit preferred labels from the `name` column. The
+CSV-backed closed fields emit preferred labels from the `name` column. The
 `id`, `parent_id`, and `parent_name` columns provide stable keys and hierarchy
 relationships where present.
 
@@ -138,6 +143,6 @@ query and reads datapoints from `data.datapoints` or `data.rows`:
 ```
 
 Fetched datapoints are dictionaries keyed by PharmaPendium response fields. The
-row-filtering contract uses those field values to apply pending non-early
-closed-set filters and open-set filters. The final count is
+row-filtering contract uses those field values to apply pending closed, enum,
+boolean, invariant, and open filters. The final count is
 `final_filtered_count` for a row branch and `countTotal` for the full API branch.

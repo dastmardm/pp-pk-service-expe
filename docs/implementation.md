@@ -107,6 +107,8 @@ The UI is a debugging surface; it does not add stage methods or bypasses.
 - The operation order is fixed for the production path.
 - Closed-set values proposed by an LLM are re-grounded against the CSV or inline
   set before they can be emitted.
+- CSV-backed closed fields with fewer than `1000` values are small closed/early;
+  CSV-backed closed fields with `1000` or more values remain closed.
 - Open-set filters are row-side filters under the `1000` row gate and direct API
-  constraints only when the closed-set branches remain at or above `1000`.
+  constraints only when the closed branch remains at or above `1000`.
 - LLM, TERMite, UI, visualization, and report dependencies are imported lazily.

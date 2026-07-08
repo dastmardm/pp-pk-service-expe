@@ -41,9 +41,9 @@ The evaluated count is selected from the branch that completes the pipeline:
 
 | Branch | Evaluated count |
 |--------|-----------------|
-| Early closed-set count below `1000` | Number of fetched datapoints remaining after non-early closed-set and open-set row filters. |
-| Closed-set count below `1000` | Number of fetched datapoints remaining after open-set row filters. |
-| Closed-set count at least `1000` | `countTotal` from the full API query with open-set filters translated into API constraints. |
+| Small-closed/early count below `1000` | Number of fetched datapoints remaining after closed, enum, boolean, invariant, and open row filters. |
+| Closed count below `1000` | Number of fetched datapoints remaining after open-set row filters. |
+| Closed count at least `1000` | `countTotal` from the full API query with open-set filters translated into API constraints. |
 
 The evaluation contract has no LLM judge and no count band. A final count is
 either an exact match or a mismatch.

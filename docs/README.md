@@ -7,14 +7,17 @@ The package uses a fixed pipeline:
 
 ```text
 NL question -> expansion -> decomposition -> TERMite enrichment
--> early closed-set translation -> aggregation/count
+-> small-closed/early translation -> aggregation/count
 -> row fetch below 1000 rows, or staged closed/open-set translation
 ```
 
-Closed-set fields are grounded against CSV taxonomies, enums, or booleans.
-Open-set fields are kept as row-side filters when a closed-set count is below
-`1000`; otherwise they are emitted as direct `MATCH` or `REGEX` constraints in
-the final API query.
+CSV-backed closed fields with fewer than `1000` values are small closed fields,
+also called early fields. CSV-backed closed fields with `1000` or more values
+remain closed fields and are translated only when the early count is too large to
+fetch. Enums, booleans, invariants, and open fields keep their own buckets.
+Open-set fields are kept as row-side filters when the small-closed or closed
+count is below `1000`; otherwise they are emitted as direct `MATCH` or `REGEX`
+constraints when the closed branch is still too large to fetch.
 
 ## Read first
 

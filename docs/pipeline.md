@@ -7,7 +7,7 @@ NL question
 -> query expansion
 -> query decomposition
 -> TERMite enrichment
--> early closed-set translation
+-> small-closed/early translation
 -> aggregation and API count
 -> row gate or staged translation
 ```
@@ -25,26 +25,32 @@ been executed.
 | Query expansion | Rewrite the question for clarity and abbreviation expansion while preserving meaning. |
 | Query decomposition | Split the expanded question into one component per field, classify each component as `filter` or `question`, and preserve field-level boolean hints. |
 | TERMite enrichment | Enrich decomposed fragments with entity surfaces, preferred labels, synonyms, and entity types. |
-| Early closed-set translation | Ground early closed-set filters against CSVs/enums/booleans and leave all other filters pending. |
+| Small-closed/early translation | Ground CSV-backed closed fields whose current value set has fewer than `1000` items and leave all other filters pending. |
 | Early aggregation and count | Assemble the early API query, apply PK invariants, validate it, and read `data.countTotal`. |
 | Small early result | When the early count is below `1000`, fetch datapoints for the early query and apply pending filters locally. |
-| Non-early closed-set translation | When the early count is `1000` or higher, ground the remaining closed-set filters and aggregate a broader closed-set API query. |
-| Small closed-set result | When the closed-set count is below `1000`, fetch datapoints and apply the remaining open-set filters locally. |
-| Open-set translation | When the closed-set count is still `1000` or higher, translate open-set fields into API constraints, aggregate the full query, and execute the API count. |
+| Closed translation | When the early count is `1000` or higher, ground CSV-backed closed fields whose current value set has `1000` or more items and aggregate a broader API query. |
+| Small closed result | When the closed count is below `1000`, fetch datapoints and apply the remaining open-set filters locally. |
+| Open-set translation | When the closed count is still `1000` or higher, translate open-set fields into API constraints, aggregate the full query, and execute the API count. |
 
 Callers can run stage-level CLI surfaces for debugging, but production execution
 uses this fixed operation order.
 
 ## Filter buckets
 
-Closed-set fields are split into early and non-early translation buckets so the
-API query grows only as much as needed.
+CSV-backed closed fields are split by current value-set size so the API query
+grows only as much as needed. A closed field with fewer than `1000` values is a
+small closed field, also called an early field. A closed field with `1000` or
+more values remains a closed field. Other PK request buckets keep their own
+names.
 
 | Bucket | Fields | Behavior |
 |--------|--------|----------|
-| Early closed set | `drugs`, `species`, `routes`, `documentSource`, `documentYear`, `isPreclinical` | Grounded first and used in the first API count. |
-| Non-early closed set | `sex`, `concomitants`, `tissueSpecific`, `metabolitesEnantiomers` | User-supplied values are grounded only when the early count is at least `1000`; default PK invariants for these fields still apply to every API query. |
-| Open set | `parameter`, `parameterDisplay`, `studyGroups`, `age`, `dose`, `duration` | Kept as row-side filters when a row gate succeeds; translated into API constraints only when both closed-set counts are at least `1000`. |
+| Small closed / early | `species`, `routes`, `documentSource`, `documentYear` | CSV-backed closed fields with fewer than `1000` values. Grounded first and used in the first API count. |
+| Closed | `drugs` | CSV-backed closed fields with `1000` or more values. Grounded only when the early count is at least `1000`. |
+| Enum | `sex` | Keeps its enum bucket and finite inline value set. |
+| Boolean | `isPreclinical` | Keeps its boolean bucket and finite inline value set. |
+| Enum/invariant | `concomitants`, `tissueSpecific`, `metabolitesEnantiomers` | Keeps its enum/invariant bucket. User value wins; otherwise PK defaults apply to every API query. |
+| Open set | `parameter`, `parameterDisplay`, `studyGroups`, `age`, `dose`, `duration` | Kept as row-side filters when a row gate succeeds; translated into API constraints only when the closed count is at least `1000`. |
 
 PK invariants are applied to every aggregated API query unless the user supplies
 the same field. A user-supplied invariant field wins for that field.
@@ -90,8 +96,7 @@ decomposition.
 
 ## Translation and grounding
 
-Closed-set translation follows the same resolution order for early and non-early
-fields:
+CSV-backed small closed and closed translation follow the same resolution order:
 
 1. Normalize the fragment with the field-aware normalizer.
 2. Build a pool from the fragment, TERMite preferred labels, and TERMite
@@ -117,9 +122,9 @@ emitted as class labels; colloquial species groups without an exact class label
 expand to matching member species. Specific leaves are not widened.
 
 Open-set fields have no complete local value set. They remain pending while a
-closed-set branch can fetch fewer than `1000` rows. When both closed-set counts
-are at least `1000`, open-set fields emit direct `MATCH` or `REGEX` constraints
-and record open-set provenance.
+small-closed or closed branch can fetch fewer than `1000` rows. When the closed
+count is at least `1000`, open-set fields emit direct `MATCH` or `REGEX`
+constraints and record open-set provenance.
 
 ## Normalization
 
@@ -146,15 +151,15 @@ top-level `query`; PK does not use `entityFilters`.
 The execution branch is:
 
 ```text
-early_query = aggregate(early_closed_filters + invariants)
+early_query = aggregate(small_closed_filters + invariants)
 early_count = count(early_query)
 
 when early_count < 1000:
   rows = fetch_datapoints(early_query)
-  final_rows = apply(non_early_closed_filters + open_set_filters, rows)
+  final_rows = apply(closed_filters + enum_boolean_invariant_filters + open_set_filters, rows)
 
 when early_count >= 1000:
-  closed_query = aggregate(early_closed_filters + non_early_closed_filters + invariants)
+  closed_query = aggregate(small_closed_filters + closed_filters + enum_boolean_invariant_filters + invariants)
   closed_count = count(closed_query)
 
   when closed_count < 1000:
@@ -162,7 +167,7 @@ when early_count >= 1000:
     final_rows = apply(open_set_filters, rows)
 
   when closed_count >= 1000:
-    full_query = aggregate(closed_filters + open_set_filters + invariants)
+    full_query = aggregate(small_closed_filters + closed_filters + enum_boolean_invariant_filters + open_set_filters + invariants)
     final_count = count(full_query)
 ```
 

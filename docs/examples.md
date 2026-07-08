@@ -26,21 +26,19 @@ Decomposition:
 ```
 
 TERMite enrichment attaches drug, species, route, and PK-parameter annotations to
-the matching fragments. Early closed-set translation grounds:
+the matching fragments. Small-closed/early translation grounds:
 
 | Field | Translation |
 |-------|-------------|
-| `drugs` | `MATCH drugsFuzzy = ["Sunitinib*"]` |
 | `species` | `MATCH species = "Human"` |
 | `routes` | `MATCH routes = "Oral"` |
 
-Early API query:
+Small-closed API query:
 
 ```json
 {
   "query": {
     "AND": [
-      { "field": "drugsFuzzy", "value": ["Sunitinib*"] },
       { "field": "species", "value": "Human" },
       { "field": "routes", "value": "Oral" },
       { "OR": [
@@ -56,8 +54,10 @@ Early API query:
 ```
 
 When this count is below `1000`, the translator fetches datapoints and applies
-the pending `parameter = AUC` filter locally. The final count is the number of
-datapoints remaining after that row filter.
+the pending `drugs = Sunitinib` and `parameter = AUC` filters locally. When this
+count is at least `1000`, closed translation adds the `drugs` filter to the API
+query and the next count gate decides whether `parameter = AUC` is applied on
+rows or translated into the full API query.
 
 ## Cmax of Cabozantinib in adults with hepatic impairment
 
@@ -80,10 +80,10 @@ Decomposition:
 ]
 ```
 
-Early closed-set translation grounds `drugs`, `species`, and `routes`. If that
-branch remains at or above `1000`, the non-early closed-set branch runs. When the
-closed-set branch also remains at or above `1000`, open-set fields are translated
-into the API query:
+Small-closed/early translation grounds `species` and `routes`. If that branch
+remains at or above `1000`, closed translation grounds `drugs`. When the closed
+branch also remains at or above `1000`, open-set fields are translated into the
+API query:
 
 | Field | Translation |
 |-------|-------------|
@@ -138,12 +138,12 @@ Decomposition:
 ]
 ```
 
-The early query contains `drugs`, `species`, and `routes`. When that count is at
-least `1000`, non-early closed-set translation adds the user-supplied
-`concomitants = Fasted` filter. The user-supplied `concomitants` filter replaces
+The early query contains the small-closed `species` and `routes` filters. When
+that count is at least `1000`, closed translation adds `drugs`. The
+user-supplied `concomitants` filter keeps its enum/invariant bucket and replaces
 the default Fasted-or-empty invariant for that field.
 
-Closed-set API query:
+Closed API query:
 
 ```json
 {
